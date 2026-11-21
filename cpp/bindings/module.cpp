@@ -182,6 +182,7 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("num_simdgroups", &ir::TileSpecAttr::num_simdgroups)
       .def_readwrite("double_buffer", &ir::TileSpecAttr::double_buffer)
       .def_readwrite("split_k", &ir::TileSpecAttr::split_k)
+      .def_readwrite("swizzle_w", &ir::TileSpecAttr::swizzle_w)
       .def("__eq__", [](const ir::TileSpecAttr& a, const ir::TileSpecAttr& b) { return a == b; });
 
   py::class_<ir::VecWidthAttr>(ir_m, "VecWidthAttr")
