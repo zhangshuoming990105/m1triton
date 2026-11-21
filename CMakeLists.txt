@@ -30,8 +30,11 @@ add_library(m1triton_passes STATIC
   cpp/passes/contiguity_analysis.cpp
   cpp/passes/cse.cpp
   cpp/passes/dce.cpp
+  cpp/passes/epilogue_fusion.cpp
   cpp/passes/licm.cpp
+  cpp/passes/online_softmax_welford.cpp
   cpp/passes/pass_manager.cpp
+  cpp/passes/pool_lowering.cpp
   cpp/passes/simdgroup_matmul.cpp
   cpp/passes/structure_pruning.cpp
   cpp/passes/threadgroup_staging.cpp
@@ -43,7 +46,10 @@ target_compile_options(m1triton_passes PRIVATE -Wall -Wextra -Werror)
 
 add_library(m1triton_codegen_metal STATIC
   cpp/codegen/metal/metal_codegen.cpp
+  cpp/codegen/metal/norm_softmax_emitter.cpp
+  cpp/codegen/metal/pool_emitter.cpp
   cpp/codegen/metal/reduce_scan_emitter.cpp
+  cpp/codegen/metal/row_scan_emitter.cpp
   cpp/codegen/metal/sgmm_emitter.cpp
 )
 target_include_directories(m1triton_codegen_metal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)

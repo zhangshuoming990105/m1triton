@@ -133,6 +133,20 @@ void bind_ir_submodule(py::module_& m) {
       .value("Cumsum", ir::ScanKind::Cumsum)
       .value("Cumprod", ir::ScanKind::Cumprod);
 
+  py::enum_<ir::PoolKind>(ir_m, "PoolKind")
+      .value("Max", ir::PoolKind::Max)
+      .value("Avg", ir::PoolKind::Avg);
+
+  py::enum_<ir::NormKind>(ir_m, "NormKind")
+      .value("LayerNorm", ir::NormKind::LayerNorm)
+      .value("BatchNorm", ir::NormKind::BatchNorm)
+      .value("InstanceNorm", ir::NormKind::InstanceNorm)
+      .value("GroupNorm", ir::NormKind::GroupNorm)
+      .value("RMSNorm", ir::NormKind::RMSNorm)
+      .value("FrobeniusNorm", ir::NormKind::FrobeniusNorm)
+      .value("L1Norm", ir::NormKind::L1Norm)
+      .value("L2Norm", ir::NormKind::L2Norm);
+
   py::enum_<ir::BarrierScope>(ir_m, "BarrierScope")
       .value("Simdgroup", ir::BarrierScope::Simdgroup)
       .value("Threadgroup", ir::BarrierScope::Threadgroup)
@@ -250,6 +264,43 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("reverse", &ir::ScanAttr::reverse)
       .def_readwrite("has_mask", &ir::ScanAttr::has_mask)
       .def("__eq__", [](const ir::ScanAttr& a, const ir::ScanAttr& b) { return a == b; });
+
+  py::class_<ir::OnlineSoftmaxAttr>(ir_m, "OnlineSoftmaxAttr")
+      .def(py::init<>())
+      .def_readwrite("axis", &ir::OnlineSoftmaxAttr::axis)
+      .def_readwrite("log_softmax", &ir::OnlineSoftmaxAttr::log_softmax)
+      .def_readwrite("tg_threads", &ir::OnlineSoftmaxAttr::tg_threads)
+      .def_readwrite("vec_width", &ir::OnlineSoftmaxAttr::vec_width)
+      .def("__eq__", [](const ir::OnlineSoftmaxAttr& a, const ir::OnlineSoftmaxAttr& b) { return a == b; });
+
+  py::class_<ir::WelfordNormAttr>(ir_m, "WelfordNormAttr")
+      .def(py::init<>())
+      .def_readwrite("kind", &ir::WelfordNormAttr::kind)
+      .def_readwrite("eps", &ir::WelfordNormAttr::eps)
+      .def_readwrite("axis", &ir::WelfordNormAttr::axis)
+      .def_readwrite("num_groups", &ir::WelfordNormAttr::num_groups)
+      .def_readwrite("stage", &ir::WelfordNormAttr::stage)
+      .def_readwrite("has_weight", &ir::WelfordNormAttr::has_weight)
+      .def_readwrite("has_bias", &ir::WelfordNormAttr::has_bias)
+      .def_readwrite("rms_sram_cache", &ir::WelfordNormAttr::rms_sram_cache)
+      .def_readwrite("tg_threads", &ir::WelfordNormAttr::tg_threads)
+      .def_readwrite("vec_width", &ir::WelfordNormAttr::vec_width)
+      .def("__eq__", [](const ir::WelfordNormAttr& a, const ir::WelfordNormAttr& b) { return a == b; });
+
+  py::class_<ir::PoolAttr>(ir_m, "PoolAttr")
+      .def(py::init<>())
+      .def_readwrite("kind", &ir::PoolAttr::kind)
+      .def_readwrite("ndim", &ir::PoolAttr::ndim)
+      .def_readwrite("kernel_size", &ir::PoolAttr::kernel_size)
+      .def_readwrite("stride", &ir::PoolAttr::stride)
+      .def_readwrite("padding", &ir::PoolAttr::padding)
+      .def_readwrite("dilation", &ir::PoolAttr::dilation)
+      .def_readwrite("count_include_pad", &ir::PoolAttr::count_include_pad)
+      .def_readwrite("ceil_mode", &ir::PoolAttr::ceil_mode)
+      .def_readwrite("use_sram_halo", &ir::PoolAttr::use_sram_halo)
+      .def_readwrite("tg_x", &ir::PoolAttr::tg_x)
+      .def_readwrite("tg_y", &ir::PoolAttr::tg_y)
+      .def("__eq__", [](const ir::PoolAttr& a, const ir::PoolAttr& b) { return a == b; });
 
   py::class_<ir::TileType>(ir_m, "TileType")
       .def(py::init<>())
@@ -435,6 +486,33 @@ void bind_ir_submodule(py::module_& m) {
            py::arg("input"),
            py::arg("attr"),
            py::arg("mask") = ir::kInvalidId)
+      .def("emit_online_softmax",
+           &ir::IRBuilder::emit_online_softmax,
+           py::arg("x_ptr"),
+           py::arg("out_ptr"),
+           py::arg("num_rows"),
+           py::arg("row_len"),
+           py::arg("attr") = ir::OnlineSoftmaxAttr{},
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_welford_norm",
+           &ir::IRBuilder::emit_welford_norm,
+           py::arg("operands"),
+           py::arg("attr") = ir::WelfordNormAttr{},
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_pool",
+           &ir::IRBuilder::emit_pool,
+           py::arg("operands"),
+           py::arg("attr") = ir::PoolAttr{},
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_row_scan",
+           &ir::IRBuilder::emit_row_scan,
+           py::arg("x_ptr"),
+           py::arg("out_ptr"),
+           py::arg("num_rows"),
+           py::arg("row_len"),
+           py::arg("attr") = ir::ScanAttr{},
+           py::arg("mask_ptr") = ir::kInvalidId,
+           py::arg("hints") = ir::OpHints{})
       .def("begin_for_loop",
            &ir::IRBuilder::begin_for_loop,
            py::arg("lo"),

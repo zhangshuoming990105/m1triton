@@ -64,6 +64,12 @@ class IRBuilder {
   ValueId emit_dot(ValueId lhs, ValueId rhs, ValueId acc = kInvalidId, DotAttr attr = {}, OpHints hints = {});
   ValueId emit_reduce(ValueId input, ReduceAttr attr);
   ValueId emit_scan(ValueId input, ScanAttr attr, ValueId mask = kInvalidId);
+  OpId emit_online_softmax(ValueId x_ptr, ValueId out_ptr, ValueId num_rows, ValueId row_len,
+                           OnlineSoftmaxAttr attr = {}, OpHints hints = {});
+  OpId emit_welford_norm(std::vector<ValueId> operands, WelfordNormAttr attr = {}, OpHints hints = {});
+  OpId emit_pool(std::vector<ValueId> operands, PoolAttr attr = {}, OpHints hints = {});
+  OpId emit_row_scan(ValueId x_ptr, ValueId out_ptr, ValueId num_rows, ValueId row_len, ScanAttr attr = {},
+                     ValueId mask_ptr = kInvalidId, OpHints hints = {});
 
   ForLoopHandle begin_for_loop(ValueId lo, ValueId hi, ValueId step, const std::vector<ValueId>& iter_inits);
   void end_for_loop(const ForLoopHandle& handle, const std::vector<ValueId>& yield_vals, BlockId resume_block);

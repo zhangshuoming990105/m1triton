@@ -941,6 +941,81 @@ class KernelVerifier {
         break;
       }
 
+      case OpKind::OnlineSoftmax: {
+        if (!std::holds_alternative<OnlineSoftmaxAttr>(node.attr)) {
+          error(tag + ": missing OnlineSoftmaxAttr");
+          break;
+        }
+        if (node.operands.size() != 4 || !node.results.empty()) {
+          error(tag + ": expects 4 operands (x_ptr, out_ptr, num_rows, row_len) and 0 results");
+          break;
+        }
+        if (!kernel_.value(node.operands[0]).type.is_ptr() || !kernel_.value(node.operands[1]).type.is_ptr()) {
+          error(tag + ": operands 0 and 1 must be device pointers");
+        }
+        if (!kernel_.value(node.operands[2]).type.is_int_elem() ||
+            !kernel_.value(node.operands[3]).type.is_int_elem()) {
+          error(tag + ": num_rows and row_len must be integer scalars");
+        }
+        break;
+      }
+
+      case OpKind::WelfordReduce: {
+        if (!std::holds_alternative<WelfordNormAttr>(node.attr)) {
+          error(tag + ": missing WelfordNormAttr");
+          break;
+        }
+        if (node.operands.size() < 3 || !node.results.empty()) {
+          error(tag + ": expects >= 3 operands and 0 results");
+          break;
+        }
+        if (!kernel_.value(node.operands[0]).type.is_ptr() || !kernel_.value(node.operands[1]).type.is_ptr()) {
+          error(tag + ": operands 0 and 1 must be device pointers");
+        }
+        break;
+      }
+
+      case OpKind::Pool: {
+        if (!std::holds_alternative<PoolAttr>(node.attr)) {
+          error(tag + ": missing PoolAttr");
+          break;
+        }
+        const auto& pa = std::get<PoolAttr>(node.attr);
+        if (pa.ndim < 1 || pa.ndim > 3) {
+          error(tag + ": ndim must be 1, 2, or 3");
+          break;
+        }
+        const size_t expected_ops = 4 + 2 * static_cast<size_t>(pa.ndim);
+        if (node.operands.size() != expected_ops || !node.results.empty()) {
+          error(tag + ": expects " + std::to_string(expected_ops) + " operands and 0 results");
+          break;
+        }
+        if (!kernel_.value(node.operands[0]).type.is_ptr() || !kernel_.value(node.operands[1]).type.is_ptr()) {
+          error(tag + ": operands 0 and 1 must be device pointers");
+        }
+        break;
+      }
+
+      case OpKind::SimdScan: {
+        if (!std::holds_alternative<ScanAttr>(node.attr)) {
+          error(tag + ": missing ScanAttr");
+          break;
+        }
+        const auto& sa = std::get<ScanAttr>(node.attr);
+        const size_t expected_ops = sa.has_mask ? 5 : 4;
+        if (node.operands.size() != expected_ops || !node.results.empty()) {
+          error(tag + ": expects " + std::to_string(expected_ops) + " operands and 0 results");
+          break;
+        }
+        if (!kernel_.value(node.operands[0]).type.is_ptr() || !kernel_.value(node.operands[1]).type.is_ptr()) {
+          error(tag + ": operands 0 and 1 must be device pointers");
+        }
+        if (sa.has_mask && !kernel_.value(node.operands[2]).type.is_ptr()) {
+          error(tag + ": mask operand must be a device pointer");
+        }
+        break;
+      }
+
       case OpKind::Barrier: {
         if (!node.operands.empty() || !node.results.empty() || !std::holds_alternative<BarrierAttr>(node.attr)) {
           error(tag + ": expects 0 operands, 0 results, and BarrierAttr");

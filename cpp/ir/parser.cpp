@@ -269,6 +269,7 @@ std::optional<OpKind> parse_op_kind(std::string_view s) {
   if (s == "implicit_gemm_conv") return OpKind::ImplicitGemmConv;
   if (s == "implicit_gemm_load") return OpKind::ImplicitGemmLoad;
   if (s == "flash_attention_tile") return OpKind::FlashAttentionTile;
+  if (s == "pool") return OpKind::Pool;
   if (s == "threadgroup_alloc") return OpKind::ThreadgroupAlloc;
   if (s == "threadgroup_stage") return OpKind::ThreadgroupStage;
   if (s == "barrier") return OpKind::Barrier;
@@ -348,6 +349,24 @@ ScanKind parse_scan_kind(std::string_view s) {
   if (s == "cumsum") return ScanKind::Cumsum;
   if (s == "cumprod") return ScanKind::Cumprod;
   throw std::runtime_error("Unknown scan kind: " + std::string(s));
+}
+
+PoolKind parse_pool_kind(std::string_view s) {
+  if (s == "max") return PoolKind::Max;
+  if (s == "avg") return PoolKind::Avg;
+  throw std::runtime_error("Unknown pool kind: " + std::string(s));
+}
+
+NormKind parse_norm_kind(std::string_view s) {
+  if (s == "layer_norm") return NormKind::LayerNorm;
+  if (s == "batch_norm") return NormKind::BatchNorm;
+  if (s == "instance_norm") return NormKind::InstanceNorm;
+  if (s == "group_norm") return NormKind::GroupNorm;
+  if (s == "rms_norm") return NormKind::RMSNorm;
+  if (s == "frobenius_norm") return NormKind::FrobeniusNorm;
+  if (s == "l1_norm") return NormKind::L1Norm;
+  if (s == "l2_norm") return NormKind::L2Norm;
+  throw std::runtime_error("Unknown norm kind: " + std::string(s));
 }
 
 BarrierScope parse_barrier_scope(std::string_view s) {
@@ -981,7 +1000,7 @@ class Parser {
       return a;
     }
 
-    if (kind == OpKind::Scan) {
+    if (kind == OpKind::Scan || kind == OpKind::SimdScan) {
       ScanAttr a;
       while (!check(TokKind::RBrace)) {
         const std::string k = expect(TokKind::Ident, "scan key").text;
@@ -992,6 +1011,67 @@ class Parser {
         else if (k == "reverse") a.reverse = parse_bool();
         else if (k == "has_mask") a.has_mask = parse_bool();
         else throw std::runtime_error("Unknown ScanAttr key: " + k);
+        if (check(TokKind::Comma)) consume();
+      }
+      expect(TokKind::RBrace, "'}'");
+      return a;
+    }
+
+    if (kind == OpKind::OnlineSoftmax) {
+      OnlineSoftmaxAttr a;
+      while (!check(TokKind::RBrace)) {
+        const std::string k = expect(TokKind::Ident, "online_softmax key").text;
+        expect(TokKind::Equals, "'='");
+        if (k == "axis") a.axis = static_cast<int32_t>(parse_i64());
+        else if (k == "log_softmax") a.log_softmax = parse_bool();
+        else if (k == "tg_threads") a.tg_threads = parse_u32();
+        else if (k == "vec") a.vec_width = parse_u32();
+        else throw std::runtime_error("Unknown OnlineSoftmaxAttr key: " + k);
+        if (check(TokKind::Comma)) consume();
+      }
+      expect(TokKind::RBrace, "'}'");
+      return a;
+    }
+
+    if (kind == OpKind::WelfordReduce) {
+      WelfordNormAttr a;
+      while (!check(TokKind::RBrace)) {
+        const std::string k = expect(TokKind::Ident, "welford_reduce key").text;
+        expect(TokKind::Equals, "'='");
+        if (k == "kind") a.kind = parse_norm_kind(expect(TokKind::Ident, "norm kind").text);
+        else if (k == "eps") a.eps = static_cast<float>(parse_double());
+        else if (k == "axis") a.axis = static_cast<int32_t>(parse_i64());
+        else if (k == "num_groups") a.num_groups = static_cast<int32_t>(parse_i64());
+        else if (k == "stage") a.stage = static_cast<int32_t>(parse_i64());
+        else if (k == "has_weight") a.has_weight = parse_bool();
+        else if (k == "has_bias") a.has_bias = parse_bool();
+        else if (k == "rms_sram") a.rms_sram_cache = parse_bool();
+        else if (k == "tg_threads") a.tg_threads = parse_u32();
+        else if (k == "vec") a.vec_width = parse_u32();
+        else throw std::runtime_error("Unknown WelfordNormAttr key: " + k);
+        if (check(TokKind::Comma)) consume();
+      }
+      expect(TokKind::RBrace, "'}'");
+      return a;
+    }
+
+    if (kind == OpKind::Pool) {
+      PoolAttr a;
+      while (!check(TokKind::RBrace)) {
+        const std::string k = expect(TokKind::Ident, "pool key").text;
+        expect(TokKind::Equals, "'='");
+        if (k == "kind") a.kind = parse_pool_kind(expect(TokKind::Ident, "pool kind").text);
+        else if (k == "ndim") a.ndim = parse_u32();
+        else if (k == "kernel_size") a.kernel_size = parse_i32_list();
+        else if (k == "stride") a.stride = parse_i32_list();
+        else if (k == "padding") a.padding = parse_i32_list();
+        else if (k == "dilation") a.dilation = parse_i32_list();
+        else if (k == "count_include_pad") a.count_include_pad = parse_bool();
+        else if (k == "ceil_mode") a.ceil_mode = parse_bool();
+        else if (k == "sram_halo") a.use_sram_halo = parse_bool();
+        else if (k == "tg_x") a.tg_x = parse_u32();
+        else if (k == "tg_y") a.tg_y = parse_u32();
+        else throw std::runtime_error("Unknown PoolAttr key: " + k);
         if (check(TokKind::Comma)) consume();
       }
       expect(TokKind::RBrace, "'}'");

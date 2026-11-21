@@ -43,6 +43,7 @@ enum class OpKind : uint16_t {
   ImplicitGemmConv,
   ImplicitGemmLoad,
   FlashAttentionTile,
+  Pool,
   ThreadgroupAlloc,
   ThreadgroupStage,
   Barrier,
