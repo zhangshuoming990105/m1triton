@@ -114,8 +114,8 @@ void test_fused_add_relu_vec4() {
   ir::IRBuilder b(k);
 
   constexpr int64_t kBlock = 1024;
-  auto x_ptr = b.add_param("x_ptr", ir::Type::ptr(ir::ScalarDType::F32));
-  auto y_ptr = b.add_param("y_ptr", ir::Type::ptr(ir::ScalarDType::F32));
+  auto x_ptr = b.add_param("x_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+  auto y_ptr = b.add_param("y_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
   auto out_ptr = b.add_param("out_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, true);
   auto n_elems = b.add_param("n_elements", ir::Type::scalar(ir::ScalarDType::I32));
 

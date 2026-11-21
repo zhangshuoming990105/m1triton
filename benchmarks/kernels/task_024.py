@@ -20,4 +20,11 @@ class ModelNew(nn.Module):
         self.dim = dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return softmax_rows(x, log_softmax=True)
+        dim = self.dim if self.dim >= 0 else x.ndim + self.dim
+        if dim == x.ndim - 1:
+            return softmax_rows(x, log_softmax=True)
+        perm = [i for i in range(x.ndim) if i != dim] + [dim]
+        inv_perm = [0] * x.ndim
+        for i, p in enumerate(perm):
+            inv_perm[p] = i
+        return softmax_rows(x.permute(*perm).contiguous(), log_softmax=True).permute(*inv_perm).contiguous()

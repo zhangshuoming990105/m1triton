@@ -242,6 +242,8 @@ def frobenius_normalize(x: torch.Tensor) -> torch.Tensor:
 def batch_norm_train(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, *, eps: float) -> torch.Tensor:
     """Training-mode BatchNorm (biased batch statistics over N, H, W) with a per-channel affine."""
     x = _contig(x)
+    if x.numel() == 0:
+        return torch.empty_like(x)
     n, c = int(x.shape[0]), int(x.shape[1])
     hw = x.numel() // max(n * c, 1)
     chunks = max(1, min(n, _cdiv(n * hw, _STATS_ELEMS_PER_TG)))

@@ -483,7 +483,7 @@ bool emit_stats_stage1(Emitter& e, const ir::WelfordNormAttr& a) {
        << "  const uint m1_c = m1_tgp.y;\n"
        << "  const uint m1_n0 = (m1_tgp.x * m1_N) / m1_CH;\n"
        << "  const uint m1_n1 = ((m1_tgp.x + 1u) * m1_N) / m1_CH;\n";
-    emit_wf_accumulators(e, "m1_HW > 0u ? " + x + "[long(m1_c) * long(m1_HW)] : 0.0f");
+    emit_wf_accumulators(e, "(m1_N > 0u && m1_HW > 0u) ? " + x + "[long(m1_c) * long(m1_HW)] : 0.0f");
     os << "  for (uint m1_b = m1_n0; m1_b < m1_n1; ++m1_b) {\n"
        << "  const long m1_base = (long(m1_b) * long(m1_C) + long(m1_c)) * long(m1_HW);\n";
     emit_reduce_loop(e, mode, x, "m1_base", "m1_HW", kWfVec, kWfScalar);

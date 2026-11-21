@@ -1,0 +1,21 @@
+# M1Triton Compiler-DSL Co-Design (`tlx`)
+
+M1Triton compiles both standard Triton kernels (`import m1triton.language as tl`, `@m1triton.jit`) and hardware-specialized Co-design extensions (`import m1triton.tlx as tlx`) through the same C++20 SSA IR and Metal backend. Every `tlx.*` primitive lowers to a verified SSA IR attribute or op handled by general C++ passes.
+
+## Co-Design Primitives & Hardware Rationale (Apple M1 Max)
+
+| Primitive | IR Target | Optimization Pass & Metal Mechanism | Verified Impact (`[measured]` vs PyTorch 2.15 MPS) |
+| --- | --- | --- | --- |
+| `tlx.tile_spec(bm, bn, bk, num_simdgroups, double_buffer, split_k, swizzle_w)` | `TileSpecAttr` | `TileAndLayoutAssignmentPass`, `ThreadgroupStagingAndSwizzlePass`, `sgmm_emitter` (`simdgroup_float8x8`, `packed_float4`, SRAM swizzle) | `#6` Large-K Split-K **8.27x**, `#17` Transposed-B **2.21x**, `#11` 4D Matmul **1.18x** |
+| `tlx.structure("upper_triangular" \| "lower_triangular" \| "diagonal" \| "symmetric")` | `StructureAttr` | `StructureAwareDeadTilePruningPass` skips zero `k`-tiles and dead output blocks | `#15` Lower Tri **4.01x**, `#14` Upper Tri **3.78x**, `#12` Diagonal **2.12x** |
+| `tlx.vec_width(4)` | `VecWidthAttr` | `EpilogueFusionPass` + `ContiguityAndAlignmentAnalysis` + `try_emit_1d_vec4` (`128-bit float4` loads/stores when 16B aligned) | `#88` MinGPTNewGelu **7.30x**, `#30` Softsign **3.51x**, `#25` Swish **2.53x**, activations **~354 GB/s (95% STREAM)** |
+| `tlx.online_softmax(x_ptr, out_ptr, rows, cols, log_softmax=...)` | `OpKind::OnlineSoftmax` (`OnlineSoftmaxAttr`) | `OnlineSoftmaxWelfordPass` + `norm_softmax_emitter` (2-pass Milakov-Gimelshein `(m, d)` + `simd_max` / `simd_shuffle_xor`) | `#23` Softmax **1.37x**, `#24` LogSoftmax **1.34x** |
+| `tlx.welford_norm(kind, *args, eps=..., num_groups=..., stage=...)` | `OpKind::WelfordReduce` (`WelfordNormAttr`) | `OnlineSoftmaxWelfordPass` + `norm_softmax_emitter` (Chan parallel Welford, 1-read `[64, 64]` SRAM RMSNorm, 64-bit `packed_float4` L1/L2) | `#38` L1Norm **3.69x**, `#39` L2Norm **2.98x**, `#40` LayerNorm **2.17x**, `#35` GroupNorm **1.51x**, `#34` InstanceNorm **1.39x**, `#33` BatchNorm **1.33x**, `#36` RMSNorm **1.28x** |
+| `tlx.pool(x_ptr, out_ptr, *dims, kind=..., ndim=..., ...)` | `OpKind::Pool` (`PoolAttr`) | `PoolLoweringPass` + `pool_emitter` (1D/2D threadgroup SRAM halo staging + 64-bit native Metal 3D pooling) | `#41` MaxPool1D **7.51x**, `#46` AvgPool3D **5.01x** (native Metal vs CPU), `#44` AvgPool1D **4.15x**, `#43` MaxPool3D **1.28x**, `#45` AvgPool2D **1.22x** |
+| `tlx.row_scan(x_ptr, out_ptr, rows, cols, op=..., exclusive=..., reverse=..., mask_ptr=...)` | `OpKind::SimdScan` (`ScanAttr`) | `row_scan_emitter` (single-pass hardware `simd_prefix_exclusive_sum` / `simd_shuffle_up` butterfly, coalesced reverse, `uchar4` bool mask) | `#92` Exclusive Cumsum **3.34x**, `#91` Reverse Cumsum **2.88x**, `#93` Masked Cumsum **1.69x** |
+
+## Design Invariants
+
+- **Strict Alignment Safety**: Both `EpilogueFusionPass` and `MetalCodegen` (`try_emit_1d_vec4`, `row_scan_emitter`, `norm_softmax_emitter`) require proven 16-byte pointer divisibility before emitting aligned `float4*` accesses; unaligned slices automatically fall back to `packed_float4` or scalar paths.
+- **64-Bit Tensor Indexing**: Multi-GB tensors (`> 2^31` bytes or near `2^31` elements such as `#38`, `#39`, `#46`, `#47–#53`) compute element addresses in 64-bit `long` (`tl.int64`).
+- **Async Command Queue Synchronization**: Kernels enqueue asynchronously on `MetalRuntime`'s command queue so multi-stage pipelines (e.g., Split-K, two-stage Welford norms) chain without CPU stalls; callers reading results from PyTorch synchronize via `m1triton.runtime.synchronize()`.

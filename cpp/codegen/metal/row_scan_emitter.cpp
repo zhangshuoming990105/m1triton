@@ -94,7 +94,7 @@ constexpr const char* kKernelBody = R"MSL(
   device const float* src = $X + base;
   device float* dst = $OUT + base;
   device const uchar* msk = (device const uchar*)$MASK + base;
-  const bool vec4 = (n & 3) == 0;
+  const bool vec4 = $VEC4_ALIGNED && ((n & 3) == 0);
   const long ngroups = (n + M1_GROUP - 1) / M1_GROUP;
   const long lane_off = long(lane) * 4;
 
@@ -229,7 +229,10 @@ CompiledMSL try_emit_row_scan_kernel(const ir::Kernel& kernel, const ir::TargetS
   uint32_t next_slot = 0;
   for (uint32_t i = 0; i < kernel.params.size(); ++i) {
     const auto& kp = kernel.params[i];
-    if (kp.is_constexpr) continue;
+    if (kp.is_constexpr) {
+      names[i] = std::to_string(kp.constexpr_val);
+      continue;
+    }
     ParamSlot slot;
     slot.param_index = i;
     slot.buffer_index = next_slot++;
@@ -250,8 +253,13 @@ CompiledMSL try_emit_row_scan_kernel(const ir::Kernel& kernel, const ir::TargetS
      << "    ushort lane [[thread_index_in_simdgroup]],\n"
      << "    ushort sg [[simdgroup_index_in_threadgroup]]) {";
 
+  const bool ptrs_aligned = (kernel.params[x_idx].divisibility >= 16) &&
+                            (kernel.params[out_idx].divisibility >= 16) &&
+                            (!sa.has_mask || kernel.params[operand_params[2]].divisibility >= 4);
+
   std::string body = kKernelBody;
   replace_all(body, "$SIMD_SCAN", is_sum ? kSumSimdScan : kProdSimdScan);
+  replace_all(body, "$VEC4_ALIGNED", ptrs_aligned ? "true" : "false");
   replace_all(body, "$ROWS", names[rows_idx]);
   replace_all(body, "$LEN", names[len_idx]);
   replace_all(body, "$OUT", names[out_idx]);

@@ -290,6 +290,21 @@ void test_vec_width_promotion() {
 }
 )";
   assert_ir_diff(src_odd, src_odd, false);
+
+  // Constexpr parameter preceding an unaligned pointer must NOT mis-index divisibility.
+  const std::string src_ce_unaligned =
+      "kernel @act_ce(%B: i32 {constexpr=8}, %x_ptr: ptr<f32, device>, "
+      "%o_ptr: ptr<f32, device> {divisibility=16, writable=true}) {\n"
+      "  %0 = arange {start=0, end=8} : tile<8, i32>\n"
+      "  %1 = splat %x_ptr : tile<8, ptr<f32, device>>\n"
+      "  %2 = ptr_add %1, %0 : tile<8, ptr<f32, device>>\n"
+      "  %3 = load %2 {align=4, vec=1} : tile<8, f32>\n"
+      "  %4 = splat %o_ptr : tile<8, ptr<f32, device>>\n"
+      "  %5 = ptr_add %4, %0 : tile<8, ptr<f32, device>>\n"
+      "  store %5, %3 {align=4, vec=1}\n"
+      "  return\n"
+      "}\n";
+  assert_ir_diff(src_ce_unaligned, src_ce_unaligned, false);
   std::cout << "[PASS] test_vec_width_promotion\n";
 }
 

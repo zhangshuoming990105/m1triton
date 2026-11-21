@@ -90,7 +90,7 @@ bool is_reduce_op_kind(OpKind k) {
 }
 
 bool is_scan_op_kind(OpKind k) {
-  return k == OpKind::Scan || k == OpKind::SimdScan;
+  return k == OpKind::Scan;
 }
 
 uint32_t round_up_32(uint32_t v) {

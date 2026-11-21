@@ -243,18 +243,57 @@ bool is_vectorizable_pointee(ScalarDType dt) {
   return dt == ScalarDType::F32 || dt == ScalarDType::F16 || dt == ScalarDType::I32 || dt == ScalarDType::U32;
 }
 
-bool is_ptr_aligned_for_vec(const Kernel& k, ValueId v, uint32_t req_bytes, int depth = 0) {
+bool is_int_divisible_by(const Kernel& k, ValueId v, uint32_t d, int depth = 0) {
+  if (d <= 1) return true;
   if (depth > 32) return false;
   const Value& val = k.value(v);
   if (val.def_block == k.entry_block) {
-    uint32_t non_ce = 0;
-    for (const auto& p : k.params) {
-      if (p.is_constexpr) continue;
-      if (non_ce == val.arg_idx) {
-        return p.divisibility >= req_bytes && (p.divisibility % req_bytes) == 0;
-      }
-      ++non_ce;
+    if (val.arg_idx < k.params.size()) {
+      const auto& p = k.params[val.arg_idx];
+      if (p.is_constexpr) return (p.constexpr_val % static_cast<int64_t>(d)) == 0;
+      return p.divisibility >= d && (p.divisibility % d) == 0;
     }
+    return false;
+  }
+  const Op* op = defining_op(k, v);
+  if (op == nullptr) return false;
+  switch (op->kind) {
+    case OpKind::Constant:
+      if (const auto* c = std::get_if<ConstAttr>(&op->attr)) {
+        if (const auto* iv = std::get_if<int64_t>(&c->val)) return (*iv % static_cast<int64_t>(d)) == 0;
+        if (const auto* uv = std::get_if<uint64_t>(&c->val)) return (*uv % d) == 0;
+      }
+      return false;
+    case OpKind::Arange:
+      if (const auto* a = std::get_if<ArangeAttr>(&op->attr)) {
+        return (a->start % static_cast<int64_t>(d)) == 0;
+      }
+      return false;
+    case OpKind::Splat:
+    case OpKind::Broadcast:
+    case OpKind::Cast:
+      return is_int_divisible_by(k, op->operands[0], d, depth + 1);
+    case OpKind::Binary:
+      if (const auto* bin = binary_attr(op)) {
+        if (bin->op == BinaryOp::Mul) {
+          return is_int_divisible_by(k, op->operands[0], d, depth + 1) ||
+                 is_int_divisible_by(k, op->operands[1], d, depth + 1);
+        }
+        if (bin->op == BinaryOp::Add || bin->op == BinaryOp::Sub) {
+          return is_int_divisible_by(k, op->operands[0], d, depth + 1) &&
+                 is_int_divisible_by(k, op->operands[1], d, depth + 1);
+        }
+      }
+      return false;
+    default:
+      return false;
+  }
+}
+
+bool is_ptr_aligned_for_vec(const Kernel& k, ValueId v, uint32_t req_bytes, uint32_t elem_bytes, int depth = 0) {
+  if (depth > 32) return false;
+  const Value& val = k.value(v);
+  if (val.def_block == k.entry_block) {
     if (val.arg_idx < k.params.size()) {
       const uint32_t div = k.params[val.arg_idx].divisibility;
       return div >= req_bytes && (div % req_bytes) == 0;
@@ -263,8 +302,13 @@ bool is_ptr_aligned_for_vec(const Kernel& k, ValueId v, uint32_t req_bytes, int 
   }
   const Op* op = defining_op(k, v);
   if (op == nullptr) return false;
-  if (op->kind == OpKind::Splat || op->kind == OpKind::Broadcast || op->kind == OpKind::PtrAdd) {
-    return is_ptr_aligned_for_vec(k, op->operands[0], req_bytes, depth + 1);
+  if (op->kind == OpKind::Splat || op->kind == OpKind::Broadcast) {
+    return is_ptr_aligned_for_vec(k, op->operands[0], req_bytes, elem_bytes, depth + 1);
+  }
+  if (op->kind == OpKind::PtrAdd) {
+    const uint32_t req_elems = elem_bytes > 0 ? (req_bytes / elem_bytes) : 1;
+    return is_ptr_aligned_for_vec(k, op->operands[0], req_bytes, elem_bytes, depth + 1) &&
+           is_int_divisible_by(k, op->operands[1], req_elems, depth + 1);
   }
   return false;
 }
@@ -307,9 +351,10 @@ bool propagate_vec_width(Kernel& k, const TargetSpec& target) {
     if (block_len != 0 && block_len != shape[0]) return false;
     block_len = shape[0];
     const ScalarDType pointee = ptr_ty.ptr_elem().pointee;
-    const uint32_t vec_bytes = dtype_bytes(pointee) * 4;
+    const uint32_t elem_bytes = dtype_bytes(pointee);
+    const uint32_t vec_bytes = elem_bytes * 4;
     if (!is_vectorizable_pointee(pointee) || vec_bytes > target.vector_bytes) return false;
-    if (!is_ptr_aligned_for_vec(k, node->operands[0], vec_bytes)) return false;
+    if (!is_ptr_aligned_for_vec(k, node->operands[0], vec_bytes, elem_bytes)) return false;
     if (classify_stride(k, node->operands[0]) != Stride::Unit) return false;
     mem_ops.push_back(node->id);
   }

@@ -1201,6 +1201,17 @@ std::optional<CompiledMSL> try_emit_1d_vec4(const Kernel& kernel, const TargetSp
 
   const Block& entry = kernel.block(kernel.entry_block);
 
+  auto ptr_origins_aligned = [&](ValueId ptr_val, ScalarDType pointee) -> bool {
+    const uint32_t req_bytes = local_dtype_bytes(pointee) * 4u;
+    auto it = analysis.ptr_origins.find(ptr_val);
+    if (it == analysis.ptr_origins.end() || it->second.empty()) return false;
+    for (uint32_t pidx : it->second) {
+      const uint32_t div = kernel.params[pidx].divisibility;
+      if (div < req_bytes || (div % req_bytes) != 0) return false;
+    }
+    return true;
+  };
+
   // Verify every tile load/store requests vec_width == 4 and a supported 4-wide pointee dtype.
   size_t tile_mem_count = 0;
   for (OpId oid : entry.ops) {
@@ -1212,12 +1223,16 @@ std::optional<CompiledMSL> try_emit_1d_vec4(const Kernel& kernel, const TargetSp
     if (op.kind == OpKind::Load && !op.results.empty() && kernel.value(op.results[0]).type.is_tile()) {
       ++tile_mem_count;
       if (effective_op_vec_width(op, kernel, analysis) != 4) return std::nullopt;
-      if (!can_vec4_mem(scalar_dtype_of(kernel.value(op.results[0]).type))) return std::nullopt;
+      const ScalarDType dt = scalar_dtype_of(kernel.value(op.results[0]).type);
+      if (!can_vec4_mem(dt)) return std::nullopt;
+      if (!ptr_origins_aligned(op.operands[0], dt)) return std::nullopt;
       if (kernel.value(op.results[0]).type.as_tile().shape[0] != analysis.block_size_1d) return std::nullopt;
     } else if (op.kind == OpKind::Store && op.operands.size() >= 2 && kernel.value(op.operands[1]).type.is_tile()) {
       ++tile_mem_count;
       if (effective_op_vec_width(op, kernel, analysis) != 4) return std::nullopt;
-      if (!can_vec4_mem(scalar_dtype_of(kernel.value(op.operands[1]).type))) return std::nullopt;
+      const ScalarDType dt = scalar_dtype_of(kernel.value(op.operands[1]).type);
+      if (!can_vec4_mem(dt)) return std::nullopt;
+      if (!ptr_origins_aligned(op.operands[0], dt)) return std::nullopt;
       if (kernel.value(op.operands[1]).type.as_tile().shape[0] != analysis.block_size_1d) return std::nullopt;
     }
   }

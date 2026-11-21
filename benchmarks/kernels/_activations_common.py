@@ -10,20 +10,14 @@ import m1triton.tlx as tlx
 
 BLOCK_SIZE = 1024
 
-SELU_ALPHA = 1.6732632423543772848170429916717
-SELU_SCALE = 1.0507009873554804934193349852946
-SQRT_HALF = 0.7071067811865476
-GELU_TANH_COEF = 0.7978845608028654
-GELU_TANH_CUBIC = 0.044715
-
 
 @m1triton.jit
 def relu_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     tlx.vec_width(4)
-    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)
     mask = offs < n
     x = tl.load(x_ptr + offs, mask=mask, other=0.0)
-    tl.store(o_ptr + offs, tl.maximum(x, 0.0), mask=mask)
+    tl.store(o_ptr + offs, tl.where(x < 0.0, 0.0, x), mask=mask)
 
 
 @m1triton.jit
@@ -121,10 +115,10 @@ def elu_kernel(x_ptr, o_ptr, n, ALPHA: tl.constexpr, BLOCK: tl.constexpr):
 @m1triton.jit
 def hardtanh_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     tlx.vec_width(4)
-    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)
     mask = offs < n
     x = tl.load(x_ptr + offs, mask=mask, other=0.0)
-    tl.store(o_ptr + offs, tl.minimum(tl.maximum(x, -1.0), 1.0), mask=mask)
+    tl.store(o_ptr + offs, tl.where(x < -1.0, -1.0, tl.where(x > 1.0, 1.0, x)), mask=mask)
 
 
 @m1triton.jit
