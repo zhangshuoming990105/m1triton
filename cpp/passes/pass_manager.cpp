@@ -7,7 +7,10 @@
 #include "passes/contiguity_analysis.hpp"
 #include "passes/cse.hpp"
 #include "passes/dce.hpp"
+#include "passes/epilogue_fusion.hpp"
 #include "passes/licm.hpp"
+#include "passes/online_softmax_welford.hpp"
+#include "passes/pool_lowering.hpp"
 #include "passes/simdgroup_matmul.hpp"
 #include "passes/structure_pruning.hpp"
 #include "passes/threadgroup_staging.hpp"
@@ -22,7 +25,10 @@ PassManager build_pipeline(SgmmSchedulePolicy sgmm_policy) {
   pm.add_pass<CanonicalizePass>();
   pm.add_pass<CSEPass>();
   pm.add_pass<LICMPass>();
+  pm.add_pass<EpilogueFusionPass>();
   pm.add_pass<StructureAwareDeadTilePruningPass>();
+  pm.add_pass<OnlineSoftmaxWelfordPass>();
+  pm.add_pass<PoolLoweringPass>();
   pm.add_pass<ContiguityAndAlignmentAnalysis>();
   pm.add_pass<TileAndLayoutAssignmentPass>(sgmm_policy);
   pm.add_pass<ThreadgroupStagingAndSwizzlePass>();

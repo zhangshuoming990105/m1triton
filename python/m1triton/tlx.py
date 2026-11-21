@@ -131,12 +131,59 @@ def persistent_grid(
     )
 
 
-def online_softmax(x: Any, axis: int = -1) -> Any:
+def online_softmax(
+    x_ptr: Any,
+    out_ptr: Any = None,
+    num_rows: Any = None,
+    row_len: Any = None,
+    *,
+    axis: int = -1,
+    log_softmax: bool = False,
+) -> Any:
     return _jit_only("online_softmax")
 
 
-def welford_norm(x: Any, axis: int = -1, eps: float = 1e-5) -> Any:
+def welford_norm(
+    kind: str,
+    *args: Any,
+    eps: float = 1e-5,
+    axis: int = -1,
+    num_groups: int = 1,
+    stage: int = 0,
+    has_weight: bool = False,
+    has_bias: bool = False,
+) -> Any:
     return _jit_only("welford_norm")
+
+
+def pool(
+    x_ptr: Any,
+    out_ptr: Any,
+    *dims: Any,
+    kind: str = "max",
+    ndim: int = 2,
+    kernel_size: tuple[int, ...] | list[int] | int = 2,
+    stride: tuple[int, ...] | list[int] | int = 2,
+    padding: tuple[int, ...] | list[int] | int = 0,
+    dilation: tuple[int, ...] | list[int] | int = 1,
+    count_include_pad: bool = True,
+    ceil_mode: bool = False,
+) -> Any:
+    return _jit_only("pool")
+
+
+def row_scan(
+    x_ptr: Any,
+    out_ptr: Any,
+    num_rows: Any,
+    row_len: Any,
+    *,
+    op: str = "add",
+    exclusive: bool = False,
+    reverse: bool = False,
+    mask_ptr: Any = None,
+) -> Any:
+    return _jit_only("row_scan")
 
 
 def simd_scan(
@@ -189,6 +236,8 @@ __all__ = [
     "persistent_grid",
     "online_softmax",
     "welford_norm",
+    "pool",
+    "row_scan",
     "simd_scan",
     "implicit_gemm_conv",
     "flash_attention_tile",

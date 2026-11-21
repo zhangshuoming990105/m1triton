@@ -61,9 +61,9 @@ def sgmm_gemm_kernel(
     offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     offs_k = tl.arange(0, BLOCK_K)
 
-    a_base = a_ptr + pid_b * stride_ab
-    b_base = b_ptr + pid_b * stride_bb
-    c_base = c_ptr + pid_b * stride_cb
+    a_base = a_ptr + pid_b.to(tl.int64) * stride_ab
+    b_base = b_ptr + pid_b.to(tl.int64) * stride_bb
+    c_base = c_ptr + pid_b.to(tl.int64) * stride_cb
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for k in range(0, K, BLOCK_K):
@@ -127,7 +127,7 @@ def sgmm_splitk_kernel(
     offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     offs_k = tl.arange(0, BLOCK_K)
 
-    w_base = w_ptr + pid_z * stride_wb
+    w_base = w_ptr + pid_z.to(tl.int64) * stride_wb
     k_start = pid_z * k_chunk
     k_end = min((pid_z + 1) * k_chunk, K)
 
@@ -259,7 +259,7 @@ def diag_matmul_kernel(
     col_offs = pid_col * BLOCK_M + tl.arange(0, BLOCK_M)
     mask = col_offs < M
     a_val = tl.load(a_ptr + row, mask=row < N, other=0.0)
-    row_off = row * M
+    row_off = row.to(tl.int64) * M
     b_vec = tl.load(b_ptr + (row_off + col_offs), mask=mask)
     tl.store(c_ptr + (row_off + col_offs), a_val * b_vec, mask=mask)
 

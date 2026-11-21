@@ -1,6 +1,9 @@
 #include "codegen/metal/metal_codegen.hpp"
 
+#include "codegen/metal/norm_softmax_emitter.hpp"
+#include "codegen/metal/pool_emitter.hpp"
 #include "codegen/metal/reduce_scan_emitter.hpp"
+#include "codegen/metal/row_scan_emitter.hpp"
 #include "codegen/metal/sgmm_emitter.hpp"
 
 #include <algorithm>
@@ -462,6 +465,10 @@ struct KernelAnalysis {
   bool has_dot = false;
   bool has_atomic = false;
   bool has_reduce = false;
+  bool has_scan = false;
+  bool has_norm_softmax = false;
+  bool has_pool = false;
+  bool has_row_scan = false;
   bool has_tile_cf = false;
   bool has_tile_reshape_or_permute = false;
   int64_t block_size_1d = 0;
@@ -745,7 +752,29 @@ bool analyze_kernel(const Kernel& kernel, KernelAnalysis& out, std::string& err)
       }
       if (op.kind == OpKind::Dot) out.has_dot = true;
       if (op.kind == OpKind::AtomicAdd) out.has_atomic = true;
-      if (op.kind == OpKind::Reduce) out.has_reduce = true;
+      if (op.kind == OpKind::Reduce || op.kind == OpKind::SimdReduce) out.has_reduce = true;
+      if (op.kind == OpKind::Scan) out.has_scan = true;
+      if (op.kind == OpKind::OnlineSoftmax || op.kind == OpKind::WelfordReduce) {
+        out.has_norm_softmax = true;
+        if (op.operands.size() >= 2) {
+          auto it = out.ptr_origins.find(op.operands[1]);
+          if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+        }
+      }
+      if (op.kind == OpKind::Pool) {
+        out.has_pool = true;
+        if (op.operands.size() >= 2) {
+          auto it = out.ptr_origins.find(op.operands[1]);
+          if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+        }
+      }
+      if (op.kind == OpKind::SimdScan) {
+        out.has_row_scan = true;
+        if (op.operands.size() >= 2) {
+          auto it = out.ptr_origins.find(op.operands[1]);
+          if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+        }
+      }
       if ((op.kind == OpKind::ForLoop || op.kind == OpKind::If)) {
         for (BlockId rb : op.regions) {
           if (block_has_tile_op(kernel, rb)) out.has_tile_cf = true;
@@ -1172,6 +1201,17 @@ std::optional<CompiledMSL> try_emit_1d_vec4(const Kernel& kernel, const TargetSp
 
   const Block& entry = kernel.block(kernel.entry_block);
 
+  auto ptr_origins_aligned = [&](ValueId ptr_val, ScalarDType pointee) -> bool {
+    const uint32_t req_bytes = local_dtype_bytes(pointee) * 4u;
+    auto it = analysis.ptr_origins.find(ptr_val);
+    if (it == analysis.ptr_origins.end() || it->second.empty()) return false;
+    for (uint32_t pidx : it->second) {
+      const uint32_t div = kernel.params[pidx].divisibility;
+      if (div < req_bytes || (div % req_bytes) != 0) return false;
+    }
+    return true;
+  };
+
   // Verify every tile load/store requests vec_width == 4 and a supported 4-wide pointee dtype.
   size_t tile_mem_count = 0;
   for (OpId oid : entry.ops) {
@@ -1183,12 +1223,16 @@ std::optional<CompiledMSL> try_emit_1d_vec4(const Kernel& kernel, const TargetSp
     if (op.kind == OpKind::Load && !op.results.empty() && kernel.value(op.results[0]).type.is_tile()) {
       ++tile_mem_count;
       if (effective_op_vec_width(op, kernel, analysis) != 4) return std::nullopt;
-      if (!can_vec4_mem(scalar_dtype_of(kernel.value(op.results[0]).type))) return std::nullopt;
+      const ScalarDType dt = scalar_dtype_of(kernel.value(op.results[0]).type);
+      if (!can_vec4_mem(dt)) return std::nullopt;
+      if (!ptr_origins_aligned(op.operands[0], dt)) return std::nullopt;
       if (kernel.value(op.results[0]).type.as_tile().shape[0] != analysis.block_size_1d) return std::nullopt;
     } else if (op.kind == OpKind::Store && op.operands.size() >= 2 && kernel.value(op.operands[1]).type.is_tile()) {
       ++tile_mem_count;
       if (effective_op_vec_width(op, kernel, analysis) != 4) return std::nullopt;
-      if (!can_vec4_mem(scalar_dtype_of(kernel.value(op.operands[1]).type))) return std::nullopt;
+      const ScalarDType dt = scalar_dtype_of(kernel.value(op.operands[1]).type);
+      if (!can_vec4_mem(dt)) return std::nullopt;
+      if (!ptr_origins_aligned(op.operands[0], dt)) return std::nullopt;
       if (kernel.value(op.operands[1]).type.as_tile().shape[0] != analysis.block_size_1d) return std::nullopt;
     }
   }
@@ -3151,7 +3195,31 @@ CompiledMSL MetalCodegen::emit(const ir::Kernel& kernel, const ir::TargetSpec& t
     return CompiledMSL{false, "", {}, "Tiles with rank > 2 are not supported in MetalCodegen"};
   }
 
-  if (analysis.has_reduce) {
+  if (analysis.has_norm_softmax) {
+    bool matched = false;
+    auto ns_res = try_emit_norm_softmax_kernel(kernel, target, &matched);
+    if (matched) {
+      return ns_res;
+    }
+  }
+
+  if (analysis.has_pool) {
+    bool matched = false;
+    auto pool_res = try_emit_pool_kernel(kernel, target, &matched);
+    if (matched) {
+      return pool_res;
+    }
+  }
+
+  if (analysis.has_row_scan) {
+    bool matched = false;
+    auto scan_res = try_emit_row_scan_kernel(kernel, target, &matched);
+    if (matched) {
+      return scan_res;
+    }
+  }
+
+  if (analysis.has_reduce || analysis.has_scan) {
     bool matched = false;
     auto red_res = try_emit_reduce_scan_kernel(kernel, target, &matched);
     if (matched) {

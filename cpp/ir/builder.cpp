@@ -525,6 +525,36 @@ ValueId IRBuilder::emit_scan(ValueId input, ScanAttr attr, ValueId mask) {
   return kernel_.op(id).results[0];
 }
 
+OpId IRBuilder::emit_online_softmax(ValueId x_ptr, ValueId out_ptr, ValueId num_rows, ValueId row_len,
+                                    OnlineSoftmaxAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::OnlineSoftmax, current_block_, {x_ptr, out_ptr, num_rows, row_len}, {},
+                           std::move(attr), std::move(hints));
+}
+
+OpId IRBuilder::emit_welford_norm(std::vector<ValueId> operands, WelfordNormAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::WelfordReduce, current_block_, std::move(operands), {}, std::move(attr),
+                           std::move(hints));
+}
+
+OpId IRBuilder::emit_pool(std::vector<ValueId> operands, PoolAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::Pool, current_block_, std::move(operands), {}, std::move(attr), std::move(hints));
+}
+
+OpId IRBuilder::emit_row_scan(ValueId x_ptr, ValueId out_ptr, ValueId num_rows, ValueId row_len, ScanAttr attr,
+                              ValueId mask_ptr, OpHints hints) {
+  std::vector<ValueId> operands{x_ptr, out_ptr};
+  if (mask_ptr != kInvalidId) {
+    operands.push_back(mask_ptr);
+    attr.has_mask = true;
+  } else {
+    attr.has_mask = false;
+  }
+  operands.push_back(num_rows);
+  operands.push_back(row_len);
+  return kernel_.create_op(OpKind::SimdScan, current_block_, std::move(operands), {}, std::move(attr),
+                           std::move(hints));
+}
+
 ForLoopHandle IRBuilder::begin_for_loop(ValueId lo, ValueId hi, ValueId step,
                                         const std::vector<ValueId>& iter_inits) {
   const Type lo_ty = kernel_.value(lo).type;

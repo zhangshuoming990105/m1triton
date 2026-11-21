@@ -1601,6 +1601,112 @@ class _ASTIRLowerer(ast.NodeVisitor):
             _apply_kernel_hint(self.kernel, hint)
             return hint
 
+        if name == "online_softmax":
+            x_ptr = args[0] if len(args) > 0 else kwargs["x_ptr"]
+            out_ptr = args[1] if len(args) > 1 else kwargs["out_ptr"]
+            num_rows = self._materialize_ssa(args[2] if len(args) > 2 else kwargs["num_rows"])
+            row_len = self._materialize_ssa(args[3] if len(args) > 3 else kwargs["row_len"])
+            if not isinstance(x_ptr, _SSAVal) or not isinstance(out_ptr, _SSAVal):
+                raise TypeError("tlx.online_softmax expects SSA pointer operands for x_ptr and out_ptr")
+            for pidx in out_ptr.ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            attr = ir.OnlineSoftmaxAttr()
+            attr.axis = int(_unwrap_const(kwargs.get("axis", -1)))
+            attr.log_softmax = bool(_unwrap_const(kwargs.get("log_softmax", False)))
+            self.builder.emit_online_softmax(x_ptr.vid, out_ptr.vid, num_rows.vid, row_len.vid, attr, self.kernel.hints)
+            return None
+
+        if name == "welford_norm":
+            kind_str = str(_unwrap_const(args[0] if len(args) > 0 else kwargs["kind"])).strip().lower()
+            raw_ops = list(args[1:]) if len(args) > 1 else list(kwargs.get("operands", ()))
+            if len(raw_ops) < 3:
+                raise ValueError("tlx.welford_norm requires at least (x_ptr, out_ptr, dim0)")
+            ssa_ops = [self._materialize_ssa(v) for v in raw_ops]
+            for pidx in ssa_ops[1].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            kind_map = {
+                "layer_norm": ir.NormKind.LayerNorm,
+                "layernorm": ir.NormKind.LayerNorm,
+                "batch_norm": ir.NormKind.BatchNorm,
+                "batchnorm": ir.NormKind.BatchNorm,
+                "instance_norm": ir.NormKind.InstanceNorm,
+                "instancenorm": ir.NormKind.InstanceNorm,
+                "group_norm": ir.NormKind.GroupNorm,
+                "groupnorm": ir.NormKind.GroupNorm,
+                "rms_norm": ir.NormKind.RMSNorm,
+                "rmsnorm": ir.NormKind.RMSNorm,
+                "frobenius_norm": ir.NormKind.FrobeniusNorm,
+                "frobenius": ir.NormKind.FrobeniusNorm,
+                "l1_norm": ir.NormKind.L1Norm,
+                "l1": ir.NormKind.L1Norm,
+                "l2_norm": ir.NormKind.L2Norm,
+                "l2": ir.NormKind.L2Norm,
+            }
+            if kind_str not in kind_map:
+                raise ValueError(f"Unknown tlx.welford_norm kind: {kind_str!r}")
+            attr = ir.WelfordNormAttr()
+            attr.kind = kind_map[kind_str]
+            attr.eps = float(_unwrap_const(kwargs.get("eps", 1e-5)))
+            attr.axis = int(_unwrap_const(kwargs.get("axis", -1)))
+            attr.num_groups = int(_unwrap_const(kwargs.get("num_groups", 1)))
+            attr.stage = int(_unwrap_const(kwargs.get("stage", 0)))
+            attr.has_weight = bool(_unwrap_const(kwargs.get("has_weight", False)))
+            attr.has_bias = bool(_unwrap_const(kwargs.get("has_bias", False)))
+            self.builder.emit_welford_norm([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "pool":
+            if len(args) < 6:
+                raise ValueError("tlx.pool requires (x_ptr, out_ptr, N, C, spatial_in..., spatial_out...)")
+            ssa_ops = [self._materialize_ssa(v) for v in args]
+            for pidx in ssa_ops[1].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            ndim = int(_unwrap_const(kwargs.get("ndim", 2)))
+            def _norm_vec(v: Any, default_val: int) -> list[int]:
+                u = _unwrap_const(v)
+                if u is None:
+                    return [default_val] * ndim
+                if isinstance(u, int):
+                    return [int(u)] * ndim
+                return [int(_unwrap_const(e)) for e in u]
+            kind_str = str(_unwrap_const(kwargs.get("kind", "max"))).strip().lower()
+            attr = ir.PoolAttr()
+            attr.kind = ir.PoolKind.Max if kind_str == "max" else ir.PoolKind.Avg
+            attr.ndim = ndim
+            attr.kernel_size = _norm_vec(kwargs.get("kernel_size", 2), 2)
+            attr.stride = _norm_vec(kwargs.get("stride", attr.kernel_size), 1)
+            attr.padding = _norm_vec(kwargs.get("padding", 0), 0)
+            attr.dilation = _norm_vec(kwargs.get("dilation", 1), 1)
+            attr.count_include_pad = bool(_unwrap_const(kwargs.get("count_include_pad", True)))
+            attr.ceil_mode = bool(_unwrap_const(kwargs.get("ceil_mode", False)))
+            self.builder.emit_pool([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "row_scan":
+            x_ptr = args[0] if len(args) > 0 else kwargs["x_ptr"]
+            out_ptr = args[1] if len(args) > 1 else kwargs["out_ptr"]
+            num_rows = self._materialize_ssa(args[2] if len(args) > 2 else kwargs["num_rows"])
+            row_len = self._materialize_ssa(args[3] if len(args) > 3 else kwargs["row_len"])
+            mask_ptr = kwargs.get("mask_ptr")
+            if not isinstance(x_ptr, _SSAVal) or not isinstance(out_ptr, _SSAVal):
+                raise TypeError("tlx.row_scan expects SSA pointer operands for x_ptr and out_ptr")
+            for pidx in out_ptr.ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            mask_vid = ir.INVALID_ID
+            if mask_ptr is not None:
+                if not isinstance(mask_ptr, _SSAVal):
+                    raise TypeError("tlx.row_scan mask_ptr must be an SSA pointer")
+                mask_vid = mask_ptr.vid
+            op = str(_unwrap_const(kwargs.get("op", "add"))).lower()
+            attr = ir.ScanAttr()
+            attr.kind = ir.ScanKind.Cumsum if op in ("add", "sum", "cumsum") else ir.ScanKind.Cumprod
+            attr.axis = -1
+            attr.exclusive = bool(_unwrap_const(kwargs.get("exclusive", False)))
+            attr.reverse = bool(_unwrap_const(kwargs.get("reverse", False)))
+            attr.has_mask = mask_vid != ir.INVALID_ID
+            self.builder.emit_row_scan(x_ptr.vid, out_ptr.vid, num_rows.vid, row_len.vid, attr, mask_vid, self.kernel.hints)
+            return None
+
         if name == "simd_scan":
             x = self._materialize_ssa(args[0] if args else kwargs["x"])
             op = str(kwargs.get("op", "add")).lower()

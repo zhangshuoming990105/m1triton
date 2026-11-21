@@ -57,6 +57,17 @@ enum class BinaryOp : uint8_t {
 enum class ReduceKind : uint8_t { Sum, Max, Min, Argmax, Argmin };
 enum class ReduceResultMode : uint8_t { ValueOnly, IndexOnly, ValueAndIndex };
 enum class ScanKind : uint8_t { Cumsum, Cumprod };
+enum class PoolKind : uint8_t { Max, Avg };
+enum class NormKind : uint8_t {
+  LayerNorm,
+  BatchNorm,
+  InstanceNorm,
+  GroupNorm,
+  RMSNorm,
+  FrobeniusNorm,
+  L1Norm,
+  L2Norm,
+};
 enum class BarrierScope : uint8_t { Simdgroup, Threadgroup, DeviceMem };
 enum class TensorLayoutHint : uint8_t { NCHW, NHWC, NCDHW, RowMajor, ColMajor };
 
@@ -219,6 +230,43 @@ struct SimdgroupMatmulAttr {
   bool operator==(const SimdgroupMatmulAttr&) const = default;
 };
 
+struct OnlineSoftmaxAttr {
+  int32_t axis = -1;
+  bool log_softmax = false;
+  uint32_t tg_threads = 256;
+  uint32_t vec_width = 4;
+  bool operator==(const OnlineSoftmaxAttr&) const = default;
+};
+
+struct WelfordNormAttr {
+  NormKind kind = NormKind::LayerNorm;
+  float eps = 1e-5f;
+  int32_t axis = -1;
+  int32_t num_groups = 1;
+  int32_t stage = 0;
+  bool has_weight = false;
+  bool has_bias = false;
+  bool rms_sram_cache = false;
+  uint32_t tg_threads = 256;
+  uint32_t vec_width = 4;
+  bool operator==(const WelfordNormAttr&) const = default;
+};
+
+struct PoolAttr {
+  PoolKind kind = PoolKind::Max;
+  uint32_t ndim = 2;
+  std::vector<int32_t> kernel_size;
+  std::vector<int32_t> stride;
+  std::vector<int32_t> padding;
+  std::vector<int32_t> dilation;
+  bool count_include_pad = true;
+  bool ceil_mode = false;
+  bool use_sram_halo = false;
+  uint32_t tg_x = 0;
+  uint32_t tg_y = 0;
+  bool operator==(const PoolAttr&) const = default;
+};
+
 using OpPayload = std::variant<
     EmptyAttr,
     ConstAttr,
@@ -236,7 +284,10 @@ using OpPayload = std::variant<
     ThreadgroupAllocAttr,
     ThreadgroupStageAttr,
     BarrierAttr,
-    SimdgroupMatmulAttr>;
+    SimdgroupMatmulAttr,
+    OnlineSoftmaxAttr,
+    WelfordNormAttr,
+    PoolAttr>;
 
 std::string_view unary_op_name(UnaryOp op);
 std::string_view binary_op_name(BinaryOp op);

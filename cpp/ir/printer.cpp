@@ -71,6 +71,32 @@ std::string_view scan_kind_name(ScanKind k) {
   return "cumsum";
 }
 
+std::string_view pool_kind_name(PoolKind k) {
+  return k == PoolKind::Max ? "max" : "avg";
+}
+
+std::string_view norm_kind_name(NormKind k) {
+  switch (k) {
+    case NormKind::LayerNorm:
+      return "layer_norm";
+    case NormKind::BatchNorm:
+      return "batch_norm";
+    case NormKind::InstanceNorm:
+      return "instance_norm";
+    case NormKind::GroupNorm:
+      return "group_norm";
+    case NormKind::RMSNorm:
+      return "rms_norm";
+    case NormKind::FrobeniusNorm:
+      return "frobenius_norm";
+    case NormKind::L1Norm:
+      return "l1_norm";
+    case NormKind::L2Norm:
+      return "l2_norm";
+  }
+  return "layer_norm";
+}
+
 std::string_view barrier_scope_name(BarrierScope s) {
   switch (s) {
     case BarrierScope::Simdgroup:
@@ -378,6 +404,37 @@ class KernelPrinter {
     } else if (const auto* sm = std::get_if<SimdgroupMatmulAttr>(&node.attr)) {
       os_ << "m_tiles=" << sm->m_tiles << ", n_tiles=" << sm->n_tiles << ", k_step=" << sm->k_step
           << ", ldm_a=" << sm->ldm_a << ", ldm_b=" << sm->ldm_b << ", acc=" << dtype_name(sm->acc_dtype);
+    } else if (const auto* os_attr = std::get_if<OnlineSoftmaxAttr>(&node.attr)) {
+      os_ << "axis=" << os_attr->axis << ", log_softmax=" << (os_attr->log_softmax ? "true" : "false")
+          << ", tg_threads=" << os_attr->tg_threads << ", vec=" << os_attr->vec_width;
+    } else if (const auto* wn = std::get_if<WelfordNormAttr>(&node.attr)) {
+      os_ << "kind=" << norm_kind_name(wn->kind) << ", eps=" << format_double(wn->eps) << ", axis=" << wn->axis
+          << ", num_groups=" << wn->num_groups << ", stage=" << wn->stage
+          << ", has_weight=" << (wn->has_weight ? "true" : "false")
+          << ", has_bias=" << (wn->has_bias ? "true" : "false")
+          << ", rms_sram=" << (wn->rms_sram_cache ? "true" : "false") << ", tg_threads=" << wn->tg_threads
+          << ", vec=" << wn->vec_width;
+    } else if (const auto* pa = std::get_if<PoolAttr>(&node.attr)) {
+      auto print_vec = [&](const char* k, const std::vector<int32_t>& v) {
+        os_ << k << "=[";
+        for (size_t i = 0; i < v.size(); ++i) {
+          if (i > 0) os_ << ", ";
+          os_ << v[i];
+        }
+        os_ << "]";
+      };
+      os_ << "kind=" << pool_kind_name(pa->kind) << ", ndim=" << pa->ndim << ", ";
+      print_vec("kernel_size", pa->kernel_size);
+      os_ << ", ";
+      print_vec("stride", pa->stride);
+      os_ << ", ";
+      print_vec("padding", pa->padding);
+      os_ << ", ";
+      print_vec("dilation", pa->dilation);
+      os_ << ", count_include_pad=" << (pa->count_include_pad ? "true" : "false")
+          << ", ceil_mode=" << (pa->ceil_mode ? "true" : "false")
+          << ", sram_halo=" << (pa->use_sram_halo ? "true" : "false")
+          << ", tg_x=" << pa->tg_x << ", tg_y=" << pa->tg_y;
     }
     os_ << "}";
   }
