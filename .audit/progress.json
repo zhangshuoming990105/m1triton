@@ -2,36 +2,39 @@
   "schemaVersion": 1,
   "goalFile": "GOAL.md",
   "createdAt": "2026-11-21T08:52:55.075Z",
-  "updatedAt": "2026-11-21T08:52:55.120Z",
+  "updatedAt": "2026-11-21T11:57:53.748Z",
   "milestones": [
     {
       "id": "M0",
       "title": "Repo foundation, guardrails, CI, KernelBench L1 fetch & frozen eval",
-      "status": "in_progress",
-      "evidence": "",
+      "status": "verified",
+      "evidence": "ci_local.sh green (1 CTest + 5 pytest incl. anti-cheat), lock-eval OK, roofline 373.83 GB/s & 10.17 TFLOPS FP32 SGMM, 100/100 baseline snapshot in .audit/baseline_l1_mps.json, commit 9dbc2ac",
       "note": "",
-      "updatedAt": "2026-11-21T08:52:55.119Z"
+      "updatedAt": "2026-11-21T11:57:53.519Z"
     },
     {
       "id": "M1",
       "title": "End-to-end vertical slice (Python AST -> C++ IR -> MSL -> Metal UMA runtime)",
-      "status": "todo",
-      "evidence": "",
-      "note": ""
+      "status": "verified",
+      "evidence": "ci_local.sh green (3/3 CTest -UNDEBUG, 17/17 pytest), vector_add 64M=305.28 GB/s end-to-end / 369.63 GB/s GPU timestamp (81.7%-98.9% STREAM), slop-critic pro audit + all 6 defects fixed with regressions, m1triton-opt CLI verified, commit 0baa44c",
+      "note": "",
+      "updatedAt": "2026-11-21T11:57:53.571Z"
     },
     {
       "id": "M2",
       "title": "SGMM GEMM engine & KernelBench Batch 1 (#1-#18, 18 tasks)",
-      "status": "todo",
-      "evidence": "",
-      "note": ""
+      "status": "verified",
+      "evidence": "ci_local.sh green (6/6 CTest -UNDEBUG, 17/17 pytest), lock-eval OK, 18/18 KernelBench L1 (#1-#18) passed on torch 2.15.0 MPS (8 beats baseline, geomean 1.2084x; #6 8.27x, #14 3.78x, #15 4.01x, #17 2.21x, #12 2.12x), artifact .audit/eval_m2_batch1.json, commit 4f70f51",
+      "note": "",
+      "updatedAt": "2026-11-21T11:57:53.661Z"
     },
     {
       "id": "M3",
       "title": "Vectorized elementwise, online softmax & norm (#19-#40, #88, 23 tasks)",
-      "status": "todo",
+      "status": "in_progress",
       "evidence": "",
-      "note": ""
+      "note": "",
+      "updatedAt": "2026-11-21T11:57:53.747Z"
     },
     {
       "id": "M4",
@@ -70,13 +73,42 @@
     }
   ],
   "scoreboard": {
-    "passed": 0,
-    "total": 0,
-    "beatsBaseline": 0,
-    "geomeanSpeedup": null,
-    "artifact": ""
+    "passed": 18,
+    "total": 100,
+    "beatsBaseline": 8,
+    "geomeanSpeedup": 1.2084,
+    "artifact": ".audit/eval_m2_batch1.json",
+    "updatedAt": "2026-11-21T11:57:33.637Z"
   },
   "milestonesSinceHygiene": 0,
-  "lastCheckpoint": null,
-  "checkpoints": []
+  "lastCheckpoint": {
+    "ts": "2026-11-21T11:57:53.706Z",
+    "commit": "4f70f51",
+    "summary": "M2 verified & merged: 18/18 KB L1 (#1-#18) passing on torch 2.15.0 MPS with 1.2084x geomean speedup",
+    "next": "Launch M3 (#19-#40, #88) & M4 (#41-#49, #51-#53, #89-#93) heterogeneous multi-agent swarm, then M2+M3 hygiene checkpoint",
+    "hygieneClean": false
+  },
+  "checkpoints": [
+    {
+      "ts": "2026-11-21T11:57:33.683Z",
+      "commit": "4f70f51",
+      "summary": "M2 verified & merged: 18/18 KB L1 (#1-#18) passing on torch 2.15.0 MPS with 1.2084x geomean speedup",
+      "next": "Launch M3 (#19-#40, #88) & M4 (#41-#49, #51-#53, #89-#93) heterogeneous multi-agent swarm, then M2+M3 hygiene checkpoint",
+      "hygieneClean": false
+    },
+    {
+      "ts": "2026-11-21T11:57:53.617Z",
+      "commit": "0baa44c",
+      "summary": "M0+M1 hygiene-clean baseline restored",
+      "next": "Record M2 verified",
+      "hygieneClean": true
+    },
+    {
+      "ts": "2026-11-21T11:57:53.706Z",
+      "commit": "4f70f51",
+      "summary": "M2 verified & merged: 18/18 KB L1 (#1-#18) passing on torch 2.15.0 MPS with 1.2084x geomean speedup",
+      "next": "Launch M3 (#19-#40, #88) & M4 (#41-#49, #51-#53, #89-#93) heterogeneous multi-agent swarm, then M2+M3 hygiene checkpoint",
+      "hygieneClean": false
+    }
+  ]
 }
