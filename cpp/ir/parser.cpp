@@ -270,6 +270,7 @@ std::optional<OpKind> parse_op_kind(std::string_view s) {
   if (s == "implicit_gemm_load") return OpKind::ImplicitGemmLoad;
   if (s == "flash_attention_tile") return OpKind::FlashAttentionTile;
   if (s == "pool") return OpKind::Pool;
+  if (s == "fused_loss") return OpKind::FusedLoss;
   if (s == "threadgroup_alloc") return OpKind::ThreadgroupAlloc;
   if (s == "threadgroup_stage") return OpKind::ThreadgroupStage;
   if (s == "barrier") return OpKind::Barrier;
@@ -367,6 +368,16 @@ NormKind parse_norm_kind(std::string_view s) {
   if (s == "l1_norm") return NormKind::L1Norm;
   if (s == "l2_norm") return NormKind::L2Norm;
   throw std::runtime_error("Unknown norm kind: " + std::string(s));
+}
+
+LossKind parse_loss_kind(std::string_view s) {
+  if (s == "mse") return LossKind::MSE;
+  if (s == "cross_entropy") return LossKind::CrossEntropy;
+  if (s == "huber") return LossKind::Huber;
+  if (s == "kl_div") return LossKind::KLDiv;
+  if (s == "triplet_margin") return LossKind::TripletMargin;
+  if (s == "hinge") return LossKind::Hinge;
+  throw std::runtime_error("Unknown loss kind: " + std::string(s));
 }
 
 BarrierScope parse_barrier_scope(std::string_view s) {
@@ -1084,11 +1095,21 @@ class Parser {
         const std::string k = expect(TokKind::Ident, "conv key").text;
         expect(TokKind::Equals, "'='");
         if (k == "ndim") a.ndim = parse_u32();
+        else if (k == "kernel_size") a.kernel_size = parse_i32_list();
         else if (k == "stride") a.stride = parse_i32_list();
         else if (k == "padding") a.padding = parse_i32_list();
         else if (k == "dilation") a.dilation = parse_i32_list();
+        else if (k == "output_padding") a.output_padding = parse_i32_list();
         else if (k == "groups") a.groups = static_cast<int32_t>(parse_i64());
         else if (k == "transposed") a.transposed = parse_bool();
+        else if (k == "has_bias") a.has_bias = parse_bool();
+        else if (k == "depthwise") a.is_depthwise = parse_bool();
+        else if (k == "pointwise") a.is_pointwise = parse_bool();
+        else if (k == "sram_halo") a.use_sram_halo = parse_bool();
+        else if (k == "bm") a.bm = parse_u32();
+        else if (k == "bn") a.bn = parse_u32();
+        else if (k == "bk") a.bk = parse_u32();
+        else if (k == "simds") a.num_simdgroups = parse_u32();
         else if (k == "layout") a.layout = parse_tensor_layout_hint(expect(TokKind::Ident, "layout").text);
         else throw std::runtime_error("Unknown ConvAttr key: " + k);
         if (check(TokKind::Comma)) consume();
@@ -1105,7 +1126,29 @@ class Parser {
         if (k == "scale") a.scale = static_cast<float>(parse_double());
         else if (k == "causal") a.causal = parse_bool();
         else if (k == "causal_offset") a.causal_offset = static_cast<int32_t>(parse_i64());
+        else if (k == "bm") a.bm = parse_u32();
+        else if (k == "bn") a.bn = parse_u32();
+        else if (k == "bd") a.bd = parse_u32();
+        else if (k == "simds") a.num_simdgroups = parse_u32();
         else throw std::runtime_error("Unknown FlashAttnAttr key: " + k);
+        if (check(TokKind::Comma)) consume();
+      }
+      expect(TokKind::RBrace, "'}'");
+      return a;
+    }
+
+    if (kind == OpKind::FusedLoss) {
+      LossAttr a;
+      while (!check(TokKind::RBrace)) {
+        const std::string k = expect(TokKind::Ident, "loss key").text;
+        expect(TokKind::Equals, "'='");
+        if (k == "kind") a.kind = parse_loss_kind(expect(TokKind::Ident, "loss kind").text);
+        else if (k == "margin") a.margin = static_cast<float>(parse_double());
+        else if (k == "beta") a.beta = static_cast<float>(parse_double());
+        else if (k == "eps") a.eps = static_cast<float>(parse_double());
+        else if (k == "stage") a.stage = static_cast<int32_t>(parse_i64());
+        else if (k == "tg_threads") a.tg_threads = parse_u32();
+        else throw std::runtime_error("Unknown LossAttr key: " + k);
         if (check(TokKind::Comma)) consume();
       }
       expect(TokKind::RBrace, "'}'");

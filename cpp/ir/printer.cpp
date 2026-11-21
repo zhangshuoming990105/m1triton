@@ -97,6 +97,24 @@ std::string_view norm_kind_name(NormKind k) {
   return "layer_norm";
 }
 
+std::string_view loss_kind_name(LossKind k) {
+  switch (k) {
+    case LossKind::MSE:
+      return "mse";
+    case LossKind::CrossEntropy:
+      return "cross_entropy";
+    case LossKind::Huber:
+      return "huber";
+    case LossKind::KLDiv:
+      return "kl_div";
+    case LossKind::TripletMargin:
+      return "triplet_margin";
+    case LossKind::Hinge:
+      return "hinge";
+  }
+  return "mse";
+}
+
 std::string_view barrier_scope_name(BarrierScope s) {
   switch (s) {
     case BarrierScope::Simdgroup:
@@ -380,16 +398,30 @@ class KernelPrinter {
         os_ << "]";
       };
       os_ << "ndim=" << ca->ndim << ", ";
+      print_vec("kernel_size", ca->kernel_size);
+      os_ << ", ";
       print_vec("stride", ca->stride);
       os_ << ", ";
       print_vec("padding", ca->padding);
       os_ << ", ";
       print_vec("dilation", ca->dilation);
+      os_ << ", ";
+      print_vec("output_padding", ca->output_padding);
       os_ << ", groups=" << ca->groups << ", transposed=" << (ca->transposed ? "true" : "false")
+          << ", has_bias=" << (ca->has_bias ? "true" : "false")
+          << ", depthwise=" << (ca->is_depthwise ? "true" : "false")
+          << ", pointwise=" << (ca->is_pointwise ? "true" : "false")
+          << ", sram_halo=" << (ca->use_sram_halo ? "true" : "false") << ", bm=" << ca->bm << ", bn=" << ca->bn
+          << ", bk=" << ca->bk << ", simds=" << ca->num_simdgroups
           << ", layout=" << tensor_layout_hint_name(ca->layout);
     } else if (const auto* fa = std::get_if<FlashAttnAttr>(&node.attr)) {
       os_ << "scale=" << format_double(fa->scale) << ", causal=" << (fa->causal ? "true" : "false")
-          << ", causal_offset=" << fa->causal_offset;
+          << ", causal_offset=" << fa->causal_offset << ", bm=" << fa->bm << ", bn=" << fa->bn << ", bd=" << fa->bd
+          << ", simds=" << fa->num_simdgroups;
+    } else if (const auto* la = std::get_if<LossAttr>(&node.attr)) {
+      os_ << "kind=" << loss_kind_name(la->kind) << ", margin=" << format_double(la->margin)
+          << ", beta=" << format_double(la->beta) << ", eps=" << format_double(la->eps) << ", stage=" << la->stage
+          << ", tg_threads=" << la->tg_threads;
     } else if (const auto* ta = std::get_if<ThreadgroupAllocAttr>(&node.attr)) {
       os_ << "elem=" << dtype_name(ta->elem) << ", shape=[";
       for (size_t i = 0; i < ta->shape.size(); ++i) {

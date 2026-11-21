@@ -28,10 +28,13 @@ target_compile_options(m1triton_ir PRIVATE -Wall -Wextra -Werror)
 add_library(m1triton_passes STATIC
   cpp/passes/canonicalize.cpp
   cpp/passes/contiguity_analysis.cpp
+  cpp/passes/conv_lowering.cpp
   cpp/passes/cse.cpp
   cpp/passes/dce.cpp
   cpp/passes/epilogue_fusion.cpp
+  cpp/passes/flash_attn_lowering.cpp
   cpp/passes/licm.cpp
+  cpp/passes/loss_lowering.cpp
   cpp/passes/online_softmax_welford.cpp
   cpp/passes/pass_manager.cpp
   cpp/passes/pool_lowering.cpp
@@ -45,6 +48,11 @@ target_link_libraries(m1triton_passes PUBLIC m1triton_ir)
 target_compile_options(m1triton_passes PRIVATE -Wall -Wextra -Werror)
 
 add_library(m1triton_codegen_metal STATIC
+  cpp/codegen/metal/conv_dw_emitter.cpp
+  cpp/codegen/metal/conv_std_emitter.cpp
+  cpp/codegen/metal/conv_transpose_emitter.cpp
+  cpp/codegen/metal/flash_attn_emitter.cpp
+  cpp/codegen/metal/loss_emitter.cpp
   cpp/codegen/metal/metal_codegen.cpp
   cpp/codegen/metal/norm_softmax_emitter.cpp
   cpp/codegen/metal/pool_emitter.cpp

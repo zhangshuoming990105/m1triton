@@ -555,6 +555,21 @@ OpId IRBuilder::emit_row_scan(ValueId x_ptr, ValueId out_ptr, ValueId num_rows, 
                            std::move(hints));
 }
 
+OpId IRBuilder::emit_implicit_gemm_conv(std::vector<ValueId> operands, ConvAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::ImplicitGemmConv, current_block_, std::move(operands), {}, std::move(attr),
+                           std::move(hints));
+}
+
+OpId IRBuilder::emit_fused_loss(std::vector<ValueId> operands, LossAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::FusedLoss, current_block_, std::move(operands), {}, std::move(attr),
+                           std::move(hints));
+}
+
+OpId IRBuilder::emit_flash_attention(std::vector<ValueId> operands, FlashAttnAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::FlashAttentionTile, current_block_, std::move(operands), {}, std::move(attr),
+                           std::move(hints));
+}
+
 ForLoopHandle IRBuilder::begin_for_loop(ValueId lo, ValueId hi, ValueId step,
                                         const std::vector<ValueId>& iter_inits) {
   const Type lo_ty = kernel_.value(lo).type;

@@ -147,6 +147,14 @@ void bind_ir_submodule(py::module_& m) {
       .value("L1Norm", ir::NormKind::L1Norm)
       .value("L2Norm", ir::NormKind::L2Norm);
 
+  py::enum_<ir::LossKind>(ir_m, "LossKind")
+      .value("MSE", ir::LossKind::MSE)
+      .value("CrossEntropy", ir::LossKind::CrossEntropy)
+      .value("Huber", ir::LossKind::Huber)
+      .value("KLDiv", ir::LossKind::KLDiv)
+      .value("TripletMargin", ir::LossKind::TripletMargin)
+      .value("Hinge", ir::LossKind::Hinge);
+
   py::enum_<ir::BarrierScope>(ir_m, "BarrierScope")
       .value("Simdgroup", ir::BarrierScope::Simdgroup)
       .value("Threadgroup", ir::BarrierScope::Threadgroup)
@@ -301,6 +309,48 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("tg_x", &ir::PoolAttr::tg_x)
       .def_readwrite("tg_y", &ir::PoolAttr::tg_y)
       .def("__eq__", [](const ir::PoolAttr& a, const ir::PoolAttr& b) { return a == b; });
+
+  py::class_<ir::ConvAttr>(ir_m, "ConvAttr")
+      .def(py::init<>())
+      .def_readwrite("ndim", &ir::ConvAttr::ndim)
+      .def_readwrite("kernel_size", &ir::ConvAttr::kernel_size)
+      .def_readwrite("stride", &ir::ConvAttr::stride)
+      .def_readwrite("padding", &ir::ConvAttr::padding)
+      .def_readwrite("dilation", &ir::ConvAttr::dilation)
+      .def_readwrite("output_padding", &ir::ConvAttr::output_padding)
+      .def_readwrite("groups", &ir::ConvAttr::groups)
+      .def_readwrite("transposed", &ir::ConvAttr::transposed)
+      .def_readwrite("has_bias", &ir::ConvAttr::has_bias)
+      .def_readwrite("is_depthwise", &ir::ConvAttr::is_depthwise)
+      .def_readwrite("is_pointwise", &ir::ConvAttr::is_pointwise)
+      .def_readwrite("use_sram_halo", &ir::ConvAttr::use_sram_halo)
+      .def_readwrite("bm", &ir::ConvAttr::bm)
+      .def_readwrite("bn", &ir::ConvAttr::bn)
+      .def_readwrite("bk", &ir::ConvAttr::bk)
+      .def_readwrite("num_simdgroups", &ir::ConvAttr::num_simdgroups)
+      .def_readwrite("layout", &ir::ConvAttr::layout)
+      .def("__eq__", [](const ir::ConvAttr& a, const ir::ConvAttr& b) { return a == b; });
+
+  py::class_<ir::FlashAttnAttr>(ir_m, "FlashAttnAttr")
+      .def(py::init<>())
+      .def_readwrite("scale", &ir::FlashAttnAttr::scale)
+      .def_readwrite("causal", &ir::FlashAttnAttr::causal)
+      .def_readwrite("causal_offset", &ir::FlashAttnAttr::causal_offset)
+      .def_readwrite("bm", &ir::FlashAttnAttr::bm)
+      .def_readwrite("bn", &ir::FlashAttnAttr::bn)
+      .def_readwrite("bd", &ir::FlashAttnAttr::bd)
+      .def_readwrite("num_simdgroups", &ir::FlashAttnAttr::num_simdgroups)
+      .def("__eq__", [](const ir::FlashAttnAttr& a, const ir::FlashAttnAttr& b) { return a == b; });
+
+  py::class_<ir::LossAttr>(ir_m, "LossAttr")
+      .def(py::init<>())
+      .def_readwrite("kind", &ir::LossAttr::kind)
+      .def_readwrite("margin", &ir::LossAttr::margin)
+      .def_readwrite("beta", &ir::LossAttr::beta)
+      .def_readwrite("eps", &ir::LossAttr::eps)
+      .def_readwrite("stage", &ir::LossAttr::stage)
+      .def_readwrite("tg_threads", &ir::LossAttr::tg_threads)
+      .def("__eq__", [](const ir::LossAttr& a, const ir::LossAttr& b) { return a == b; });
 
   py::class_<ir::TileType>(ir_m, "TileType")
       .def(py::init<>())
@@ -512,6 +562,21 @@ void bind_ir_submodule(py::module_& m) {
            py::arg("row_len"),
            py::arg("attr") = ir::ScanAttr{},
            py::arg("mask_ptr") = ir::kInvalidId,
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_implicit_gemm_conv",
+           &ir::IRBuilder::emit_implicit_gemm_conv,
+           py::arg("operands"),
+           py::arg("attr") = ir::ConvAttr{},
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_fused_loss",
+           &ir::IRBuilder::emit_fused_loss,
+           py::arg("operands"),
+           py::arg("attr") = ir::LossAttr{},
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_flash_attention",
+           &ir::IRBuilder::emit_flash_attention,
+           py::arg("operands"),
+           py::arg("attr") = ir::FlashAttnAttr{},
            py::arg("hints") = ir::OpHints{})
       .def("begin_for_loop",
            &ir::IRBuilder::begin_for_loop,

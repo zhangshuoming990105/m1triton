@@ -168,6 +168,8 @@ std::string_view op_kind_name(OpKind kind) {
       return "flash_attention_tile";
     case OpKind::Pool:
       return "pool";
+    case OpKind::FusedLoss:
+      return "fused_loss";
     case OpKind::ThreadgroupAlloc:
       return "threadgroup_alloc";
     case OpKind::ThreadgroupStage:
@@ -193,10 +195,13 @@ bool is_pure_op(OpKind kind) {
     case OpKind::If:
     case OpKind::Yield:
     case OpKind::Return:
+    case OpKind::ImplicitGemmConv:
     case OpKind::ImplicitGemmLoad:
+    case OpKind::FlashAttentionTile:
     case OpKind::OnlineSoftmax:
     case OpKind::WelfordReduce:
     case OpKind::Pool:
+    case OpKind::FusedLoss:
     case OpKind::SimdScan:
     case OpKind::ThreadgroupAlloc:
     case OpKind::ThreadgroupStage:

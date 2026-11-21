@@ -70,6 +70,9 @@ class IRBuilder {
   OpId emit_pool(std::vector<ValueId> operands, PoolAttr attr = {}, OpHints hints = {});
   OpId emit_row_scan(ValueId x_ptr, ValueId out_ptr, ValueId num_rows, ValueId row_len, ScanAttr attr = {},
                      ValueId mask_ptr = kInvalidId, OpHints hints = {});
+  OpId emit_implicit_gemm_conv(std::vector<ValueId> operands, ConvAttr attr = {}, OpHints hints = {});
+  OpId emit_fused_loss(std::vector<ValueId> operands, LossAttr attr = {}, OpHints hints = {});
+  OpId emit_flash_attention(std::vector<ValueId> operands, FlashAttnAttr attr = {}, OpHints hints = {});
 
   ForLoopHandle begin_for_loop(ValueId lo, ValueId hi, ValueId step, const std::vector<ValueId>& iter_inits);
   void end_for_loop(const ForLoopHandle& handle, const std::vector<ValueId>& yield_vals, BlockId resume_block);

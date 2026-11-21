@@ -1,5 +1,10 @@
 #include "codegen/metal/metal_codegen.hpp"
 
+#include "codegen/metal/conv_dw_emitter.hpp"
+#include "codegen/metal/conv_std_emitter.hpp"
+#include "codegen/metal/conv_transpose_emitter.hpp"
+#include "codegen/metal/flash_attn_emitter.hpp"
+#include "codegen/metal/loss_emitter.hpp"
 #include "codegen/metal/norm_softmax_emitter.hpp"
 #include "codegen/metal/pool_emitter.hpp"
 #include "codegen/metal/reduce_scan_emitter.hpp"
@@ -469,6 +474,11 @@ struct KernelAnalysis {
   bool has_norm_softmax = false;
   bool has_pool = false;
   bool has_row_scan = false;
+  bool has_conv_std = false;
+  bool has_conv_transpose = false;
+  bool has_conv_dw = false;
+  bool has_loss = false;
+  bool has_flash_attn = false;
   bool has_tile_cf = false;
   bool has_tile_reshape_or_permute = false;
   int64_t block_size_1d = 0;
@@ -772,6 +782,37 @@ bool analyze_kernel(const Kernel& kernel, KernelAnalysis& out, std::string& err)
         out.has_row_scan = true;
         if (op.operands.size() >= 2) {
           auto it = out.ptr_origins.find(op.operands[1]);
+          if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+        }
+      }
+      if (op.kind == OpKind::ImplicitGemmConv && std::holds_alternative<ir::ConvAttr>(op.attr)) {
+        const auto& ca = std::get<ir::ConvAttr>(op.attr);
+        if (ca.transposed) {
+          out.has_conv_transpose = true;
+        } else if (ca.is_depthwise) {
+          out.has_conv_dw = true;
+        } else {
+          out.has_conv_std = true;
+        }
+        if (op.operands.size() >= 3) {
+          auto it = out.ptr_origins.find(op.operands[2]);
+          if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+        }
+      }
+      if (op.kind == OpKind::FusedLoss && std::holds_alternative<ir::LossAttr>(op.attr)) {
+        out.has_loss = true;
+        const auto& la = std::get<ir::LossAttr>(op.attr);
+        const size_t out_op_idx =
+            (la.stage == 2) ? 1 : (la.kind == ir::LossKind::TripletMargin ? 3 : 2);
+        if (op.operands.size() > out_op_idx) {
+          auto it = out.ptr_origins.find(op.operands[out_op_idx]);
+          if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+        }
+      }
+      if (op.kind == OpKind::FlashAttentionTile) {
+        out.has_flash_attn = true;
+        if (op.operands.size() >= 4) {
+          auto it = out.ptr_origins.find(op.operands[3]);
           if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
         }
       }
@@ -3216,6 +3257,46 @@ CompiledMSL MetalCodegen::emit(const ir::Kernel& kernel, const ir::TargetSpec& t
     auto scan_res = try_emit_row_scan_kernel(kernel, target, &matched);
     if (matched) {
       return scan_res;
+    }
+  }
+
+  if (analysis.has_conv_std) {
+    bool matched = false;
+    auto conv_res = try_emit_conv_std_kernel(kernel, target, &matched);
+    if (matched) {
+      return conv_res;
+    }
+  }
+
+  if (analysis.has_conv_transpose) {
+    bool matched = false;
+    auto conv_res = try_emit_conv_transpose_kernel(kernel, target, &matched);
+    if (matched) {
+      return conv_res;
+    }
+  }
+
+  if (analysis.has_conv_dw) {
+    bool matched = false;
+    auto conv_res = try_emit_conv_dw_kernel(kernel, target, &matched);
+    if (matched) {
+      return conv_res;
+    }
+  }
+
+  if (analysis.has_loss) {
+    bool matched = false;
+    auto loss_res = try_emit_loss_kernel(kernel, target, &matched);
+    if (matched) {
+      return loss_res;
+    }
+  }
+
+  if (analysis.has_flash_attn) {
+    bool matched = false;
+    auto fa_res = try_emit_flash_attn_kernel(kernel, target, &matched);
+    if (matched) {
+      return fa_res;
     }
   }
 

@@ -1707,6 +1707,82 @@ class _ASTIRLowerer(ast.NodeVisitor):
             self.builder.emit_row_scan(x_ptr.vid, out_ptr.vid, num_rows.vid, row_len.vid, attr, mask_vid, self.kernel.hints)
             return None
 
+        if name == "implicit_gemm_conv":
+            if len(args) < 6:
+                raise ValueError("tlx.implicit_gemm_conv requires (x_ptr, w_ptr, out_ptr, [bias_ptr,] dims...)")
+            ssa_ops = [self._materialize_ssa(v) for v in args]
+            for pidx in ssa_ops[2].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            ndim = int(_unwrap_const(kwargs.get("ndim", 2)))
+            def _conv_vec(v: Any, default_val: int) -> list[int]:
+                u = _unwrap_const(v)
+                if u is None:
+                    return [default_val] * ndim
+                if isinstance(u, int):
+                    return [int(u)] * ndim
+                return [int(_unwrap_const(e)) for e in u]
+            attr = ir.ConvAttr()
+            attr.ndim = ndim
+            attr.kernel_size = _conv_vec(kwargs.get("kernel_size", 3), 3)
+            attr.stride = _conv_vec(kwargs.get("stride", 1), 1)
+            attr.padding = _conv_vec(kwargs.get("padding", 0), 0)
+            attr.dilation = _conv_vec(kwargs.get("dilation", 1), 1)
+            attr.output_padding = _conv_vec(kwargs.get("output_padding", 0), 0)
+            attr.groups = int(_unwrap_const(kwargs.get("groups", 1)))
+            attr.transposed = bool(_unwrap_const(kwargs.get("transposed", False)))
+            attr.has_bias = bool(_unwrap_const(kwargs.get("has_bias", False)))
+            attr.is_depthwise = bool(_unwrap_const(kwargs.get("is_depthwise", False)))
+            attr.is_pointwise = bool(_unwrap_const(kwargs.get("is_pointwise", False)))
+            attr.layout = _parse_layout_hint(str(_unwrap_const(kwargs.get("layout", "nchw"))))
+            self.builder.emit_implicit_gemm_conv([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "fused_loss":
+            kind_str = str(_unwrap_const(args[0] if len(args) > 0 else kwargs["kind"])).strip().lower()
+            raw_ops = list(args[1:]) if len(args) > 1 else list(kwargs.get("operands", ()))
+            if len(raw_ops) < 4:
+                raise ValueError("tlx.fused_loss requires at least 4 operands after kind")
+            ssa_ops = [self._materialize_ssa(v) for v in raw_ops]
+            kind_map = {
+                "mse": ir.LossKind.MSE,
+                "cross_entropy": ir.LossKind.CrossEntropy,
+                "ce": ir.LossKind.CrossEntropy,
+                "huber": ir.LossKind.Huber,
+                "smooth_l1": ir.LossKind.Huber,
+                "kl_div": ir.LossKind.KLDiv,
+                "kldiv": ir.LossKind.KLDiv,
+                "triplet_margin": ir.LossKind.TripletMargin,
+                "triplet": ir.LossKind.TripletMargin,
+                "hinge": ir.LossKind.Hinge,
+            }
+            if kind_str not in kind_map:
+                raise ValueError(f"Unknown tlx.fused_loss kind: {kind_str!r}")
+            stage = int(_unwrap_const(kwargs.get("stage", 1)))
+            out_idx = 1 if stage == 2 else (3 if kind_map[kind_str] == ir.LossKind.TripletMargin else 2)
+            for pidx in ssa_ops[out_idx].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            attr = ir.LossAttr()
+            attr.kind = kind_map[kind_str]
+            attr.margin = float(_unwrap_const(kwargs.get("margin", 1.0)))
+            attr.beta = float(_unwrap_const(kwargs.get("beta", 1.0)))
+            attr.eps = float(_unwrap_const(kwargs.get("eps", 1e-6)))
+            attr.stage = stage
+            self.builder.emit_fused_loss([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "flash_attention_tile":
+            if len(args) < 8:
+                raise ValueError("tlx.flash_attention_tile requires (q_ptr, k_ptr, v_ptr, out_ptr, BH, L_q, L_kv, D)")
+            ssa_ops = [self._materialize_ssa(v) for v in args[:8]]
+            for pidx in ssa_ops[3].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            attr = ir.FlashAttnAttr()
+            attr.scale = float(_unwrap_const(kwargs.get("scale", 1.0)))
+            attr.causal = bool(_unwrap_const(kwargs.get("causal", False)))
+            attr.causal_offset = int(_unwrap_const(kwargs.get("causal_offset", 0)))
+            self.builder.emit_flash_attention([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
         if name == "simd_scan":
             x = self._materialize_ssa(args[0] if args else kwargs["x"])
             op = str(kwargs.get("op", "add")).lower()
