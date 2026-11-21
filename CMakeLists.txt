@@ -140,3 +140,28 @@ add_executable(test_row_scan_emitter tests/cpp/test_row_scan_emitter.cpp)
 target_link_libraries(test_row_scan_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
 target_compile_options(test_row_scan_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME test_row_scan_emitter COMMAND test_row_scan_emitter)
+
+add_executable(test_conv_std_emitter tests/cpp/test_conv_std_emitter.cpp)
+target_link_libraries(test_conv_std_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_conv_std_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_conv_std_emitter COMMAND test_conv_std_emitter)
+
+add_executable(test_conv_transpose_emitter tests/cpp/test_conv_transpose_emitter.cpp)
+target_link_libraries(test_conv_transpose_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_conv_transpose_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_conv_transpose_emitter COMMAND test_conv_transpose_emitter)
+
+add_executable(test_conv_dw_emitter tests/cpp/test_conv_dw_emitter.cpp)
+target_link_libraries(test_conv_dw_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_conv_dw_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_conv_dw_emitter COMMAND test_conv_dw_emitter)
+
+add_executable(test_loss_emitter tests/cpp/test_loss_emitter.cpp)
+target_link_libraries(test_loss_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_loss_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_loss_emitter COMMAND test_loss_emitter)
+
+add_executable(test_flash_attn_emitter tests/cpp/test_flash_attn_emitter.cpp)
+target_link_libraries(test_flash_attn_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_flash_attn_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_flash_attn_emitter COMMAND test_flash_attn_emitter)
