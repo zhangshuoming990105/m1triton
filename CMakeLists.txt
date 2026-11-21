@@ -112,3 +112,23 @@ add_executable(test_reduce_scan_emitter tests/cpp/test_reduce_scan_emitter.cpp)
 target_link_libraries(test_reduce_scan_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
 target_compile_options(test_reduce_scan_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME test_reduce_scan_emitter COMMAND test_reduce_scan_emitter)
+
+add_executable(test_m3_epilogue tests/cpp/test_m3_epilogue.cpp)
+target_link_libraries(test_m3_epilogue PRIVATE m1triton_passes m1triton_ir)
+target_compile_options(test_m3_epilogue PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_m3_epilogue COMMAND test_m3_epilogue)
+
+add_executable(test_norm_softmax_emitter tests/cpp/test_norm_softmax_emitter.cpp)
+target_link_libraries(test_norm_softmax_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_norm_softmax_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_norm_softmax_emitter COMMAND test_norm_softmax_emitter)
+
+add_executable(test_pool_emitter tests/cpp/test_pool_emitter.cpp)
+target_link_libraries(test_pool_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_pool_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_pool_emitter COMMAND test_pool_emitter)
+
+add_executable(test_row_scan_emitter tests/cpp/test_row_scan_emitter.cpp)
+target_link_libraries(test_row_scan_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_row_scan_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_row_scan_emitter COMMAND test_row_scan_emitter)

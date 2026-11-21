@@ -243,6 +243,32 @@ bool is_vectorizable_pointee(ScalarDType dt) {
   return dt == ScalarDType::F32 || dt == ScalarDType::F16 || dt == ScalarDType::I32 || dt == ScalarDType::U32;
 }
 
+bool is_ptr_aligned_for_vec(const Kernel& k, ValueId v, uint32_t req_bytes, int depth = 0) {
+  if (depth > 32) return false;
+  const Value& val = k.value(v);
+  if (val.def_block == k.entry_block) {
+    uint32_t non_ce = 0;
+    for (const auto& p : k.params) {
+      if (p.is_constexpr) continue;
+      if (non_ce == val.arg_idx) {
+        return p.divisibility >= req_bytes && (p.divisibility % req_bytes) == 0;
+      }
+      ++non_ce;
+    }
+    if (val.arg_idx < k.params.size()) {
+      const uint32_t div = k.params[val.arg_idx].divisibility;
+      return div >= req_bytes && (div % req_bytes) == 0;
+    }
+    return false;
+  }
+  const Op* op = defining_op(k, v);
+  if (op == nullptr) return false;
+  if (op->kind == OpKind::Splat || op->kind == OpKind::Broadcast || op->kind == OpKind::PtrAdd) {
+    return is_ptr_aligned_for_vec(k, op->operands[0], req_bytes, depth + 1);
+  }
+  return false;
+}
+
 bool is_elementwise_op(OpKind kind) {
   switch (kind) {
     case OpKind::Constant:
@@ -281,7 +307,9 @@ bool propagate_vec_width(Kernel& k, const TargetSpec& target) {
     if (block_len != 0 && block_len != shape[0]) return false;
     block_len = shape[0];
     const ScalarDType pointee = ptr_ty.ptr_elem().pointee;
-    if (!is_vectorizable_pointee(pointee) || dtype_bytes(pointee) * 4 > target.vector_bytes) return false;
+    const uint32_t vec_bytes = dtype_bytes(pointee) * 4;
+    if (!is_vectorizable_pointee(pointee) || vec_bytes > target.vector_bytes) return false;
+    if (!is_ptr_aligned_for_vec(k, node->operands[0], vec_bytes)) return false;
     if (classify_stride(k, node->operands[0]) != Stride::Unit) return false;
     mem_ops.push_back(node->id);
   }
