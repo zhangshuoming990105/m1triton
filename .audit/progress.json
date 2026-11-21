@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "goalFile": "GOAL.md",
   "createdAt": "2026-11-21T08:52:55.075Z",
-  "updatedAt": "2026-11-21T13:14:12.536Z",
+  "updatedAt": "2026-11-21T14:44:35.189780Z",
   "milestones": [
     {
       "id": "M0",
@@ -47,24 +47,26 @@
     {
       "id": "M5",
       "title": "Convolution compiler lowering & microkernels (#50, #54-#87, 35 tasks)",
-      "status": "in_progress",
-      "evidence": "",
+      "status": "verified",
+      "evidence": "ci_local.sh green (15/15 CTest -UNDEBUG, 52/52 pytest), 35/35 M5 conv tasks (#50,#54-#87) passed 3-seed full-size MPS verify (21 beats baseline; #77 12.77x, #72 11.54x, #67 11.20x, #66 8.51x, #60 7.89x, #73 7.19x, #59 6.17x, #87 1.98x), slop-critic pro audit resolved, frozen spot pass, merge d452766",
       "note": "",
-      "updatedAt": "2026-11-21T13:14:12.535Z"
+      "updatedAt": "2026-11-21T14:44:35.189780Z"
     },
     {
       "id": "M6",
       "title": "Fused losses & FlashAttention-M1 (#94-#100, 7 tasks) -> 100/100 coverage",
-      "status": "todo",
-      "evidence": "",
-      "note": ""
+      "status": "verified",
+      "evidence": "ci_local.sh green (15/15 CTest, 52/52 pytest), 7/7 M6 tasks (#94-#100) passed 3-seed full-size MPS verify (#100 15.99x, #98 4.88x, #99 3.71x, #94 2.64x, #95 1.87x, #97 FlashAttention-M1 5.96e-7 err), M5+M6 combined 42/42 passed (26 beats, geomean 1.8476x), frozen 10-task spot 10/10 passed (geomean 2.6789x), cumulative 100/100 KB L1 coverage achieved, merge d452766",
+      "note": "",
+      "updatedAt": "2026-11-21T14:44:35.189780Z"
     },
     {
       "id": "M7",
       "title": "Compiler-DSL co-design performance sprint (research-lab hillclimb)",
-      "status": "todo",
+      "status": "in_progress",
       "evidence": "",
-      "note": ""
+      "note": "",
+      "updatedAt": "2026-11-21T14:44:35.189780Z"
     },
     {
       "id": "M8",
@@ -75,19 +77,19 @@
     }
   ],
   "scoreboard": {
-    "passed": 58,
+    "passed": 100,
     "total": 100,
-    "beatsBaseline": 35,
-    "geomeanSpeedup": 1.4898,
-    "artifact": ".audit/preflight_m3_m4.json",
-    "updatedAt": "2026-11-21T13:14:12.451Z"
+    "beatsBaseline": 61,
+    "geomeanSpeedup": 1.631,
+    "artifact": ".audit/preflight_m5_m6.json",
+    "updatedAt": "2026-11-21T14:44:35.189780Z"
   },
   "milestonesSinceHygiene": 0,
   "lastCheckpoint": {
-    "ts": "2026-11-21T13:14:12.495Z",
-    "commit": "71f40a0",
-    "summary": "M3+M4 verified & merged + M2-M4 hygiene-clean checkpoint: 58/100 KB L1 passing (35 beats baseline, ~1.49x geomean), all slop-critic pro findings resolved, docs synced",
-    "next": "Launch M5 (35 conv tasks) & M6 (6 losses + FlashAttention-M1 #97) shared IR contract + heterogeneous multi-agent swarm -> 100/100",
+    "ts": "2026-11-21T14:44:35.189780Z",
+    "commit": "d452766",
+    "summary": "M5+M6 verified & merged + M5-M6 hygiene-clean checkpoint: 100/100 KB L1 passing (61 beats baseline, ~1.631x geomean), all 6 slop-critic pro findings resolved with regressions, 10-task frozen spot 10/10 pass (2.68x), docs synced",
+    "next": "M7 Compiler-DSL Co-Design Performance Sprint via research-lab: push 61/100 -> >=85/100 beats baseline & geomean >2.0x while preserving 100/100 correctness",
     "hygieneClean": true
   },
   "checkpoints": [
@@ -117,6 +119,13 @@
       "commit": "71f40a0",
       "summary": "M3+M4 verified & merged + M2-M4 hygiene-clean checkpoint: 58/100 KB L1 passing (35 beats baseline, ~1.49x geomean), all slop-critic pro findings resolved, docs synced",
       "next": "Launch M5 (35 conv tasks) & M6 (6 losses + FlashAttention-M1 #97) shared IR contract + heterogeneous multi-agent swarm -> 100/100",
+      "hygieneClean": true
+    },
+    {
+      "ts": "2026-11-21T14:44:35.189780Z",
+      "commit": "d452766",
+      "summary": "M5+M6 verified & merged + M5-M6 hygiene-clean checkpoint: 100/100 KB L1 passing (61 beats baseline, ~1.631x geomean), all 6 slop-critic pro findings resolved with regressions, 10-task frozen spot 10/10 pass (2.68x), docs synced",
+      "next": "M7 Compiler-DSL Co-Design Performance Sprint via research-lab: push 61/100 -> >=85/100 beats baseline & geomean >2.0x while preserving 100/100 correctness",
       "hygieneClean": true
     }
   ]
