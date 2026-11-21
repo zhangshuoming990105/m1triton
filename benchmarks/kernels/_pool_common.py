@@ -69,6 +69,8 @@ def pool2d_kernel(
     CEIL_MODE: tl.constexpr,
     BLOCK_W: tl.constexpr,
     BLOCK_H: tl.constexpr,
+    VEC_W: tl.constexpr = 1,
+    ROWS_PER_THREAD: tl.constexpr = 0,
 ):
     tlx.pool(
         x_ptr,
@@ -166,12 +168,29 @@ def pool_output_size(size: int, k: int, s: int, p: int, d: int, ceil_mode: bool)
     return out
 
 
-def _block_shape(ndim: int, use_halo: bool) -> tuple[int, int]:
+def _block_shape(
+    ndim: int,
+    kind: str,
+    k: tuple[int, ...],
+    s: tuple[int, ...],
+    d: tuple[int, ...],
+    spatial_out: list[int],
+    use_halo: bool,
+) -> tuple[int, int, int, int]:
     if ndim == 1:
-        return (1024 if use_halo else 256), 1
+        return (1024 if use_halo else 256), 1, 1, 0
     if ndim == 2:
-        return 32, 32
-    return 32, 8
+        if kind == "max" and s == (1, 1) and d == (1, 1) and k[0] <= 8 and k[1] <= 8:
+            h_out = spatial_out[0]
+            if h_out >= 64:
+                return 128, 64, 4, 16
+            if h_out >= 32:
+                return 128, 32, 4, 8
+            return 128, 16, 4, 4
+        if d[1] == 1 and s[1] >= k[1] and k[1] in (2, 4):
+            return 32, 8, 4, 0
+        return 32, 32, 1, 0
+    return 32, 8, 1, 0
 
 
 def pool_nd(
@@ -206,7 +225,7 @@ def pool_nd(
         return out
 
     use_halo = ndim == 1 and s[0] == 1
-    block_w, block_h = _block_shape(ndim, use_halo)
+    block_w, block_h, vec_w, rows_per_thread = _block_shape(ndim, kind, k, s, d, spatial_out, use_halo)
     w_out = spatial_out[-1]
     h_out = spatial_out[-2] if ndim >= 2 else 1
     d_out = spatial_out[-3] if ndim == 3 else 1
@@ -227,7 +246,7 @@ def pool_nd(
         pool2d_kernel[grid](
             x_c, out, n, c, spatial_in[0], spatial_in[1], spatial_out[0], spatial_out[1],
             K_H=k[0], K_W=k[1], S_H=s[0], S_W=s[1], P_H=p[0], P_W=p[1], D_H=d[0], D_W=d[1],
-            BLOCK_H=block_h, **common,
+            BLOCK_H=block_h, VEC_W=vec_w, ROWS_PER_THREAD=rows_per_thread, **common,
         )
     else:
         pool3d_kernel[grid](

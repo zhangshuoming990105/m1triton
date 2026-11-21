@@ -71,5 +71,6 @@ class ModelNew(nn.Module):
             stride=self.stride,
             padding=self.padding,
             dilation=self.dilation,
+            wait=False,
         )
         return pointwise_conv2d(mid, self.pw_weight.detach(), pw_bias)

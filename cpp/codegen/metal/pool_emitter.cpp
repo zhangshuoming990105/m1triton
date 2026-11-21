@@ -23,6 +23,9 @@ using ir::ValueId;
 
 constexpr const char* kBlockWParam = "BLOCK_W";
 constexpr const char* kBlockHParam = "BLOCK_H";
+constexpr const char* kVecWParam = "VEC_W";
+constexpr const char* kRowsPerThreadParam = "ROWS_PER_THREAD";
+constexpr int32_t kMaxRegSwKernel = 8;
 
 std::string msl_scalar(ScalarDType dt) {
   switch (dt) {
@@ -65,6 +68,9 @@ struct PoolPlan {
   uint32_t ty = 1;
   uint32_t bw = 1;
   uint32_t bh = 1;
+  uint32_t rh = 1;
+  bool reg_sw = false;
+  bool vec_direct = false;
   bool sram = false;
   int64_t smem_w = 0;
   int64_t smem_h = 0;
@@ -199,6 +205,40 @@ std::optional<PoolPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
   const uint32_t tg_y = nd == 1 ? 1u : (pa->tg_y > 0 ? pa->tg_y : 16u);
   plan.bw = static_cast<uint32_t>(constexpr_param(kernel, kBlockWParam, tg_x));
   plan.bh = nd == 1 ? 1u : static_cast<uint32_t>(constexpr_param(kernel, kBlockHParam, tg_y));
+  const int64_t vec_w = constexpr_param(kernel, kVecWParam, 0);
+  const int64_t rh_hint = constexpr_param(kernel, kRowsPerThreadParam, 0);
+
+  if (nd == 2 && plan.attr.kind == PoolKind::Max && (vec_w == 4 || plan.bw >= 128) &&
+      plan.dims[1].s == 1 && plan.dims[2].s == 1 && plan.dims[1].d == 1 && plan.dims[2].d == 1 &&
+      plan.dims[1].k <= kMaxRegSwKernel && plan.dims[2].k <= kMaxRegSwKernel &&
+      plan.bw >= 4 && plan.bw <= 128 && (plan.bw % 4 == 0)) {
+    const uint32_t tx = plan.bw / 4;
+    uint32_t rh = rh_hint > 0 ? static_cast<uint32_t>(rh_hint)
+                              : (plan.bh >= 64 ? 16u : (plan.bh >= 32 ? 8u : (plan.bh >= 8 ? 4u : 1u)));
+    rh = std::max<uint32_t>(1u, std::min(rh, plan.bh));
+    while (plan.bh % rh != 0) --rh;
+    const uint32_t ty = plan.bh / rh;
+    if (tx * ty <= target.max_threads_per_threadgroup) {
+      plan.reg_sw = true;
+      plan.tx = tx;
+      plan.ty = ty;
+      plan.rh = rh;
+      return plan;
+    }
+  }
+
+  if (nd == 2 && plan.dims[2].d == 1 && plan.dims[2].s >= plan.dims[2].k &&
+      (plan.dims[2].k == 2 || plan.dims[2].k == 4) && (vec_w == 4 || plan.bw >= 64)) {
+    const uint32_t tx = fit_divisor(32u, plan.bw);
+    const uint32_t ty = fit_divisor(8u, plan.bh);
+    if (tx * ty <= target.max_threads_per_threadgroup) {
+      plan.vec_direct = true;
+      plan.tx = tx;
+      plan.ty = ty;
+      return plan;
+    }
+  }
+
   plan.tx = fit_divisor(tg_x, plan.bw);
   plan.ty = fit_divisor(tg_y, plan.bh);
   if (plan.tx * plan.ty > target.max_threads_per_threadgroup) {
@@ -221,7 +261,11 @@ class PoolWriter {
   std::string emit() {
     emit_signature();
     emit_prologue();
-    if (plan_.sram) {
+    if (plan_.reg_sw) {
+      emit_reg_sw_max_body();
+    } else if (plan_.vec_direct) {
+      emit_vec_direct_body();
+    } else if (plan_.sram) {
       emit_sram_body();
     } else {
       emit_direct_body();
@@ -235,10 +279,37 @@ class PoolWriter {
   const PoolDim& H() const { return plan_.dims[1]; }
   const PoolDim& W() const { return plan_.dims[2]; }
   bool is_max() const { return plan_.attr.kind == PoolKind::Max; }
+  bool is_f16() const { return plan_.elem == "half"; }
   std::string pad_value() const { return is_max() ? "-INFINITY" : "0.0f"; }
+
+  std::string load_v4_expr(const std::string& ptr) const {
+    if (is_f16()) return "float4(half4(*(device const packed_half4*)(" + ptr + ")))";
+    return "float4(*(device const packed_float4*)(" + ptr + "))";
+  }
+
+  std::string load_v2_expr(const std::string& ptr) const {
+    if (is_f16()) return "float2(half2(*(device const packed_half2*)(" + ptr + ")))";
+    return "float2(*(device const packed_float2*)(" + ptr + "))";
+  }
+
+  std::string store_v4_expr(const std::string& val) const {
+    if (is_f16()) return "packed_half4(half4(" + val + "))";
+    return "packed_float4(" + val + ")";
+  }
+
+  std::string packed4_type() const { return is_f16() ? "packed_half4" : "packed_float4"; }
 
   void emit_signature() {
     os_ << "#include <metal_stdlib>\nusing namespace metal;\n\n";
+    if (plan_.reg_sw) {
+      os_ << "static inline float4 m1_max4(float4 a, float4 b) {\n";
+      os_ << "  return select(b, a, (a > b) || isnan(a));\n";
+      os_ << "}\n\n";
+    } else if (plan_.vec_direct && is_max()) {
+      os_ << "static inline float m1_max1(float a, float b) {\n";
+      os_ << "  return (a > b || isnan(a)) ? a : b;\n";
+      os_ << "}\n\n";
+    }
     os_ << "kernel void " << kernel_.name << "(\n";
     uint32_t slot = 0;
     for (const auto& kp : kernel_.params) {
@@ -348,6 +419,275 @@ class PoolWriter {
     os_ << "    }\n  }\n";
   }
 
+  void emit_reg_sw_row_hmax_fast(const std::string& dst, const std::string& ptr_expr, const std::string& ind) {
+    const int kw = W().k;
+    const int nw = 4 + kw - 1;
+    if (kw == 4) {
+      os_ << ind << "float4 " << dst << ";\n";
+      os_ << ind << "{\n";
+      os_ << ind << "  const float4 m1_v0 = " << load_v4_expr(ptr_expr) << ";\n";
+      os_ << ind << "  const float4 m1_v1 = " << load_v4_expr(ptr_expr + " + 3") << ";\n";
+      os_ << ind << "  const float4 m1_m0 = m1_max4(m1_v0, float4(m1_v0.yzw, m1_v1.y));\n";
+      os_ << ind << "  const float4 m1_m1 = m1_max4(float4(m1_v0.zw, m1_v1.yz), m1_v1);\n";
+      os_ << ind << "  " << dst << " = m1_max4(m1_m0, m1_m1);\n";
+      os_ << ind << "}\n";
+      return;
+    }
+    os_ << ind << "float4 " << dst << ";\n";
+    os_ << ind << "{\n";
+    os_ << ind << "  float m1_r[" << nw << "];\n";
+    int j = 0;
+    for (; j + 4 <= nw; j += 4) {
+      const std::string ptr = j == 0 ? ptr_expr : (ptr_expr + " + " + std::to_string(j));
+      os_ << ind << "  { const float4 m1_v = " << load_v4_expr(ptr) << ";\n";
+      os_ << ind << "    m1_r[" << j << "] = m1_v.x; m1_r[" << (j + 1) << "] = m1_v.y; m1_r[" << (j + 2)
+          << "] = m1_v.z; m1_r[" << (j + 3) << "] = m1_v.w; }\n";
+    }
+    if (j + 2 <= nw) {
+      const std::string ptr = j == 0 ? ptr_expr : (ptr_expr + " + " + std::to_string(j));
+      os_ << ind << "  { const float2 m1_v = " << load_v2_expr(ptr) << ";\n";
+      os_ << ind << "    m1_r[" << j << "] = m1_v.x; m1_r[" << (j + 1) << "] = m1_v.y; }\n";
+      j += 2;
+    }
+    if (j < nw) {
+      os_ << ind << "  m1_r[" << j << "] = (float)(" << ptr_expr << ")[" << j << "];\n";
+    }
+    os_ << ind << "  " << dst << " = float4(m1_r[0], m1_r[1], m1_r[2], m1_r[3]);\n";
+    for (int c = 1; c < kw; ++c) {
+      os_ << ind << "  " << dst << " = m1_max4(" << dst << ", float4(m1_r[" << c << "], m1_r[" << (c + 1)
+          << "], m1_r[" << (c + 2) << "], m1_r[" << (c + 3) << "]));\n";
+    }
+    os_ << ind << "}\n";
+  }
+
+  void emit_reg_sw_row_hmax(const std::string& dst, const std::string& ih_expr, const std::string& ind) {
+    const int kw = W().k;
+    const int nw = 4 + kw - 1;
+    const bool check_ih = (H().p > 0) || plan_.attr.ceil_mode;
+    os_ << ind << "float4 " << dst << " = float4(-INFINITY);\n";
+    if (check_ih) {
+      os_ << ind << "if ((" << ih_expr << ") >= 0 && (" << ih_expr << ") < m1_Hin) {\n";
+    }
+    const std::string bi = check_ih ? (ind + "  ") : ind;
+    os_ << bi << "device const " << plan_.elem << "* m1_rp = m1_xb + (" << ih_expr << ") * m1_Win;\n";
+    os_ << bi << "if (m1_x_in) {\n";
+    os_ << bi << "  device const " << plan_.elem << "* m1_rs = m1_rp + m1_iw0;\n";
+    if (kw == 4) {
+      os_ << bi << "  const float4 m1_v0 = " << load_v4_expr("m1_rs") << ";\n";
+      os_ << bi << "  const float4 m1_v1 = " << load_v4_expr("m1_rs + 3") << ";\n";
+      os_ << bi << "  const float4 m1_m0 = m1_max4(m1_v0, float4(m1_v0.yzw, m1_v1.y));\n";
+      os_ << bi << "  const float4 m1_m1 = m1_max4(float4(m1_v0.zw, m1_v1.yz), m1_v1);\n";
+      os_ << bi << "  " << dst << " = m1_max4(m1_m0, m1_m1);\n";
+    } else {
+      os_ << bi << "  float m1_r[" << nw << "];\n";
+      int j = 0;
+      for (; j + 4 <= nw; j += 4) {
+        const std::string ptr = j == 0 ? "m1_rs" : ("m1_rs + " + std::to_string(j));
+        os_ << bi << "  { const float4 m1_v = " << load_v4_expr(ptr) << ";\n";
+        os_ << bi << "    m1_r[" << j << "] = m1_v.x; m1_r[" << (j + 1) << "] = m1_v.y; m1_r[" << (j + 2)
+            << "] = m1_v.z; m1_r[" << (j + 3) << "] = m1_v.w; }\n";
+      }
+      if (j + 2 <= nw) {
+        const std::string ptr = j == 0 ? "m1_rs" : ("m1_rs + " + std::to_string(j));
+        os_ << bi << "  { const float2 m1_v = " << load_v2_expr(ptr) << ";\n";
+        os_ << bi << "    m1_r[" << j << "] = m1_v.x; m1_r[" << (j + 1) << "] = m1_v.y; }\n";
+        j += 2;
+      }
+      if (j < nw) {
+        os_ << bi << "  m1_r[" << j << "] = (float)m1_rs[" << j << "];\n";
+      }
+      os_ << bi << "  " << dst << " = float4(m1_r[0], m1_r[1], m1_r[2], m1_r[3]);\n";
+      for (int c = 1; c < kw; ++c) {
+        os_ << bi << "  " << dst << " = m1_max4(" << dst << ", float4(m1_r[" << c << "], m1_r[" << (c + 1)
+            << "], m1_r[" << (c + 2) << "], m1_r[" << (c + 3) << "]));\n";
+      }
+    }
+    os_ << bi << "} else {\n";
+    os_ << bi << "  float m1_r[" << nw << "];\n";
+    os_ << bi << "  #pragma unroll\n";
+    os_ << bi << "  for (int m1_k = 0; m1_k < " << nw << "; ++m1_k) {\n";
+    os_ << bi << "    const long m1_iw = m1_iw0 + m1_k;\n";
+    os_ << bi << "    m1_r[m1_k] = (m1_iw >= 0 && m1_iw < m1_Win) ? (float)m1_rp[m1_iw] : -INFINITY;\n";
+    os_ << bi << "  }\n";
+    os_ << bi << "  " << dst << " = float4(m1_r[0], m1_r[1], m1_r[2], m1_r[3]);\n";
+    for (int c = 1; c < kw; ++c) {
+      os_ << bi << "  " << dst << " = m1_max4(" << dst << ", float4(m1_r[" << c << "], m1_r[" << (c + 1)
+          << "], m1_r[" << (c + 2) << "], m1_r[" << (c + 3) << "]));\n";
+    }
+    os_ << bi << "}\n";
+    if (check_ih) {
+      os_ << ind << "}\n";
+    }
+  }
+
+  void emit_reg_sw_store(const std::string& val, const std::string& oh_expr, const std::string& ind) {
+    os_ << ind << "device " << plan_.elem << "* m1_op = m1_ob + (" << oh_expr << ") * m1_Wout + m1_ow;\n";
+    os_ << ind << "if (m1_o_full) {\n";
+    os_ << ind << "  *(device " << packed4_type() << "*)m1_op = " << store_v4_expr(val) << ";\n";
+    os_ << ind << "} else {\n";
+    os_ << ind << "  m1_op[0] = " << plan_.elem << "(" << val << ".x);\n";
+    os_ << ind << "  if (m1_ow + 1 < m1_Wout) m1_op[1] = " << plan_.elem << "(" << val << ".y);\n";
+    os_ << ind << "  if (m1_ow + 2 < m1_Wout) m1_op[2] = " << plan_.elem << "(" << val << ".z);\n";
+    os_ << ind << "}\n";
+  }
+
+  std::string balanced_max4_expr(std::vector<std::string> items) const {
+    while (items.size() > 1) {
+      std::vector<std::string> next;
+      for (size_t i = 0; i < items.size(); i += 2) {
+        if (i + 1 < items.size()) {
+          next.push_back("m1_max4(" + items[i] + ", " + items[i + 1] + ")");
+        } else {
+          next.push_back(items[i]);
+        }
+      }
+      items = std::move(next);
+    }
+    return items[0];
+  }
+
+  void emit_reg_sw_max_body() {
+    const int kh = H().k;
+    const int nw = 4 + W().k - 1;
+    os_ << "  (void)m1_TX; (void)m1_TY; (void)m1_Din; (void)m1_Dout;\n";
+    os_ << "  constexpr int m1_RH = " << plan_.rh << ";\n";
+    os_ << "  constexpr int m1_NW = " << nw << ";\n";
+    os_ << "  const long m1_ow = m1_ow0 + (long)m1_tid.x * 4;\n";
+    os_ << "  const long m1_oh_base = m1_oh0 + (long)m1_tid.y * m1_RH;\n";
+    os_ << "  if (m1_ow >= m1_Wout || m1_oh_base >= m1_Hout) return;\n";
+    os_ << "  const int m1_rows = (int)min((long)m1_RH, m1_Hout - m1_oh_base);\n";
+    os_ << "  const long m1_iw0 = m1_ow - " << W().p << ";\n";
+    os_ << "  const bool m1_x_in = (m1_iw0 >= 0) && (m1_iw0 + m1_NW <= m1_Win);\n";
+    os_ << "  const bool m1_o_full = (m1_ow + 4 <= m1_Wout);\n";
+    os_ << "  const bool m1_fast = m1_x_in && m1_o_full && (m1_oh_base - " << H().p
+        << " >= 0) && (m1_oh_base + m1_rows - 1 - " << H().p << " + " << (kh - 1) << " < m1_Hin);\n";
+
+    std::vector<std::string> tree_vars;
+    for (int i = 0; i < kh - 1; ++i) tree_vars.push_back("m1_h" + std::to_string(i));
+    tree_vars.push_back("m1_hnew");
+    const std::string vmax_expr = kh >= 2 ? balanced_max4_expr(std::move(tree_vars)) : "m1_hnew";
+
+    os_ << "  if (m1_fast) {\n";
+    os_ << "    device const " << plan_.elem << "* m1_rs = m1_xb + (m1_oh_base - " << H().p
+        << ") * m1_Win + m1_iw0;\n";
+    os_ << "    device " << plan_.elem << "* m1_op = m1_ob + m1_oh_base * m1_Wout + m1_ow;\n";
+    if (kh == 1) {
+      os_ << "    for (int m1_ry = 0; m1_ry < m1_rows; ++m1_ry) {\n";
+      emit_reg_sw_row_hmax_fast("m1_hnew", "m1_rs", "      ");
+      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_hnew") << ";\n";
+      os_ << "      m1_rs += m1_Win;\n";
+      os_ << "      m1_op += m1_Wout;\n";
+      os_ << "    }\n";
+    } else if (kh == 4) {
+      for (int pr = 0; pr < 3; ++pr) {
+        emit_reg_sw_row_hmax_fast("m1_h" + std::to_string(pr), "m1_rs", "    ");
+        os_ << "    m1_rs += m1_Win;\n";
+      }
+      os_ << "    int m1_ry = 0;\n";
+      os_ << "    for (; m1_ry + 1 < m1_rows; m1_ry += 2) {\n";
+      emit_reg_sw_row_hmax_fast("m1_h3", "m1_rs", "      ");
+      os_ << "      m1_rs += m1_Win;\n";
+      emit_reg_sw_row_hmax_fast("m1_h4", "m1_rs", "      ");
+      os_ << "      m1_rs += m1_Win;\n";
+      os_ << "      const float4 m1_m123 = m1_max4(m1_max4(m1_h1, m1_h2), m1_h3);\n";
+      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_max4(m1_h0, m1_m123)")
+          << ";\n";
+      os_ << "      m1_op += m1_Wout;\n";
+      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_max4(m1_m123, m1_h4)")
+          << ";\n";
+      os_ << "      m1_op += m1_Wout;\n";
+      os_ << "      m1_h0 = m1_h2; m1_h1 = m1_h3; m1_h2 = m1_h4;\n";
+      os_ << "    }\n";
+      os_ << "    if (m1_ry < m1_rows) {\n";
+      emit_reg_sw_row_hmax_fast("m1_hnew", "m1_rs", "      ");
+      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr(vmax_expr) << ";\n";
+      os_ << "    }\n";
+    } else {
+      for (int pr = 0; pr < kh - 1; ++pr) {
+        emit_reg_sw_row_hmax_fast("m1_h" + std::to_string(pr), "m1_rs", "    ");
+        os_ << "    m1_rs += m1_Win;\n";
+      }
+      os_ << "    for (int m1_ry = 0; m1_ry < m1_rows; ++m1_ry) {\n";
+      emit_reg_sw_row_hmax_fast("m1_hnew", "m1_rs", "      ");
+      os_ << "      const float4 m1_out = " << vmax_expr << ";\n";
+      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_out") << ";\n";
+      for (int i = 0; i < kh - 2; ++i) {
+        os_ << "      m1_h" << i << " = m1_h" << (i + 1) << ";\n";
+      }
+      os_ << "      m1_h" << (kh - 2) << " = m1_hnew;\n";
+      os_ << "      m1_rs += m1_Win;\n";
+      os_ << "      m1_op += m1_Wout;\n";
+      os_ << "    }\n";
+    }
+    os_ << "    return;\n";
+    os_ << "  }\n";
+
+    if (kh == 1) {
+      os_ << "  for (int m1_ry = 0; m1_ry < m1_rows; ++m1_ry) {\n";
+      os_ << "    const long m1_oh = m1_oh_base + m1_ry;\n";
+      emit_reg_sw_row_hmax("m1_hnew", "m1_oh - " + std::to_string(H().p), "    ");
+      emit_reg_sw_store("m1_hnew", "m1_oh", "    ");
+      os_ << "  }\n";
+      return;
+    }
+
+    for (int pr = 0; pr < kh - 1; ++pr) {
+      emit_reg_sw_row_hmax("m1_h" + std::to_string(pr),
+                           "m1_oh_base - " + std::to_string(H().p) + " + " + std::to_string(pr), "  ");
+    }
+
+    os_ << "  for (int m1_ry = 0; m1_ry < m1_rows; ++m1_ry) {\n";
+    os_ << "    const long m1_oh = m1_oh_base + m1_ry;\n";
+    emit_reg_sw_row_hmax("m1_hnew", "m1_oh - " + std::to_string(H().p) + " + " + std::to_string(kh - 1), "    ");
+    os_ << "    const float4 m1_out = " << vmax_expr << ";\n";
+    emit_reg_sw_store("m1_out", "m1_oh", "    ");
+    for (int i = 0; i < kh - 2; ++i) {
+      os_ << "    m1_h" << i << " = m1_h" << (i + 1) << ";\n";
+    }
+    os_ << "    m1_h" << (kh - 2) << " = m1_hnew;\n";
+    os_ << "  }\n";
+  }
+
+  void emit_vec_direct_body() {
+    const int kw = W().k;
+    emit_output_loop_open();
+    os_ << "      const long m1_iw0 = m1_ow * " << W().s << " - " << W().p << ";\n";
+    os_ << "      const long m1_ih0 = m1_oh * " << H().s << " - " << H().p << ";\n";
+    os_ << "      const bool m1_x_in = (m1_iw0 >= 0) && (m1_iw0 + " << kw << " <= m1_Win);\n";
+    os_ << "      #pragma unroll\n";
+    os_ << "      for (int m1_kh = 0; m1_kh < " << H().k << "; ++m1_kh) {\n";
+    os_ << "        const long m1_ih = m1_ih0 + m1_kh * " << H().d << ";\n";
+    os_ << "        if (m1_ih < 0 || m1_ih >= m1_Hin) continue;\n";
+    os_ << "        device const " << plan_.elem << "* m1_xr = m1_xb + m1_ih * m1_Win;\n";
+    os_ << "        if (m1_x_in) {\n";
+    if (kw == 4) {
+      os_ << "          const float4 m1_v4 = " << load_v4_expr("m1_xr + m1_iw0") << ";\n";
+      if (is_max()) {
+        os_ << "          m1_acc = m1_max1(m1_acc, m1_max1(m1_max1(m1_v4.x, m1_v4.y), m1_max1(m1_v4.z, m1_v4.w)));\n";
+      } else {
+        os_ << "          m1_acc += (m1_v4.x + m1_v4.y) + (m1_v4.z + m1_v4.w);\n";
+      }
+    } else {
+      os_ << "          const float2 m1_v2 = " << load_v2_expr("m1_xr + m1_iw0") << ";\n";
+      if (is_max()) {
+        os_ << "          m1_acc = m1_max1(m1_acc, m1_max1(m1_v2.x, m1_v2.y));\n";
+      } else {
+        os_ << "          m1_acc += m1_v2.x + m1_v2.y;\n";
+      }
+    }
+    os_ << "        } else {\n";
+    os_ << "          #pragma unroll\n";
+    os_ << "          for (int m1_kw = 0; m1_kw < " << kw << "; ++m1_kw) {\n";
+    os_ << "            const long m1_iw = m1_iw0 + m1_kw;\n";
+    os_ << "            if (m1_iw >= 0 && m1_iw < m1_Win) {\n";
+    emit_combine("(float)m1_xr[m1_iw]", 7);
+    os_ << "            }\n";
+    os_ << "          }\n";
+    os_ << "        }\n";
+    os_ << "      }\n";
+    emit_output_loop_close();
+  }
+
   void emit_sram_body() {
     const int64_t sw = plan_.smem_w;
     const int64_t sh = plan_.smem_h;
@@ -455,7 +795,7 @@ CompiledMSL try_emit_pool_kernel(const ir::Kernel& kernel, const ir::TargetSpec&
   res.launch_spec.tg_y = plan->ty;
   res.launch_spec.tg_z = 1;
   res.launch_spec.threadgroup_mem_bytes = 0;
-  res.launch_spec.vec_width = 1;
+  res.launch_spec.vec_width = plan->reg_sw ? 4 : (plan->vec_direct ? static_cast<uint32_t>(plan->dims[2].k) : 1);
   res.launch_spec.fast_math = false;
   uint32_t slot = 0;
   for (uint32_t i = 0; i < kernel.params.size(); ++i) {
