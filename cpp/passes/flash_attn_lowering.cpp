@@ -40,8 +40,8 @@ uint32_t align_down(uint32_t v, uint32_t step) {
 }
 
 uint32_t required_smem_bytes(uint32_t bm, uint32_t bn, uint32_t num_sg, ir::ScalarDType elem_dt) {
-  if (elem_dt == ir::ScalarDType::F32 && bm == 16u && bn == 512u && num_sg == 16u) {
-    return bm * bn * 4u;
+  if (elem_dt == ir::ScalarDType::F32 && (bm == 16u || bm == 32u) && bn == 512u && num_sg == 16u) {
+    return 16u * bn * 4u;
   }
   const uint32_t ldp = bn + 4u;
   return (bm * ldp + 3u * bm) * 4u;
@@ -132,7 +132,7 @@ PassResult FlashAttentionLoweringPass::run(ir::Kernel& kernel, const PassContext
     bn = std::min<uint32_t>(512u, align_down(bn, 32u));
     bd = std::min<uint32_t>(64u, align_down(bd, 8u));
 
-    if (bn == 512u && (elem_dt != ir::ScalarDType::F32 || bm != 16u || num_sg != 16u)) {
+    if (bn == 512u && (elem_dt != ir::ScalarDType::F32 || (bm != 16u && bm != 32u) || num_sg != 16u)) {
       bn = 256u;
     }
 
