@@ -288,14 +288,34 @@ bool emit_flat_stage1(Emitter& e, const LossAttr& a) {
   const std::string out = e.ops[2].expr;
   auto& os = e.body;
 
+  auto emit_vec4_accum = [&](const std::string& indent, const std::string& p_var, const std::string& t_var,
+                             const std::string& acc_var) {
+    if (a.kind == LossKind::MSE) {
+      os << indent << "const float4 m1_d = " << p_var << " - " << t_var << ";\n"
+         << indent << acc_var << " = fma(m1_d, m1_d, " << acc_var << ");\n";
+    } else if (a.kind == LossKind::Huber) {
+      os << indent << "const float4 m1_d = abs(" << p_var << " - " << t_var << ");\n";
+      if (a.beta == 0.0f) {
+        os << indent << acc_var << " += m1_d;\n";
+      } else {
+        os << indent << acc_var
+           << " += select(m1_d - m1_half_beta, m1_half_inv_beta * (m1_d * m1_d), m1_d < float4(m1_beta));\n";
+      }
+    } else {
+      os << indent << "const bool4 m1_pos = " << t_var << " > float4(0.0f);\n"
+         << indent << "const float4 m1_st = select(float4(1.0f), " << t_var << ", m1_pos);\n"
+         << indent << "const float4 m1_sp = select(float4(1.0f), " << p_var << ", m1_pos);\n"
+         << indent << acc_var << " += select(float4(0.0f), " << t_var
+         << " * (log(m1_st) - log(m1_sp)), m1_pos);\n";
+    }
+  };
+
+  const long tile_v = 2L * static_cast<long>(e.tg);
   os << "  threadgroup float m1_sh[" << e.nsg() << "];\n"
      << "  const long m1_total = long(" << e.ops[3].expr << ");\n"
-     << "  const long m1_chunk = ((m1_total + long(m1_ntg.x) - 1L) / long(m1_ntg.x) + 3L) & ~3L;\n"
-     << "  const long m1_base = min(long(m1_tgp.x) * m1_chunk, m1_total);\n"
-     << "  const long m1_n = min(m1_chunk, m1_total - m1_base);\n"
-     << "  const long m1_nv = m1_n >> 2;\n"
-     << "  device const " << vt << "* m1_pv = (device const " << vt << "*)(" << p << " + m1_base);\n"
-     << "  device const " << vt << "* m1_tv = (device const " << vt << "*)(" << t << " + m1_base);\n";
+     << "  const long m1_nv = m1_total >> 2;\n"
+     << "  device const " << vt << "* m1_pv = (device const " << vt << "*)(" << p << ");\n"
+     << "  device const " << vt << "* m1_tv = (device const " << vt << "*)(" << t << ");\n";
 
   if (a.kind == LossKind::Huber && a.beta > 0.0f) {
     os << "  const float m1_beta = " << float_literal(a.beta) << ";\n"
@@ -304,48 +324,56 @@ bool emit_flat_stage1(Emitter& e, const LossAttr& a) {
   }
 
   os << "  float4 m1_acc4 = float4(0.0f);\n"
-     << "  for (long m1_i = long(m1_tid); m1_i < m1_nv; m1_i += " << e.tg << "L) {\n"
-     << "    const float4 m1_p = float4(m1_pv[m1_i]);\n"
-     << "    const float4 m1_t = float4(m1_tv[m1_i]);\n";
-  if (a.kind == LossKind::MSE) {
-    os << "    const float4 m1_d = m1_p - m1_t;\n"
-       << "    m1_acc4 = fma(m1_d, m1_d, m1_acc4);\n";
-  } else if (a.kind == LossKind::Huber) {
-    os << "    const float4 m1_d = abs(m1_p - m1_t);\n";
-    if (a.beta == 0.0f) {
-      os << "    m1_acc4 += m1_d;\n";
-    } else {
-      os << "    m1_acc4 += select(m1_d - m1_half_beta, m1_half_inv_beta * (m1_d * m1_d), m1_d < float4(m1_beta));\n";
-    }
-  } else {
-    os << "    const bool4 m1_pos = m1_t > float4(0.0f);\n"
-       << "    const float4 m1_st = select(float4(1.0f), m1_t, m1_pos);\n"
-       << "    const float4 m1_sp = select(float4(1.0f), m1_p, m1_pos);\n"
-       << "    m1_acc4 += select(float4(0.0f), m1_t * (log(m1_st) - log(m1_sp)), m1_pos);\n";
-  }
-  os << "  }\n"
+     << "  float4 m1_acc4_1 = float4(0.0f);\n"
+     << "  const long m1_tile = " << tile_v << "L;\n"
+     << "  const long m1_gstride = long(m1_ntg.x) * m1_tile;\n"
+     << "  for (long m1_t0 = long(m1_tgp.x) * m1_tile; m1_t0 < m1_nv; m1_t0 += m1_gstride) {\n"
+     << "    const long m1_b = m1_t0 + long(m1_tid);\n"
+     << "    if (m1_t0 + m1_tile <= m1_nv) {\n"
+     << "      const float4 m1_p0 = float4(m1_pv[m1_b]);\n"
+     << "      const float4 m1_t0v = float4(m1_tv[m1_b]);\n"
+     << "      const float4 m1_p1 = float4(m1_pv[m1_b + " << e.tg << "L]);\n"
+     << "      const float4 m1_t1v = float4(m1_tv[m1_b + " << e.tg << "L]);\n"
+     << "      {\n";
+  emit_vec4_accum("        ", "m1_p0", "m1_t0v", "m1_acc4");
+  os << "      }\n"
+     << "      {\n";
+  emit_vec4_accum("        ", "m1_p1", "m1_t1v", "m1_acc4_1");
+  os << "      }\n"
+     << "    } else {\n"
+     << "      const long m1_end = min(m1_t0 + m1_tile, m1_nv);\n"
+     << "      for (long m1_i = m1_b; m1_i < m1_end; m1_i += " << e.tg << "L) {\n"
+     << "        const float4 m1_p = float4(m1_pv[m1_i]);\n"
+     << "        const float4 m1_t = float4(m1_tv[m1_i]);\n";
+  emit_vec4_accum("        ", "m1_p", "m1_t", "m1_acc4");
+  os << "      }\n"
+     << "    }\n"
+     << "  }\n"
+     << "  m1_acc4 += m1_acc4_1;\n"
      << "  float m1_acc = (m1_acc4.x + m1_acc4.y) + (m1_acc4.z + m1_acc4.w);\n"
-     << "  const long m1_tail = m1_base + (m1_nv << 2);\n"
-     << "  const long m1_rem = m1_n - (m1_nv << 2);\n"
-     << "  for (long m1_r = long(m1_tid); m1_r < m1_rem; m1_r += " << e.tg << "L) {\n"
-     << "    const float m1_p = " << p << "[m1_tail + m1_r];\n"
-     << "    const float m1_t = " << t << "[m1_tail + m1_r];\n";
+     << "  if (m1_tgp.x == 0u) {\n"
+     << "    const long m1_tail = m1_nv << 2;\n"
+     << "    const long m1_rem = m1_total - m1_tail;\n"
+     << "    for (long m1_r = long(m1_tid); m1_r < m1_rem; m1_r += " << e.tg << "L) {\n"
+     << "      const float m1_p = " << p << "[m1_tail + m1_r];\n"
+     << "      const float m1_t = " << t << "[m1_tail + m1_r];\n";
   if (a.kind == LossKind::MSE) {
-    os << "    const float m1_d = m1_p - m1_t;\n"
-       << "    m1_acc = fma(m1_d, m1_d, m1_acc);\n";
+    os << "      const float m1_d = m1_p - m1_t;\n"
+       << "      m1_acc = fma(m1_d, m1_d, m1_acc);\n";
   } else if (a.kind == LossKind::Huber) {
-    os << "    const float m1_d = abs(m1_p - m1_t);\n";
+    os << "      const float m1_d = abs(m1_p - m1_t);\n";
     if (a.beta == 0.0f) {
-      os << "    m1_acc += m1_d;\n";
+      os << "      m1_acc += m1_d;\n";
     } else {
-      os << "    m1_acc += (m1_d < m1_beta) ? (m1_half_inv_beta * m1_d * m1_d) : (m1_d - m1_half_beta);\n";
+      os << "      m1_acc += (m1_d < m1_beta) ? (m1_half_inv_beta * m1_d * m1_d) : (m1_d - m1_half_beta);\n";
     }
   } else {
-    os << "    if (m1_t > 0.0f) {\n"
-       << "      m1_acc += m1_t * (log(m1_t) - log(m1_p));\n"
-       << "    }\n";
+    os << "      if (m1_t > 0.0f) {\n"
+       << "        m1_acc += m1_t * (log(m1_t) - log(m1_p));\n"
+       << "      }\n";
   }
-  os << "  }\n"
+  os << "    }\n"
+     << "  }\n"
      << "  const float m1_tot = m1_sum_tg(m1_acc, m1_sh, m1_lane, m1_sg, " << e.nsg() << "u);\n"
      << "  if (m1_tid == 0u) {\n"
      << "    " << out << "[m1_tgp.x] = m1_tot;\n"

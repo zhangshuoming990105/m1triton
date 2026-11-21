@@ -20,11 +20,27 @@ using ir::ValueId;
 
 constexpr uint32_t kRowsPerThreadgroup = 8;
 constexpr uint32_t kBlocksPerGroup = 4;
+constexpr uint32_t kCoopBlocksPerSg = 4;
 
 // Device helpers shared by every scan variant. M1_ID / M1_OP / M1_REV / M1_MASK are defined per kernel.
 // Logical element l runs along the scan direction; the physical index is l (forward) or n-1-l (reverse),
 // so a thread's four logical elements always map to one aligned, coalesced float4 / uchar4 access.
 constexpr const char* kHelpers = R"MSL(
+inline float4 m1_load4_fast(device const float* src, device const uchar* msk, long n, long l0) {
+  const long p = M1_REV ? n - 4 - l0 : l0;
+  float4 v = *(device const float4*)(src + p);
+#if M1_MASK
+  v *= float4(*(device const uchar4*)(msk + p));
+#endif
+  if (M1_REV) v = v.wzyx;
+  return v;
+}
+
+inline void m1_store4_fast(device float* dst, long n, long l0, float4 o) {
+  if (M1_REV) o = o.wzyx;
+  *(device float4*)(dst + (M1_REV ? n - 4 - l0 : l0)) = o;
+}
+
 inline float4 m1_load4(device const float* src, device const uchar* msk, long n, long l0, bool vec4) {
   float4 v = float4(M1_ID);
   if (vec4) {
@@ -74,6 +90,7 @@ constexpr const char* kSumSimdScan = R"MSL(
 
 constexpr const char* kProdSimdScan = R"MSL(
     float pp = s3;
+    #pragma unroll
     for (ushort d = 1; d < 32; d <<= 1) {
       const float up = simd_shuffle_up(pp, d);
       if (lane >= d) pp *= up;
@@ -83,8 +100,8 @@ constexpr const char* kProdSimdScan = R"MSL(
 )MSL";
 
 // One SIMD group scans one row with no threadgroup barriers: each lane owns a float4 per block, the
-// 32 lanes scan 128 floats with simd_prefix_*, and a uniform carry chains blocks. Loads for the next
-// group of kBlocks are issued before the current group is scanned so DRAM latency stays hidden.
+// 32 lanes scan 128 floats with simd_prefix_*, and a uniform carry chains blocks. Aligned full groups
+// run through a branchless fast loop with software-pipelined loads.
 constexpr const char* kKernelBody = R"MSL(
   const long row = long(tg_pos) * M1_ROWS_PER_TG + long(sg);
   if (row >= long($ROWS)) return;
@@ -95,23 +112,49 @@ constexpr const char* kKernelBody = R"MSL(
   device float* dst = $OUT + base;
   device const uchar* msk = (device const uchar*)$MASK + base;
   const bool vec4 = $VEC4_ALIGNED && ((n & 3) == 0);
-  const long ngroups = (n + M1_GROUP - 1) / M1_GROUP;
   const long lane_off = long(lane) * 4;
 
   float carry = M1_ID;
-  float4 cur[M1_BLOCKS];
-  for (int j = 0; j < M1_BLOCKS; ++j) cur[j] = m1_load4(src, msk, n, j * 128 + lane_off, vec4);
-  for (long g = 0; g < ngroups; ++g) {
-    const long g0 = g * M1_GROUP + lane_off;
-    float4 nxt[M1_BLOCKS];
-    for (int j = 0; j < M1_BLOCKS; ++j) {
-      nxt[j] = (g + 1 < ngroups) ? m1_load4(src, msk, n, g0 + M1_GROUP + j * 128, vec4) : float4(M1_ID);
+  if (vec4) {
+    const long full_g = n / M1_GROUP;
+    if (full_g > 0) {
+      float4 cur[M1_BLOCKS];
+      #pragma unroll
+      for (int j = 0; j < M1_BLOCKS; ++j) cur[j] = m1_load4_fast(src, msk, n, j * 128 + lane_off);
+      for (long g = 0; g < full_g; ++g) {
+        const long g0 = g * M1_GROUP + lane_off;
+        float4 nxt[M1_BLOCKS];
+        if (g + 1 < full_g) {
+          #pragma unroll
+          for (int j = 0; j < M1_BLOCKS; ++j) nxt[j] = m1_load4_fast(src, msk, n, g0 + M1_GROUP + j * 128);
+        }
+        #pragma unroll
+        for (int j = 0; j < M1_BLOCKS; ++j) {
+          const float s0 = cur[j].x;
+          const float s1 = M1_OP(s0, cur[j].y);
+          const float s2 = M1_OP(s1, cur[j].z);
+          const float s3 = M1_OP(s2, cur[j].w);
+$SIMD_SCAN
+          const float prefix = M1_OP(carry, sg_exc);
+          carry = M1_OP(carry, sg_tot);
+#if M1_EXCL
+          const float4 o = float4(prefix, M1_OP(prefix, s0), M1_OP(prefix, s1), M1_OP(prefix, s2));
+#else
+          const float4 o = float4(M1_OP(prefix, s0), M1_OP(prefix, s1), M1_OP(prefix, s2), M1_OP(prefix, s3));
+#endif
+          m1_store4_fast(dst, n, g0 + j * 128, o);
+        }
+        #pragma unroll
+        for (int j = 0; j < M1_BLOCKS; ++j) cur[j] = nxt[j];
+      }
     }
-    for (int j = 0; j < M1_BLOCKS; ++j) {
-      const float s0 = cur[j].x;
-      const float s1 = M1_OP(s0, cur[j].y);
-      const float s2 = M1_OP(s1, cur[j].z);
-      const float s3 = M1_OP(s2, cur[j].w);
+    for (long blk = full_g * M1_GROUP; blk < n; blk += 128) {
+      const long l0 = blk + lane_off;
+      const float4 v = m1_load4(src, msk, n, l0, true);
+      const float s0 = v.x;
+      const float s1 = M1_OP(s0, v.y);
+      const float s2 = M1_OP(s1, v.z);
+      const float s3 = M1_OP(s2, v.w);
 $SIMD_SCAN
       const float prefix = M1_OP(carry, sg_exc);
       carry = M1_OP(carry, sg_tot);
@@ -120,9 +163,116 @@ $SIMD_SCAN
 #else
       const float4 o = float4(M1_OP(prefix, s0), M1_OP(prefix, s1), M1_OP(prefix, s2), M1_OP(prefix, s3));
 #endif
-      m1_store4(dst, n, g0 + j * 128, vec4, o);
+      m1_store4(dst, n, l0, true, o);
     }
-    for (int j = 0; j < M1_BLOCKS; ++j) cur[j] = nxt[j];
+  } else {
+    for (long blk = 0; blk < n; blk += 128) {
+      const long l0 = blk + lane_off;
+      const float4 v = m1_load4(src, msk, n, l0, false);
+      const float s0 = v.x;
+      const float s1 = M1_OP(s0, v.y);
+      const float s2 = M1_OP(s1, v.z);
+      const float s3 = M1_OP(s2, v.w);
+$SIMD_SCAN
+      const float prefix = M1_OP(carry, sg_exc);
+      carry = M1_OP(carry, sg_tot);
+#if M1_EXCL
+      const float4 o = float4(prefix, M1_OP(prefix, s0), M1_OP(prefix, s1), M1_OP(prefix, s2));
+#else
+      const float4 o = float4(M1_OP(prefix, s0), M1_OP(prefix, s1), M1_OP(prefix, s2), M1_OP(prefix, s3));
+#endif
+      m1_store4(dst, n, l0, false, o);
+    }
+  }
+)MSL";
+
+// Cooperative 1-row-per-threadgroup schedule: all 8 SIMD groups scan one row in 16 KB (4096-float)
+// page-aligned steps with one double-buffered barrier per step, cutting per-core TLB footprint 8x.
+constexpr const char* kCoopKernelBody = R"MSL(
+  threadgroup float sh[2][8];
+  const long row = long(tg_pos);
+  if (row >= long($ROWS)) return;
+  const long n = long($LEN);
+  if (n <= 0) return;
+  const long base = row * n;
+  device const float* src = $X + base;
+  device float* dst = $OUT + base;
+  device const uchar* msk = (device const uchar*)$MASK + base;
+  const bool vec4 = $VEC4_ALIGNED && ((n & 3) == 0);
+  const long lane_off = long(lane) * 4;
+
+  float carry = M1_ID;
+  long rem_start = 0;
+  if (vec4) {
+    const long step = 8L * M1_COOP_BLOCKS * 128L;
+    const long full_steps = n / step;
+    const long sg_base = long(sg) * (M1_COOP_BLOCKS * 128L) + lane_off;
+    uint buf = 0u;
+    for (long st = 0; st < full_steps; ++st) {
+      const long b0 = st * step + sg_base;
+      float4 cur[M1_COOP_BLOCKS];
+      #pragma unroll
+      for (int j = 0; j < M1_COOP_BLOCKS; ++j) cur[j] = m1_load4_fast(src, msk, n, b0 + long(j * 128));
+      float a0[M1_COOP_BLOCKS], a1[M1_COOP_BLOCKS], a2[M1_COOP_BLOCKS], a3[M1_COOP_BLOCKS];
+      float e[M1_COOP_BLOCKS], t[M1_COOP_BLOCKS];
+      float sg_local = M1_ID;
+      #pragma unroll
+      for (int j = 0; j < M1_COOP_BLOCKS; ++j) {
+        a0[j] = cur[j].x;
+        a1[j] = M1_OP(a0[j], cur[j].y);
+        a2[j] = M1_OP(a1[j], cur[j].z);
+        const float s3 = M1_OP(a2[j], cur[j].w);
+        a3[j] = s3;
+$SIMD_SCAN
+        e[j] = sg_exc;
+        t[j] = sg_tot;
+        sg_local = M1_OP(sg_local, sg_tot);
+      }
+      if (lane == 0) sh[buf][sg] = sg_local;
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      float sg_pre = M1_ID;
+      float tg_tot = M1_ID;
+      #pragma unroll
+      for (ushort k = 0; k < 8; ++k) {
+        const float x = sh[buf][k];
+        if (k < sg) sg_pre = M1_OP(sg_pre, x);
+        tg_tot = M1_OP(tg_tot, x);
+      }
+      float run = M1_OP(carry, sg_pre);
+      carry = M1_OP(carry, tg_tot);
+      #pragma unroll
+      for (int j = 0; j < M1_COOP_BLOCKS; ++j) {
+        const float prefix = M1_OP(run, e[j]);
+        run = M1_OP(run, t[j]);
+#if M1_EXCL
+        const float4 o = float4(prefix, M1_OP(prefix, a0[j]), M1_OP(prefix, a1[j]), M1_OP(prefix, a2[j]));
+#else
+        const float4 o = float4(M1_OP(prefix, a0[j]), M1_OP(prefix, a1[j]), M1_OP(prefix, a2[j]), M1_OP(prefix, a3[j]));
+#endif
+        m1_store4_fast(dst, n, b0 + long(j * 128), o);
+      }
+      buf ^= 1u;
+    }
+    rem_start = full_steps * step;
+  }
+  if (sg == 0 && rem_start < n) {
+    for (long blk = rem_start; blk < n; blk += 128) {
+      const long l0 = blk + lane_off;
+      const float4 v = m1_load4(src, msk, n, l0, vec4);
+      const float s0 = v.x;
+      const float s1 = M1_OP(s0, v.y);
+      const float s2 = M1_OP(s1, v.z);
+      const float s3 = M1_OP(s2, v.w);
+$SIMD_SCAN
+      const float prefix = M1_OP(carry, sg_exc);
+      carry = M1_OP(carry, sg_tot);
+#if M1_EXCL
+      const float4 o = float4(prefix, M1_OP(prefix, s0), M1_OP(prefix, s1), M1_OP(prefix, s2));
+#else
+      const float4 o = float4(M1_OP(prefix, s0), M1_OP(prefix, s1), M1_OP(prefix, s2), M1_OP(prefix, s3));
+#endif
+      m1_store4(dst, n, l0, vec4, o);
+    }
   }
 )MSL";
 
@@ -207,6 +357,8 @@ CompiledMSL try_emit_row_scan_kernel(const ir::Kernel& kernel, const ir::TargetS
   if (kernel.params[rows_idx].type.is_ptr_elem() || kernel.params[len_idx].type.is_ptr_elem()) return unmatched;
   if (matched_out != nullptr) *matched_out = true;
 
+  const bool use_coop_single_row = kernel.hints.tile_spec.has_value() && kernel.hints.tile_spec->bm == 1;
+
   CompiledMSL res;
   res.launch_spec.entry_name = kernel.name;
   res.launch_spec.tg_x = 32 * kRowsPerThreadgroup;
@@ -220,9 +372,13 @@ CompiledMSL try_emit_row_scan_kernel(const ir::Kernel& kernel, const ir::TargetS
   os << "#define M1_REV " << (sa.reverse ? 1 : 0) << "\n";
   os << "#define M1_EXCL " << (sa.exclusive ? 1 : 0) << "\n";
   os << "#define M1_MASK " << (sa.has_mask ? 1 : 0) << "\n";
-  os << "#define M1_ROWS_PER_TG " << kRowsPerThreadgroup << "\n";
-  os << "#define M1_BLOCKS " << kBlocksPerGroup << "\n";
-  os << "#define M1_GROUP " << kBlocksPerGroup * 128 << "\n";
+  os << "#define M1_ROWS_PER_TG " << (use_coop_single_row ? 1u : kRowsPerThreadgroup) << "\n";
+  if (use_coop_single_row) {
+    os << "#define M1_COOP_BLOCKS " << kCoopBlocksPerSg << "\n";
+  } else {
+    os << "#define M1_BLOCKS " << kBlocksPerGroup << "\n";
+    os << "#define M1_GROUP " << kBlocksPerGroup * 128 << "\n";
+  }
   os << kHelpers << "\nkernel void " << kernel.name << "(\n";
 
   std::vector<std::string> names(kernel.params.size());
@@ -257,7 +413,7 @@ CompiledMSL try_emit_row_scan_kernel(const ir::Kernel& kernel, const ir::TargetS
                             (kernel.params[out_idx].divisibility >= 16) &&
                             (!sa.has_mask || kernel.params[operand_params[2]].divisibility >= 4);
 
-  std::string body = kKernelBody;
+  std::string body = use_coop_single_row ? kCoopKernelBody : kKernelBody;
   replace_all(body, "$SIMD_SCAN", is_sum ? kSumSimdScan : kProdSimdScan);
   replace_all(body, "$VEC4_ALIGNED", ptrs_aligned ? "true" : "false");
   replace_all(body, "$ROWS", names[rows_idx]);

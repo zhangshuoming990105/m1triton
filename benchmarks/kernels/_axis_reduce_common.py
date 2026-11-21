@@ -28,15 +28,151 @@ def axis_sum_strided_kernel(
     out_base = pid_o.to(tl.int64) * inner_i64
 
     offs = pid_c.to(tl.int64) * BLOCK_INNER + tl.arange(0, BLOCK_INNER).to(tl.int64)
-    mask = offs < inner_i64
+    full_tile = (pid_c.to(tl.int64) + 1) * BLOCK_INNER <= inner_i64
     p = x_ptr + (base_o + offs)
-    acc = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
-    for _ in range(0, R):
-        acc = acc + tl.load(p, mask=mask, other=0.0)
-        p = p + inner_i64
-    if APPLY_SCALE:
-        acc = acc * scale
-    tl.store(out_ptr + (out_base + offs), acc, mask=mask)
+    if full_tile:
+        acc = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        for _ in range(0, R):
+            acc = acc + tl.load(p)
+            p = p + inner_i64
+        if APPLY_SCALE:
+            acc = acc * scale
+        tl.store(out_ptr + (out_base + offs), acc)
+    else:
+        mask = offs < inner_i64
+        acc = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        for _ in range(0, R):
+            acc = acc + tl.load(p, mask=mask, other=0.0)
+            p = p + inner_i64
+        if APPLY_SCALE:
+            acc = acc * scale
+        tl.store(out_ptr + (out_base + offs), acc, mask=mask)
+
+
+@m1triton.jit(fast_math=True)
+def axis_sum_strided_4col_kernel(
+    x_ptr,
+    out_ptr,
+    R,
+    inner,
+    scale,
+    BLOCK_INNER: tl.constexpr,
+    APPLY_SCALE: tl.constexpr = 0,
+):
+    pid_c = tl.program_id(0)
+    pid_o = tl.program_id(1)
+    r_i64 = R.to(tl.int64)
+    inner_i64 = inner.to(tl.int64)
+    base_o = pid_o.to(tl.int64) * (r_i64 * inner_i64)
+    out_base = pid_o.to(tl.int64) * inner_i64
+
+    offs0 = pid_c.to(tl.int64) * (BLOCK_INNER * 4) + tl.arange(0, BLOCK_INNER).to(tl.int64)
+    full_tile = (pid_c.to(tl.int64) + 1) * (BLOCK_INNER * 4) <= inner_i64
+    p = x_ptr + (base_o + offs0)
+    if full_tile:
+        acc0 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc1 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc2 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc3 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        for _ in range(0, R):
+            acc0 = acc0 + tl.load(p)
+            acc1 = acc1 + tl.load(p + BLOCK_INNER)
+            acc2 = acc2 + tl.load(p + BLOCK_INNER * 2)
+            acc3 = acc3 + tl.load(p + BLOCK_INNER * 3)
+            p = p + inner_i64
+        if APPLY_SCALE:
+            acc0 = acc0 * scale
+            acc1 = acc1 * scale
+            acc2 = acc2 * scale
+            acc3 = acc3 * scale
+        tl.store(out_ptr + (out_base + offs0), acc0)
+        tl.store(out_ptr + (out_base + offs0 + BLOCK_INNER), acc1)
+        tl.store(out_ptr + (out_base + offs0 + BLOCK_INNER * 2), acc2)
+        tl.store(out_ptr + (out_base + offs0 + BLOCK_INNER * 3), acc3)
+    else:
+        m0 = offs0 < inner_i64
+        m1 = (offs0 + BLOCK_INNER) < inner_i64
+        m2 = (offs0 + BLOCK_INNER * 2) < inner_i64
+        m3 = (offs0 + BLOCK_INNER * 3) < inner_i64
+        acc0 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc1 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc2 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc3 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        for _ in range(0, R):
+            acc0 = acc0 + tl.load(p, mask=m0, other=0.0)
+            acc1 = acc1 + tl.load(p + BLOCK_INNER, mask=m1, other=0.0)
+            acc2 = acc2 + tl.load(p + BLOCK_INNER * 2, mask=m2, other=0.0)
+            acc3 = acc3 + tl.load(p + BLOCK_INNER * 3, mask=m3, other=0.0)
+            p = p + inner_i64
+        if APPLY_SCALE:
+            acc0 = acc0 * scale
+            acc1 = acc1 * scale
+            acc2 = acc2 * scale
+            acc3 = acc3 * scale
+        tl.store(out_ptr + (out_base + offs0), acc0, mask=m0)
+        tl.store(out_ptr + (out_base + offs0 + BLOCK_INNER), acc1, mask=m1)
+        tl.store(out_ptr + (out_base + offs0 + BLOCK_INNER * 2), acc2, mask=m2)
+        tl.store(out_ptr + (out_base + offs0 + BLOCK_INNER * 3), acc3, mask=m3)
+
+
+@m1triton.jit(fast_math=True)
+def axis_sum_strided_splitk_kernel(
+    x_ptr,
+    part_ptr,
+    R,
+    inner,
+    SPLIT_K: tl.constexpr,
+    BLOCK_INNER: tl.constexpr,
+):
+    pid_c = tl.program_id(0)
+    pid_s = tl.program_id(1)
+    pid_o = tl.program_id(2)
+    r_i64 = R.to(tl.int64)
+    inner_i64 = inner.to(tl.int64)
+    chunk = (R + SPLIT_K - 1) // SPLIT_K
+    r_start = pid_s * chunk
+    r_end = tl.minimum(r_start + chunk, R)
+    r_len = tl.maximum(r_end - r_start, 0)
+    base_o = (pid_o.to(tl.int64) * r_i64 + r_start.to(tl.int64)) * inner_i64
+    out_base = (pid_o.to(tl.int64) * SPLIT_K + pid_s.to(tl.int64)) * inner_i64
+
+    offs0 = pid_c.to(tl.int64) * (BLOCK_INNER * 4) + tl.arange(0, BLOCK_INNER).to(tl.int64)
+    full_tile = (pid_c.to(tl.int64) + 1) * (BLOCK_INNER * 4) <= inner_i64
+    p = x_ptr + (base_o + offs0)
+    if full_tile:
+        acc0 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc1 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc2 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc3 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        for _ in range(0, r_len):
+            acc0 = acc0 + tl.load(p)
+            acc1 = acc1 + tl.load(p + BLOCK_INNER)
+            acc2 = acc2 + tl.load(p + BLOCK_INNER * 2)
+            acc3 = acc3 + tl.load(p + BLOCK_INNER * 3)
+            p = p + inner_i64
+        tl.store(part_ptr + (out_base + offs0), acc0)
+        tl.store(part_ptr + (out_base + offs0 + BLOCK_INNER), acc1)
+        tl.store(part_ptr + (out_base + offs0 + BLOCK_INNER * 2), acc2)
+        tl.store(part_ptr + (out_base + offs0 + BLOCK_INNER * 3), acc3)
+    else:
+        m0 = offs0 < inner_i64
+        m1 = (offs0 + BLOCK_INNER) < inner_i64
+        m2 = (offs0 + BLOCK_INNER * 2) < inner_i64
+        m3 = (offs0 + BLOCK_INNER * 3) < inner_i64
+        acc0 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc1 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc2 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        acc3 = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        for _ in range(0, r_len):
+            acc0 = acc0 + tl.load(p, mask=m0, other=0.0)
+            acc1 = acc1 + tl.load(p + BLOCK_INNER, mask=m1, other=0.0)
+            acc2 = acc2 + tl.load(p + BLOCK_INNER * 2, mask=m2, other=0.0)
+            acc3 = acc3 + tl.load(p + BLOCK_INNER * 3, mask=m3, other=0.0)
+            p = p + inner_i64
+        tl.store(part_ptr + (out_base + offs0), acc0, mask=m0)
+        tl.store(part_ptr + (out_base + offs0 + BLOCK_INNER), acc1, mask=m1)
+        tl.store(part_ptr + (out_base + offs0 + BLOCK_INNER * 2), acc2, mask=m2)
+        tl.store(part_ptr + (out_base + offs0 + BLOCK_INNER * 3), acc3, mask=m3)
 
 
 @m1triton.jit
@@ -240,6 +376,48 @@ def _select_last_axis_block_k(reduce_len: int) -> int:
     return 256 if reduce_len <= 256 else 1024
 
 
+def _dispatch_strided_sum(
+    x_c: torch.Tensor,
+    out: torch.Tensor,
+    outer: int,
+    reduce_len: int,
+    inner: int,
+    scale: float,
+    *,
+    block_inner: int,
+    apply_scale: int,
+) -> None:
+    if inner >= block_inner * 4 and reduce_len >= 64:
+        n_c4 = m1triton.cdiv(inner, block_inner * 4)
+        total_tgs = outer * n_c4
+        if total_tgs >= 256:
+            axis_sum_strided_4col_kernel[(n_c4, outer)](
+                x_c, out, reduce_len, inner, scale, BLOCK_INNER=block_inner, APPLY_SCALE=apply_scale
+            )
+            return
+        if reduce_len >= 256 and outer * reduce_len * inner >= 4_000_000:
+            split_k = 8 if total_tgs <= 64 else 4
+            partial = torch.empty((outer, split_k, inner), dtype=x_c.dtype, device=x_c.device)
+            axis_sum_strided_splitk_kernel[(n_c4, split_k, outer)](
+                x_c, partial, reduce_len, inner, SPLIT_K=split_k, BLOCK_INNER=block_inner
+            )
+            axis_sum_strided_4col_kernel[(n_c4, outer)](
+                partial,
+                out,
+                split_k,
+                inner,
+                scale,
+                BLOCK_INNER=block_inner,
+                APPLY_SCALE=apply_scale,
+                sync_mps=False,
+            )
+            return
+    grid = (m1triton.cdiv(inner, block_inner), outer)
+    axis_sum_strided_kernel[grid](
+        x_c, out, reduce_len, inner, scale, BLOCK_INNER=block_inner, APPLY_SCALE=apply_scale
+    )
+
+
 def axis_sum(
     x: torch.Tensor,
     dim: int,
@@ -257,8 +435,9 @@ def axis_sum(
         block_k = _select_last_axis_block_k(reduce_len)
         last_axis_sum_kernel[(outer,)](x_c, out, reduce_len, 1.0, BLOCK_K=block_k, APPLY_SCALE=0)
     else:
-        grid = (m1triton.cdiv(inner, block_inner), outer)
-        axis_sum_strided_kernel[grid](x_c, out, reduce_len, inner, 1.0, BLOCK_INNER=block_inner, APPLY_SCALE=0)
+        _dispatch_strided_sum(
+            x_c, out, outer, reduce_len, inner, 1.0, block_inner=block_inner, apply_scale=0
+        )
     return out
 
 
@@ -280,8 +459,9 @@ def axis_mean(
         block_k = _select_last_axis_block_k(reduce_len)
         last_axis_sum_kernel[(outer,)](x_c, out, reduce_len, scale, BLOCK_K=block_k, APPLY_SCALE=1)
     else:
-        grid = (m1triton.cdiv(inner, block_inner), outer)
-        axis_sum_strided_kernel[grid](x_c, out, reduce_len, inner, scale, BLOCK_INNER=block_inner, APPLY_SCALE=1)
+        _dispatch_strided_sum(
+            x_c, out, outer, reduce_len, inner, scale, block_inner=block_inner, apply_scale=1
+        )
     return out
 
 
@@ -378,7 +558,9 @@ __all__ = [
     "axis_mean",
     "axis_min",
     "axis_sum",
+    "axis_sum_strided_4col_kernel",
     "axis_sum_strided_kernel",
+    "axis_sum_strided_splitk_kernel",
     "last_axis_argextrema_kernel",
     "last_axis_extrema_kernel",
     "last_axis_sum_kernel",
