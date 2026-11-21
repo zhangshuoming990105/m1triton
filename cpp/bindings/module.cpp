@@ -182,6 +182,7 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("num_simdgroups", &ir::TileSpecAttr::num_simdgroups)
       .def_readwrite("double_buffer", &ir::TileSpecAttr::double_buffer)
       .def_readwrite("split_k", &ir::TileSpecAttr::split_k)
+      .def_readwrite("swizzle_w", &ir::TileSpecAttr::swizzle_w)
       .def("__eq__", [](const ir::TileSpecAttr& a, const ir::TileSpecAttr& b) { return a == b; });
 
   py::class_<ir::VecWidthAttr>(ir_m, "VecWidthAttr")
@@ -545,7 +546,7 @@ PYBIND11_MODULE(_C, m) {
           }
         }
 
-        auto pm = m1triton::passes::PassManager::build_m1_pipeline();
+        auto pm = m1triton::passes::PassManager::build_m2_pipeline();
         std::ostringstream pass_dump;
         m1triton::passes::PassContext ctx{target, verify_ir, dump_ir, dump_ir ? &pass_dump : nullptr};
         auto pass_res = pm.run(mod, ctx);

@@ -200,6 +200,10 @@ def _parse_layout_hint(layout: str) -> _C.ir.TensorLayoutHint:
     return mapping[key]
 
 
+def _unwrap_const(val: Any) -> Any:
+    return val.value if isinstance(val, tl.constexpr) else val
+
+
 def _apply_kernel_hint(kernel: _C.ir.Kernel, hint: Any) -> None:
     ir = _C.ir
     hints = kernel.hints
@@ -213,6 +217,7 @@ def _apply_kernel_hint(kernel: _C.ir.Kernel, hint: Any) -> None:
         ts.num_simdgroups = int(hint.num_simdgroups)
         ts.double_buffer = bool(hint.double_buffer)
         ts.split_k = int(hint.split_k)
+        ts.swizzle_w = int(hint.swizzle_w)
         hints.tile_spec = ts
     elif isinstance(hint, tlx.VecWidthHint):
         hints.vec_width = ir.VecWidthAttr(int(hint.width))
@@ -1162,14 +1167,18 @@ class _ASTIRLowerer(ast.NodeVisitor):
         lhs = args[0] if len(args) > 0 else kwargs["input"]
         rhs = args[1] if len(args) > 1 else kwargs["other"]
         acc = args[2] if len(args) > 2 else kwargs.get("acc")
-        allow_tf32 = bool(kwargs.get("allow_tf32", False))
-        out_dtype = kwargs.get("out_dtype", tl.float32)
+        allow_tf32 = bool(_unwrap_const(kwargs.get("allow_tf32", False)))
+        out_dtype = _unwrap_const(kwargs.get("out_dtype", tl.float32))
+        trans_a = bool(_unwrap_const(kwargs.get("trans_a", kwargs.get("transpose_a", False))))
+        trans_b = bool(_unwrap_const(kwargs.get("trans_b", kwargs.get("transpose_b", False))))
 
         if not isinstance(lhs, _SSAVal) or not isinstance(rhs, _SSAVal):
             raise TypeError("tl.dot requires SSA tile operands")
 
         attr = ir.DotAttr()
         attr.allow_tf32 = allow_tf32
+        attr.transpose_a = trans_a
+        attr.transpose_b = trans_b
         if acc is not None:
             acc_ssa = self._materialize_ssa(acc)
             attr.acc_dtype = self.kernel.value_type(acc_ssa.vid).scalar_elem()
@@ -1178,19 +1187,128 @@ class _ASTIRLowerer(ast.NodeVisitor):
             attr.acc_dtype = to_ir_scalar_dtype(out_dtype)
             acc_vid = ir.INVALID_ID
 
+        kernel_struct = self.kernel.hints.structure
+        lhs_ty = self.kernel.value_type(lhs.vid)
+        rhs_ty = self.kernel.value_type(rhs.vid)
+        lhs_ty_struct = lhs_ty.as_tile().structure if lhs_ty.is_tile() else ir.StructureAttr()
+        rhs_ty_struct = rhs_ty.as_tile().structure if rhs_ty.is_tile() else ir.StructureAttr()
+
         if lhs.structure is not None:
             attr.lhs_struct = lhs.structure
+        elif lhs_ty_struct.kind != ir.MatrixStructure.Dense:
+            attr.lhs_struct = lhs_ty_struct
+        elif kernel_struct is not None:
+            attr.lhs_struct = kernel_struct
+
         if rhs.structure is not None:
             attr.rhs_struct = rhs.structure
+        elif rhs_ty_struct.kind != ir.MatrixStructure.Dense:
+            attr.rhs_struct = rhs_ty_struct
+        elif kernel_struct is not None:
+            attr.rhs_struct = kernel_struct
+
+        closed_out_kinds = (
+            ir.MatrixStructure.UpperTriangular,
+            ir.MatrixStructure.LowerTriangular,
+            ir.MatrixStructure.Diagonal,
+            ir.MatrixStructure.CausalMask,
+        )
+        if kernel_struct is not None and kernel_struct.kind in closed_out_kinds:
+            attr.out_struct = kernel_struct
+        elif (
+            attr.lhs_struct.kind == attr.rhs_struct.kind
+            and attr.lhs_struct.kind in closed_out_kinds
+            and attr.lhs_struct.diagonal_offset == 0
+            and attr.rhs_struct.diagonal_offset == 0
+        ):
+            attr.out_struct = ir.StructureAttr(attr.lhs_struct.kind, 0, False)
 
         hints = ir.OpHints()
         if self.kernel.hints.tile_spec is not None:
             hints.tile_spec = self.kernel.hints.tile_spec
-        if self.kernel.hints.structure is not None:
-            hints.structure = self.kernel.hints.structure
+        if kernel_struct is not None:
+            hints.structure = kernel_struct
+        elif attr.out_struct.kind != ir.MatrixStructure.Dense:
+            hints.structure = attr.out_struct
+        elif attr.lhs_struct.kind != ir.MatrixStructure.Dense:
+            hints.structure = attr.lhs_struct
+        elif attr.rhs_struct.kind != ir.MatrixStructure.Dense:
+            hints.structure = attr.rhs_struct
+        if self.kernel.hints.persistent_grid is not None:
+            hints.persistent_grid = self.kernel.hints.persistent_grid
 
         vid = self.builder.emit_dot(lhs.vid, rhs.vid, acc_vid, attr, hints)
-        return _SSAVal(vid=vid)
+        out_struct = attr.out_struct if attr.out_struct.kind != ir.MatrixStructure.Dense else None
+        return _SSAVal(vid=vid, structure=out_struct)
+
+    def _lower_tl_reduce(self, name: str, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        ir = _C.ir
+        x = args[0] if len(args) > 0 else kwargs["input"]
+        axis = _unwrap_const(args[1] if len(args) > 1 else kwargs.get("axis"))
+        keep_dims = bool(
+            _unwrap_const(
+                args[2] if len(args) > 2 else kwargs.get("keep_dims", kwargs.get("keepdims", False))
+            )
+        )
+        return_indices = bool(
+            _unwrap_const(args[3] if len(args) > 3 else kwargs.get("return_indices", False))
+        )
+
+        x_ssa = self._materialize_ssa(x)
+        x_ty = self.kernel.value_type(x_ssa.vid)
+        if not x_ty.is_tile() or x_ty.is_ptr_elem():
+            raise TypeError(f"tl.{name} requires a non-pointer tile operand, got {x_ty}")
+
+        shape = list(x_ty.shape())
+        rank = len(shape)
+        if rank == 0:
+            raise ValueError(f"tl.{name} cannot reduce a 0-D tile")
+
+        kind_map = {
+            "sum": ir.ReduceKind.Sum,
+            "max": ir.ReduceKind.Max,
+            "min": ir.ReduceKind.Min,
+            "argmax": ir.ReduceKind.Argmax,
+            "argmin": ir.ReduceKind.Argmin,
+        }
+        kind = kind_map[name]
+        if name in ("argmax", "argmin"):
+            result_mode = ir.ReduceResultMode.IndexOnly
+        elif return_indices:
+            result_mode = ir.ReduceResultMode.ValueAndIndex
+        else:
+            result_mode = ir.ReduceResultMode.ValueOnly
+
+        if axis is None:
+            if rank == 1:
+                axes = [0]
+            elif name in ("sum", "max", "min") and not return_indices:
+                axes = list(range(rank - 1, -1, -1))
+            else:
+                raise ValueError(f"tl.{name} requires an explicit axis for tiles of rank {rank}")
+        else:
+            ax = int(axis)
+            if ax < 0:
+                ax += rank
+            if ax < 0 or ax >= rank:
+                raise ValueError(f"tl.{name} axis {axis} out of range for tile rank {rank}")
+            axes = [ax]
+
+        cur = x_ssa
+        for ax in axes:
+            attr = ir.ReduceAttr()
+            attr.kind = kind
+            attr.axis = ax
+            attr.keep_dims = keep_dims
+            attr.result_mode = result_mode
+            vid = self.builder.emit_reduce(cur.vid, attr)
+            if result_mode == ir.ReduceResultMode.ValueAndIndex:
+                idx_vid = vid + 1
+                if self.kernel.value_def_op(idx_vid) != self.kernel.value_def_op(vid):
+                    raise RuntimeError("Unexpected Reduce ValueAndIndex result ValueId layout")
+                return (_SSAVal(vid), _SSAVal(idx_vid))
+            cur = _SSAVal(vid)
+        return cur
 
     def _lower_tl_call(self, name: str, args: list[Any], kwargs: dict[str, Any]) -> Any:
         ir = _C.ir
@@ -1326,30 +1444,7 @@ class _ASTIRLowerer(ast.NodeVisitor):
             return self._lower_tl_dot(args, kwargs)
 
         if name in ("sum", "max", "min", "argmax", "argmin"):
-            x = args[0] if len(args) > 0 else kwargs["input"]
-            axis = args[1] if len(args) > 1 else kwargs.get("axis")
-            keep_dims = bool(args[2] if len(args) > 2 else kwargs.get("keep_dims", False))
-            return_indices = bool(kwargs.get("return_indices", False))
-
-            kind_map = {
-                "sum": ir.ReduceKind.Sum,
-                "max": ir.ReduceKind.Max,
-                "min": ir.ReduceKind.Min,
-                "argmax": ir.ReduceKind.Argmax,
-                "argmin": ir.ReduceKind.Argmin,
-            }
-            attr = ir.ReduceAttr()
-            attr.kind = kind_map[name]
-            attr.axis = -1 if axis is None else int(axis)
-            attr.keep_dims = keep_dims
-            if name in ("argmax", "argmin"):
-                attr.result_mode = ir.ReduceResultMode.IndexOnly
-            elif return_indices:
-                attr.result_mode = ir.ReduceResultMode.ValueAndIndex
-            else:
-                attr.result_mode = ir.ReduceResultMode.ValueOnly
-            x_ssa = self._materialize_ssa(x)
-            return _SSAVal(self.builder.emit_reduce(x_ssa.vid, attr))
+            return self._lower_tl_reduce(name, args, kwargs)
 
         if name in ("cumsum", "cumprod"):
             x = args[0] if len(args) > 0 else kwargs["input"]
@@ -1464,26 +1559,32 @@ class _ASTIRLowerer(ast.NodeVisitor):
             return hint
 
         if name == "tile_spec":
-            hint = tlx.tile_spec(*args, **kwargs)
+            u_args = [_unwrap_const(a) for a in args]
+            u_kwargs = {k: _unwrap_const(v) for k, v in kwargs.items()}
+            hint = tlx.tile_spec(*u_args, **u_kwargs)
             _apply_kernel_hint(self.kernel, hint)
             return hint
 
         if name == "layout_hint":
-            hint = tlx.layout_hint(*args, **kwargs)
+            u_args = [_unwrap_const(a) for a in args]
+            u_kwargs = {k: _unwrap_const(v) for k, v in kwargs.items()}
+            hint = tlx.layout_hint(*u_args, **u_kwargs)
             _apply_kernel_hint(self.kernel, hint)
             return hint
 
         if name == "persistent_grid":
-            hint = tlx.persistent_grid(*args, **kwargs)
+            u_args = [_unwrap_const(a) for a in args]
+            u_kwargs = {k: _unwrap_const(v) for k, v in kwargs.items()}
+            hint = tlx.persistent_grid(*u_args, **u_kwargs)
             _apply_kernel_hint(self.kernel, hint)
             return hint
 
         if name == "structure":
-            diag_off = int(kwargs.get("diagonal_offset", 0))
-            unit_diag = bool(kwargs.get("is_unit_diagonal", False))
+            diag_off = int(_unwrap_const(kwargs.get("diagonal_offset", 0)))
+            unit_diag = bool(_unwrap_const(kwargs.get("is_unit_diagonal", False)))
             if args and isinstance(args[0], _SSAVal):
                 val = args[0]
-                kind = str(args[1] if len(args) > 1 else kwargs["kind"])
+                kind = str(_unwrap_const(args[1] if len(args) > 1 else kwargs["kind"]))
                 s_attr = _parse_structure_attr(kind, diag_off, unit_diag)
                 self.kernel.set_value_structure(val.vid, s_attr)
                 def_op = self.kernel.value_def_op(val.vid)
@@ -1492,7 +1593,10 @@ class _ASTIRLowerer(ast.NodeVisitor):
                     oh.structure = s_attr
                     self.kernel.set_op_hints(def_op, oh)
                 return _SSAVal(vid=val.vid, ptr_params=val.ptr_params, structure=s_attr)
-            kind = str(args[0] if args else kwargs["kind"])
+            raw_kind = _unwrap_const(args[0] if args else kwargs["kind"])
+            if raw_kind is None:
+                return None
+            kind = str(raw_kind)
             hint = tlx.StructureHint(kind=kind, diagonal_offset=diag_off, is_unit_diagonal=unit_diag)
             _apply_kernel_hint(self.kernel, hint)
             return hint

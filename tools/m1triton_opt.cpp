@@ -15,6 +15,9 @@
 #include "passes/dce.hpp"
 #include "passes/licm.hpp"
 #include "passes/pass_manager.hpp"
+#include "passes/simdgroup_matmul.hpp"
+#include "passes/structure_pruning.hpp"
+#include "passes/threadgroup_staging.hpp"
 #include "passes/tile_layout.hpp"
 
 namespace {
@@ -37,10 +40,16 @@ bool add_named_pass(m1triton::passes::PassManager& pm, const std::string& name) 
     pm.add_pass<CSEPass>();
   } else if (name == "licm") {
     pm.add_pass<LICMPass>();
+  } else if (name == "structure-pruning") {
+    pm.add_pass<StructureAwareDeadTilePruningPass>();
   } else if (name == "contiguity") {
     pm.add_pass<ContiguityAndAlignmentAnalysis>();
   } else if (name == "tile-layout") {
     pm.add_pass<TileAndLayoutAssignmentPass>();
+  } else if (name == "threadgroup-staging") {
+    pm.add_pass<ThreadgroupStagingAndSwizzlePass>();
+  } else if (name == "simdgroup-matmul") {
+    pm.add_pass<SimdgroupMatrixLoweringPass>();
   } else if (name == "dce") {
     pm.add_pass<DCEPass>();
   } else {
@@ -50,8 +59,9 @@ bool add_named_pass(m1triton::passes::PassManager& pm, const std::string& name) 
 }
 
 void print_usage() {
-  std::cerr << "Usage: m1triton-opt [input.ir|-] [--passes=m1|canonicalize,cse,...] "
-               "[--dump-after-each] [--emit-msl] [--no-verify]\n";
+  std::cerr << "Usage: m1triton-opt [input.ir|-] "
+               "[--passes=m1|m2|canonicalize,cse,licm,structure-pruning,contiguity,tile-layout,"
+               "threadgroup-staging,simdgroup-matmul,dce] [--dump-after-each] [--emit-msl] [--no-verify]\n";
 }
 
 }  // namespace
@@ -119,6 +129,8 @@ int main(int argc, char** argv) {
     m1triton::passes::PassManager pm;
     if (passes_arg == "m1") {
       pm = m1triton::passes::PassManager::build_m1_pipeline();
+    } else if (passes_arg == "m2") {
+      pm = m1triton::passes::PassManager::build_m2_pipeline();
     } else {
       for (const auto& name : split_csv(passes_arg)) {
         if (!add_named_pass(pm, name)) {

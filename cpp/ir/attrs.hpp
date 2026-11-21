@@ -67,6 +67,7 @@ struct TileSpecAttr {
   uint32_t num_simdgroups = 4;
   bool double_buffer = false;
   uint32_t split_k = 1;
+  uint32_t swizzle_w = 8;
   bool operator==(const TileSpecAttr&) const = default;
 };
 

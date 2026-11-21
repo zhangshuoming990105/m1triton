@@ -32,6 +32,9 @@ add_library(m1triton_passes STATIC
   cpp/passes/dce.cpp
   cpp/passes/licm.cpp
   cpp/passes/pass_manager.cpp
+  cpp/passes/simdgroup_matmul.cpp
+  cpp/passes/structure_pruning.cpp
+  cpp/passes/threadgroup_staging.cpp
   cpp/passes/tile_layout.cpp
 )
 target_include_directories(m1triton_passes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
@@ -40,6 +43,8 @@ target_compile_options(m1triton_passes PRIVATE -Wall -Wextra -Werror)
 
 add_library(m1triton_codegen_metal STATIC
   cpp/codegen/metal/metal_codegen.cpp
+  cpp/codegen/metal/reduce_scan_emitter.cpp
+  cpp/codegen/metal/sgmm_emitter.cpp
 )
 target_include_directories(m1triton_codegen_metal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 target_link_libraries(m1triton_codegen_metal PUBLIC m1triton_ir)
@@ -82,7 +87,22 @@ target_link_libraries(test_ir_and_passes PRIVATE m1triton_passes m1triton_ir)
 target_compile_options(test_ir_and_passes PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME test_ir_and_passes COMMAND test_ir_and_passes)
 
+add_executable(test_m2_passes tests/cpp/test_m2_passes.cpp)
+target_link_libraries(test_m2_passes PRIVATE m1triton_passes m1triton_ir)
+target_compile_options(test_m2_passes PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_m2_passes COMMAND test_m2_passes)
+
 add_executable(test_metal_codegen tests/cpp/test_metal_codegen.cpp)
 target_link_libraries(test_metal_codegen PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
 target_compile_options(test_metal_codegen PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME test_metal_codegen COMMAND test_metal_codegen)
+
+add_executable(test_sgmm_emitter tests/cpp/test_sgmm_emitter.cpp)
+target_link_libraries(test_sgmm_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_sgmm_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_sgmm_emitter COMMAND test_sgmm_emitter)
+
+add_executable(test_reduce_scan_emitter tests/cpp/test_reduce_scan_emitter.cpp)
+target_link_libraries(test_reduce_scan_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_reduce_scan_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_reduce_scan_emitter COMMAND test_reduce_scan_emitter)
