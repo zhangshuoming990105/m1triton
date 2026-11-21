@@ -434,23 +434,48 @@ bool emit_row_norm(Emitter& e, const ir::WelfordNormAttr& a) {
   return true;
 }
 
-void emit_flat_chunk(Emitter& e, const std::string& total) {
-  e.body << "  const long m1_total = long(" << total << ");\n"
-         << "  const long m1_chunk = ((m1_total + long(m1_ntg.x) - 1L) / long(m1_ntg.x) + 3L) & ~3L;\n"
-         << "  const long m1_base = min(long(m1_tgp.x) * m1_chunk, m1_total);\n"
-         << "  const uint m1_n = uint(min(m1_chunk, m1_total - m1_base));\n";
-}
-
 bool emit_frobenius(Emitter& e, const ir::WelfordNormAttr& a) {
   auto& os = e.body;
+  const long tile_v = 2L * static_cast<long>(e.tg);
   if (a.stage == 1) {
     if (!expect_operands(e, 3, "frobenius stage 1")) return false;
-    const VecMode mode = pick_mode(e, {0}, true);
-    os << "  threadgroup float m1_sh[" << e.nsg() << "];\n";
-    emit_flat_chunk(e, e.ops[2].expr);
-    os << "  float m1_acc = 0.0f;\n";
-    emit_reduce_loop(e, mode, e.ops[0].expr, "m1_base", "m1_n", "m1_acc += dot(v, v);", "m1_acc = fma(s, s, m1_acc);");
-    os << "  const float m1_tot = m1_sum_tg(m1_acc, m1_sh, m1_lane, m1_sg, " << e.nsg() << "u);\n"
+    const char* vt = vec_type(pick_mode(e, {0}, true));
+    const std::string x = e.ops[0].expr;
+    os << "  threadgroup float m1_sh[" << e.nsg() << "];\n"
+       << "  const long m1_total = long(" << e.ops[2].expr << ");\n"
+       << "  const long m1_nv = m1_total >> 2;\n"
+       << "  device const " << vt << "* m1_xv = (device const " << vt << "*)(" << x << ");\n"
+       << "  float4 m1_a0 = float4(0.0f);\n"
+       << "  float4 m1_a1 = float4(0.0f);\n"
+       << "  float m1_acc = 0.0f;\n"
+       << "  const long m1_tile = " << tile_v << "L;\n"
+       << "  const long m1_gstride = long(m1_ntg.x) * m1_tile;\n"
+       << "  for (long m1_t0 = long(m1_tgp.x) * m1_tile; m1_t0 < m1_nv; m1_t0 += m1_gstride) {\n"
+       << "    const long m1_b = m1_t0 + long(m1_tid);\n"
+       << "    if (m1_t0 + m1_tile <= m1_nv) {\n"
+       << "      const float4 v0 = float4(m1_xv[m1_b]);\n"
+       << "      const float4 v1 = float4(m1_xv[m1_b + " << e.tg << "L]);\n"
+       << "      m1_a0 = fma(v0, v0, m1_a0);\n"
+       << "      m1_a1 = fma(v1, v1, m1_a1);\n"
+       << "    } else {\n"
+       << "      const long m1_end = min(m1_t0 + m1_tile, m1_nv);\n"
+       << "      for (long m1_i = m1_b; m1_i < m1_end; m1_i += " << e.tg << "L) {\n"
+       << "        const float4 v = float4(m1_xv[m1_i]);\n"
+       << "        m1_acc += dot(v, v);\n"
+       << "      }\n"
+       << "    }\n"
+       << "  }\n"
+       << "  const float4 m1_a = m1_a0 + m1_a1;\n"
+       << "  m1_acc += (m1_a.x + m1_a.y) + (m1_a.z + m1_a.w);\n"
+       << "  if (m1_tgp.x == 0u) {\n"
+       << "    const long m1_tail = m1_nv << 2;\n"
+       << "    const long m1_rem = m1_total - m1_tail;\n"
+       << "    for (long m1_r = long(m1_tid); m1_r < m1_rem; m1_r += " << e.tg << "L) {\n"
+       << "      const float s = " << x << "[m1_tail + m1_r];\n"
+       << "      m1_acc = fma(s, s, m1_acc);\n"
+       << "    }\n"
+       << "  }\n"
+       << "  const float m1_tot = m1_sum_tg(m1_acc, m1_sh, m1_lane, m1_sg, " << e.nsg() << "u);\n"
        << "  if (m1_tid == 0) " << e.ops[1].expr << "[m1_tgp.x] = m1_tot;\n";
     return true;
   }
@@ -459,14 +484,48 @@ bool emit_frobenius(Emitter& e, const ir::WelfordNormAttr& a) {
     return false;
   }
   if (!expect_operands(e, 5, "frobenius stage 2")) return false;
-  const VecMode mode = pick_mode(e, {0, 1}, true);
+  const char* vt = vec_type(pick_mode(e, {0, 1}, true));
+  const char* pvt = vec_type(pick_mode(e, {2}, true));
+  const std::string x = e.ops[0].expr;
+  const std::string o = e.ops[1].expr;
+  const std::string p = e.ops[2].expr;
   os << "  threadgroup float m1_sh[" << e.nsg() << "];\n"
-     << "  float m1_p = 0.0f;\n"
-     << "  for (uint m1_i = m1_tid; m1_i < uint(" << e.ops[4].expr << "); m1_i += " << e.tg << "u) m1_p += "
-     << e.ops[2].expr << "[m1_i];\n"
-     << "  const float m1_inv = 1.0f / sqrt(m1_sum_tg(m1_p, m1_sh, m1_lane, m1_sg, " << e.nsg() << "u));\n";
-  emit_flat_chunk(e, e.ops[3].expr);
-  emit_map_loop(e, mode, e.ops[0].expr, e.ops[1].expr, "m1_base", "m1_n", "v * m1_inv", "s * m1_inv", false);
+     << "  const uint m1_np = uint(" << e.ops[4].expr << ");\n"
+     << "  const uint m1_npv = m1_np >> 2;\n"
+     << "  device const " << pvt << "* m1_pv = (device const " << pvt << "*)(" << p << ");\n"
+     << "  float4 m1_p4 = float4(0.0f);\n"
+     << "  for (uint m1_i = m1_tid; m1_i < m1_npv; m1_i += " << e.tg << "u) m1_p4 += float4(m1_pv[m1_i]);\n"
+     << "  float m1_p = (m1_p4.x + m1_p4.y) + (m1_p4.z + m1_p4.w);\n"
+     << "  for (uint m1_i = (m1_npv << 2) + m1_tid; m1_i < m1_np; m1_i += " << e.tg << "u) m1_p += " << p << "[m1_i];\n"
+     << "  const float m1_inv = rsqrt(m1_sum_tg(m1_p, m1_sh, m1_lane, m1_sg, " << e.nsg() << "u));\n"
+     << "  const long m1_total = long(" << e.ops[3].expr << ");\n"
+     << "  const long m1_nv = m1_total >> 2;\n"
+     << "  device const " << vt << "* m1_xv = (device const " << vt << "*)(" << x << ");\n"
+     << "  device " << vt << "* m1_ov = (device " << vt << "*)(" << o << ");\n"
+     << "  const long m1_tile = " << tile_v << "L;\n"
+     << "  const long m1_gstride = long(m1_ntg.x) * m1_tile;\n"
+     << "  for (long m1_t0 = long(m1_tgp.x) * m1_tile; m1_t0 < m1_nv; m1_t0 += m1_gstride) {\n"
+     << "    const long m1_b = m1_t0 + long(m1_tid);\n"
+     << "    if (m1_t0 + m1_tile <= m1_nv) {\n"
+     << "      const float4 v0 = float4(m1_xv[m1_b]);\n"
+     << "      const float4 v1 = float4(m1_xv[m1_b + " << e.tg << "L]);\n"
+     << "      m1_ov[m1_b] = " << vt << "(v0 * m1_inv);\n"
+     << "      m1_ov[m1_b + " << e.tg << "L] = " << vt << "(v1 * m1_inv);\n"
+     << "    } else {\n"
+     << "      const long m1_end = min(m1_t0 + m1_tile, m1_nv);\n"
+     << "      for (long m1_i = m1_b; m1_i < m1_end; m1_i += " << e.tg << "L) {\n"
+     << "        const float4 v = float4(m1_xv[m1_i]);\n"
+     << "        m1_ov[m1_i] = " << vt << "(v * m1_inv);\n"
+     << "      }\n"
+     << "    }\n"
+     << "  }\n"
+     << "  if (m1_tgp.x == 0u) {\n"
+     << "    const long m1_tail = m1_nv << 2;\n"
+     << "    const long m1_rem = m1_total - m1_tail;\n"
+     << "    for (long m1_r = long(m1_tid); m1_r < m1_rem; m1_r += " << e.tg << "L) {\n"
+     << "      " << o << "[m1_tail + m1_r] = " << x << "[m1_tail + m1_r] * m1_inv;\n"
+     << "    }\n"
+     << "  }\n";
   return true;
 }
 

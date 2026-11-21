@@ -79,10 +79,20 @@ std::optional<std::string> scalar_expr(const Kernel& kernel, ValueId vid) {
 }
 
 enum class FlashAttnMode {
+  TwoWaveSgmm,
   SinglePassSgmm,
   MultiTileSgmm,
   GeneralRowWise,
 };
+
+std::optional<int64_t> find_constexpr_param(const Kernel& kernel, const char* name) {
+  for (const auto& kp : kernel.params) {
+    if (kp.is_constexpr && kp.name == name) {
+      return kp.constexpr_val;
+    }
+  }
+  return std::nullopt;
+}
 
 struct FlashAttnPlan {
   const Op* op = nullptr;
@@ -101,6 +111,9 @@ struct FlashAttnPlan {
   uint32_t bn = 256;
   uint32_t num_sg = 16;
   uint32_t tg_threads = 512;
+  bool fast_only = false;
+  uint32_t d_static = 0;
+  uint32_t lkv_static = 0;
   FlashAttnMode mode = FlashAttnMode::GeneralRowWise;
 };
 
@@ -187,8 +200,27 @@ std::optional<FlashAttnPlan> build_plan(const Kernel& kernel, const ir::TargetSp
   }
 
   const uint32_t max_smem = target.max_threadgroup_memory_bytes;
-  if (plan.elem_dt == ScalarDType::F32 && plan.bm == 16u && plan.bn == 512u && plan.num_sg == 16u &&
-      plan.bm * plan.bn * 4u <= max_smem) {
+  if (const auto v = find_constexpr_param(kernel, "FAST_ONLY")) {
+    plan.fast_only = (*v != 0);
+  }
+  if (plan.fast_only) {
+    if (const auto v = find_constexpr_param(kernel, "D_STATIC")) {
+      if (*v > 0 && *v <= 1024 && ((*v) & 63) == 0) {
+        plan.d_static = static_cast<uint32_t>(*v);
+      }
+    }
+    if (const auto v = find_constexpr_param(kernel, "LKV_STATIC")) {
+      if (*v > 0 && *v <= 512 && ((*v) & 31) == 0) {
+        plan.lkv_static = static_cast<uint32_t>(*v);
+      }
+    }
+  }
+
+  if (plan.elem_dt == ScalarDType::F32 && plan.bm == 32u && plan.bn == 512u && plan.num_sg == 16u &&
+      16u * plan.bn * 4u <= max_smem) {
+    plan.mode = FlashAttnMode::TwoWaveSgmm;
+  } else if (plan.elem_dt == ScalarDType::F32 && plan.bm == 16u && plan.bn == 512u && plan.num_sg == 16u &&
+             plan.bm * plan.bn * 4u <= max_smem) {
     plan.mode = FlashAttnMode::SinglePassSgmm;
   } else if (plan.elem_dt == ScalarDType::F32 && plan.bm == 16u && plan.num_sg == 16u &&
              (plan.bn == 256u || plan.bn == 128u || plan.bn == 64u) &&
@@ -214,6 +246,9 @@ class FlashAttnWriter {
     emit_signature();
     emit_prologue();
     switch (plan_.mode) {
+      case FlashAttnMode::TwoWaveSgmm:
+        emit_two_wave_sgmm();
+        break;
       case FlashAttnMode::SinglePassSgmm:
         emit_single_pass_sgmm();
         break;
@@ -264,6 +299,18 @@ class FlashAttnWriter {
     os_ << "    uint m1_lane [[thread_index_in_simdgroup]]) {\n";
   }
 
+  std::string d_stride_long() const {
+    return (plan_.d_static > 0u) ? (std::to_string(plan_.d_static) + "L") : "m1_D";
+  }
+
+  std::string d_stride_arg() const {
+    return (plan_.d_static > 0u) ? std::to_string(plan_.d_static) : "m1_D";
+  }
+
+  std::string lkv_int_expr() const {
+    return (plan_.lkv_static > 0u) ? std::to_string(plan_.lkv_static) : "(int)m1_Lkv";
+  }
+
   void emit_prologue() {
     const uint32_t shm_floats = compute_shm_floats();
     os_ << "  threadgroup float m1_shm[" << shm_floats << "];\n";
@@ -280,20 +327,24 @@ class FlashAttnWriter {
     os_ << "  if (m1_bh >= m1_BH) return;\n";
     os_ << "  const long m1_q0 = (long)m1_tgid.x * " << plan_.bm << "L;\n";
     os_ << "  if (m1_q0 >= m1_Lq) return;\n";
+    const std::string ds = d_stride_long();
     os_ << "  device const " << plan_.elem_type << "* m1_Qb = " << plan_.q_name
-        << " + m1_bh * (m1_Lq * m1_D);\n";
+        << " + m1_bh * (m1_Lq * " << ds << ");\n";
     os_ << "  device const " << plan_.elem_type << "* m1_Kb = " << plan_.k_name
-        << " + m1_bh * (m1_Lkv * m1_D);\n";
+        << " + m1_bh * (m1_Lkv * " << ds << ");\n";
     os_ << "  device const " << plan_.elem_type << "* m1_Vb = " << plan_.v_name
-        << " + m1_bh * (m1_Lkv * m1_D);\n";
+        << " + m1_bh * (m1_Lkv * " << ds << ");\n";
     os_ << "  device " << plan_.elem_type << "* m1_Ob = " << plan_.out_name
-        << " + m1_bh * (m1_Lq * m1_D);\n";
+        << " + m1_bh * (m1_Lq * " << ds << ");\n";
     os_ << "  const float m1_scale_log2 = " << format_float_literal(plan_.attr.scale)
         << " * 1.4426950408889634f;\n";
-    os_ << "  (void)m1_tid;\n";
+    os_ << "  (void)m1_tid; (void)m1_D;\n";
   }
 
   uint32_t compute_shm_floats() const {
+    if (plan_.mode == FlashAttnMode::TwoWaveSgmm) {
+      return 16u * 512u;
+    }
     if (plan_.mode == FlashAttnMode::SinglePassSgmm) {
       return plan_.bm * plan_.bn;
     }
@@ -309,131 +360,382 @@ class FlashAttnWriter {
            std::to_string(plan_.attr.causal_offset) + "L))";
   }
 
-  void emit_single_pass_sgmm() {
+  void emit_two_wave_sgmm() {
     constexpr uint32_t kLdp = 512u;
-    os_ << "  if (m1_q0 + 16L <= m1_Lq && m1_Lkv > 0L && m1_Lkv <= 512L && (m1_Lkv & 31L) == 0L && "
-           "m1_D > 0L && m1_D <= 1024L && (m1_D & 63L) == 0L) {\n";
+    constexpr uint32_t kBq = 64u;
+    constexpr uint32_t kLdqt = 36u;
+    constexpr uint32_t kSlot = kBq * kLdqt;
+    const std::string ds_l = d_stride_long();
+    const std::string ds_a = d_stride_arg();
+    const std::string lkv_i = lkv_int_expr();
+    const bool full_lkv = (plan_.lkv_static == 512u);
+    const bool full_d = (plan_.d_static == 1024u);
+    const bool fast_softmax = plan_.fast_only && !plan_.attr.causal && full_lkv;
+    const std::string ind = plan_.fast_only ? "  " : "    ";
 
-    os_ << "    {\n";
-    os_ << "      const int m1_sc0 = (int)m1_sg * 32;\n";
-    os_ << "      if ((long)m1_sc0 < m1_Lkv) {\n";
-    for (int i = 0; i < 2; ++i) {
-      for (int j = 0; j < 4; ++j) {
-        os_ << "        simdgroup_float8x8 s_" << i << "_" << j
+    if (!plan_.fast_only) {
+      os_ << "  if (m1_q0 + 32L <= m1_Lq && m1_Lkv > 0L && m1_Lkv <= 512L && (m1_Lkv & 31L) == 0L && "
+             "m1_D > 0L && m1_D <= 1024L && (m1_D & 63L) == 0L) {\n";
+    }
+
+    for (int i = 0; i < 4; ++i) {
+      for (int j = 2; j < 4; ++j) {
+        os_ << ind << "simdgroup_float8x8 s_" << i << "_" << j
             << " = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);\n";
       }
     }
-    os_ << "        device const float* qp_0 = m1_Qb + m1_q0 * m1_D;\n";
-    os_ << "        device const float* qp_1 = qp_0 + 8L * m1_D;\n";
-    for (int j = 0; j < 4; ++j) {
-      os_ << "        device const float* kp_" << j << " = m1_Kb + (long)(m1_sc0 + " << (j * 8) << ") * m1_D;\n";
-    }
-    os_ << "        for (long m1_d0 = 0L; m1_d0 < m1_D; m1_d0 += 16L) {\n";
-    for (int ks = 0; ks < 16; ks += 8) {
-      os_ << "          {\n";
-      os_ << "            simdgroup_float8x8 fa_0; simdgroup_load(fa_0, qp_0 + " << ks << ", m1_D);\n";
-      os_ << "            simdgroup_float8x8 fa_1; simdgroup_load(fa_1, qp_1 + " << ks << ", m1_D);\n";
-      os_ << "            simdgroup_float8x8 fb_cur, fb_nxt;\n";
-      os_ << "            simdgroup_load(fb_cur, kp_0 + " << ks << ", m1_D, ulong2(0, 0), true);\n";
-      for (int j = 0; j < 4; ++j) {
-        if (j + 1 < 4) {
-          os_ << "            simdgroup_load(fb_nxt, kp_" << (j + 1) << " + " << ks
-              << ", m1_D, ulong2(0, 0), true);\n";
+
+    auto emit_kq_comp = [&](const std::string& q_ptr_s, const std::string& d_expr, const std::string& ci) {
+      if (!full_lkv) {
+        os_ << ci << "if ((long)m1_sc0 < m1_Lkv) {\n";
+      }
+      const std::string ii = full_lkv ? ci : (ci + "  ");
+      os_ << ii << "device const float* kb = m1_Kb + (long)m1_sc0 * " << ds_l << " + " << d_expr << ";\n";
+      os_ << ii << "for (int ks = 0; ks < " << kBq << "; ks += 16) {\n";
+      os_ << ii << "  simdgroup_float8x8 fa_cur, fa_nxt;\n";
+      os_ << ii << "  simdgroup_load(fa_cur, kb + ks, " << ds_a << ");\n";
+      for (int sub = 0; sub < 16; sub += 8) {
+        os_ << ii << "  {\n";
+        for (int j = 0; j < 4; ++j) {
+          os_ << ii << "    simdgroup_float8x8 fb_" << j << "; simdgroup_load(fb_" << j << ", " << q_ptr_s
+              << " + (ks + " << sub << ") * " << kLdqt << " + " << (j * 8) << ", " << kLdqt << ");\n";
         }
-        os_ << "            simdgroup_multiply_accumulate(s_0_" << j << ", fa_0, fb_cur, s_0_" << j << ");\n";
-        os_ << "            simdgroup_multiply_accumulate(s_1_" << j << ", fa_1, fb_cur, s_1_" << j << ");\n";
-        if (j + 1 < 4) {
-          os_ << "            fb_cur = fb_nxt;\n";
+        for (int i = 0; i < 4; ++i) {
+          if (i + 1 < 4) {
+            os_ << ii << "    simdgroup_load(fa_nxt, kb + " << ((i + 1) * 8) << "L * " << ds_l << " + ks + " << sub
+                << ", " << ds_a << ");\n";
+          } else if (sub == 0) {
+            os_ << ii << "    simdgroup_load(fa_nxt, kb + ks + 8, " << ds_a << ");\n";
+          }
+          for (int j = 0; j < 4; ++j) {
+            os_ << ii << "    simdgroup_multiply_accumulate(s_" << i << "_" << j << ", fa_cur, fb_" << j << ", s_" << i
+                << "_" << j << ");\n";
+          }
+          if (i + 1 < 4 || sub == 0) {
+            os_ << ii << "    fa_cur = fa_nxt;\n";
+          }
+        }
+        os_ << ii << "  }\n";
+      }
+      os_ << ii << "}\n";
+      if (!full_lkv) {
+        os_ << ci << "}\n";
+      }
+    };
+
+    os_ << ind << "{\n";
+    os_ << ind << "  const int m1_sc0 = (int)m1_sg * 32;\n";
+    for (int i = 0; i < 4; ++i) {
+      for (int j = 0; j < 2; ++j) {
+        os_ << ind << "  simdgroup_float8x8 s_" << i << "_" << j
+            << " = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);\n";
+      }
+    }
+    os_ << ind << "  const uint m1_qr = m1_tid >> 4;\n";
+    os_ << ind << "  const uint m1_qc = (m1_tid & 15u) << 2;\n";
+    os_ << ind << "  device const float* m1_qload = m1_Qb + (m1_q0 + (long)m1_qr) * " << ds_l << " + (long)m1_qc;\n";
+    os_ << ind << "  uint m1_buf = 0u;\n";
+    os_ << ind << "  {\n";
+    os_ << ind << "    const float4 rq0 = float4(*(device const packed_float4*)(m1_qload));\n";
+    os_ << ind << "    m1_shm[(m1_qc + 0u) * " << kLdqt << "u + m1_qr] = rq0.x;\n";
+    os_ << ind << "    m1_shm[(m1_qc + 1u) * " << kLdqt << "u + m1_qr] = rq0.y;\n";
+    os_ << ind << "    m1_shm[(m1_qc + 2u) * " << kLdqt << "u + m1_qr] = rq0.z;\n";
+    os_ << ind << "    m1_shm[(m1_qc + 3u) * " << kLdqt << "u + m1_qr] = rq0.w;\n";
+    os_ << ind << "  }\n";
+    os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << ind << "  for (long m1_d0 = 0L; m1_d0 + " << kBq << "L < " << ds_l << "; m1_d0 += " << kBq << "L) {\n";
+    os_ << ind << "    const uint m1_nb = 1u - m1_buf;\n";
+    os_ << ind << "    threadgroup float* m1_qcur = m1_shm + m1_buf * " << kSlot << "u;\n";
+    os_ << ind << "    threadgroup float* m1_qnxt = m1_shm + m1_nb * " << kSlot << "u;\n";
+    os_ << ind << "    const float4 rqn = float4(*(device const packed_float4*)(m1_qload + m1_d0 + " << kBq << "L));\n";
+    emit_kq_comp("m1_qcur", "m1_d0", ind + "    ");
+    os_ << ind << "    m1_qnxt[(m1_qc + 0u) * " << kLdqt << "u + m1_qr] = rqn.x;\n";
+    os_ << ind << "    m1_qnxt[(m1_qc + 1u) * " << kLdqt << "u + m1_qr] = rqn.y;\n";
+    os_ << ind << "    m1_qnxt[(m1_qc + 2u) * " << kLdqt << "u + m1_qr] = rqn.z;\n";
+    os_ << ind << "    m1_qnxt[(m1_qc + 3u) * " << kLdqt << "u + m1_qr] = rqn.w;\n";
+    os_ << ind << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << ind << "    m1_buf = m1_nb;\n";
+    os_ << ind << "  }\n";
+    os_ << ind << "  {\n";
+    os_ << ind << "    threadgroup float* m1_qcur = m1_shm + m1_buf * " << kSlot << "u;\n";
+    emit_kq_comp("m1_qcur", "(" + ds_l + " - " + std::to_string(kBq) + "L)", ind + "    ");
+    os_ << ind << "  }\n";
+    os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    if (!full_lkv) {
+      os_ << ind << "  if ((long)m1_sc0 < m1_Lkv) {\n";
+    }
+    const std::string si = full_lkv ? (ind + "  ") : (ind + "    ");
+    for (int i = 0; i < 4; ++i) {
+      for (int j = 0; j < 2; ++j) {
+        os_ << si << "simdgroup_store(s_" << i << "_" << j << ", m1_shm + " << (j * 8 * kLdp)
+            << " + (m1_sc0 + " << (i * 8) << "), " << kLdp << ", ulong2(0, 0), true);\n";
+      }
+    }
+    if (!full_lkv) {
+      os_ << ind << "  }\n";
+    }
+    os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << ind << "}\n";
+
+    auto emit_wave_softmax_pv = [&](uint32_t row_off) {
+      os_ << ind << "{\n";
+      os_ << ind << "  const int m1_row = (int)m1_sg;\n";
+      if (!fast_softmax) {
+        const std::string row_abs = (row_off == 0u) ? "m1_row" : ("(" + std::to_string(row_off) + " + m1_row)");
+        os_ << ind << "  const long m1_kmax = " << kmax_expr(row_abs) << ";\n";
+      }
+      os_ << ind << "  float m1_vals[16];\n";
+      os_ << ind << "  float m1_mx = -1e30f;\n";
+      for (int j = 0; j < 16; ++j) {
+        if (fast_softmax) {
+          os_ << ind << "  { const int c = (int)m1_lane + " << (j * 32) << "; "
+              << "const float v = m1_shm[m1_row * " << kLdp << " + c] * m1_scale_log2; "
+              << "m1_vals[" << j << "] = v; m1_mx = max(m1_mx, v); }\n";
+        } else {
+          os_ << ind << "  { const int c = (int)m1_lane + " << (j * 32) << "; "
+              << "const float v = ((long)c < m1_kmax) ? (m1_shm[m1_row * " << kLdp
+              << " + c] * m1_scale_log2) : -1e30f; m1_vals[" << j << "] = v; m1_mx = max(m1_mx, v); }\n";
         }
       }
-      os_ << "          }\n";
+      os_ << ind << "  m1_mx = simd_max(m1_mx);\n";
+      if (!fast_softmax) {
+        os_ << ind << "  const bool m1_valid = (m1_kmax > 0L) && (m1_mx > -1e29f);\n";
+      }
+      os_ << ind << "  float m1_rs = 0.0f;\n";
+      for (int j = 0; j < 16; ++j) {
+        if (fast_softmax) {
+          os_ << ind << "  { const float p = exp2(m1_vals[" << j << "] - m1_mx); "
+              << "m1_vals[" << j << "] = p; m1_rs += p; }\n";
+        } else {
+          os_ << ind << "  { const int c = (int)m1_lane + " << (j * 32) << "; "
+              << "const float p = (m1_valid && (long)c < m1_kmax) ? exp2(m1_vals[" << j
+              << "] - m1_mx) : 0.0f; m1_vals[" << j << "] = p; m1_rs += p; }\n";
+        }
+      }
+      os_ << ind << "  m1_rs = simd_sum(m1_rs);\n";
+      if (fast_softmax) {
+        os_ << ind << "  const float m1_inv = 1.0f / m1_rs;\n";
+      } else {
+        os_ << ind << "  const float m1_inv = (m1_valid && m1_rs > 0.0f) ? (1.0f / m1_rs) : 0.0f;\n";
+      }
+      for (int j = 0; j < 16; ++j) {
+        os_ << ind << "  m1_shm[m1_row * " << kLdp << " + (int)m1_lane + " << (j * 32) << "] = m1_vals[" << j
+            << "] * m1_inv;\n";
+      }
+      os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+      os_ << ind << "}\n";
+
+      os_ << ind << "{\n";
+      os_ << ind << "  const long m1_sgd0 = (long)m1_sg * 64L;\n";
+      if (!full_d) {
+        os_ << ind << "  if (m1_sgd0 < " << ds_l << ") {\n";
+      }
+      const std::string pi = full_d ? (ind + "  ") : (ind + "    ");
+      for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 8; ++j) {
+          os_ << pi << "simdgroup_float8x8 o_" << i << "_" << j
+              << " = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);\n";
+        }
+      }
+      os_ << pi << "device const float* vp = m1_Vb + m1_sgd0;\n";
+      os_ << pi << "for (int m1_k0 = 0; m1_k0 < " << lkv_i << "; m1_k0 += 16) {\n";
+      os_ << pi << "  simdgroup_float8x8 vf_cur, vf_nxt;\n";
+      os_ << pi << "  simdgroup_load(vf_cur, vp, " << ds_a << ");\n";
+      for (int ku = 0; ku < 2; ++ku) {
+        os_ << pi << "  {\n";
+        os_ << pi << "    const int kk = m1_k0 + " << (ku * 8) << ";\n";
+        os_ << pi << "    simdgroup_float8x8 pf_0; simdgroup_load(pf_0, m1_shm + kk, " << kLdp << ");\n";
+        os_ << pi << "    simdgroup_float8x8 pf_1; simdgroup_load(pf_1, m1_shm + " << (8 * kLdp) << " + kk, " << kLdp
+            << ");\n";
+        for (int j = 0; j < 8; ++j) {
+          if (j + 1 < 8) {
+            os_ << pi << "    simdgroup_load(vf_nxt, vp + " << (ku * 8) << "L * " << ds_l << " + " << ((j + 1) * 8)
+                << ", " << ds_a << ");\n";
+          } else if (ku == 0) {
+            os_ << pi << "    simdgroup_load(vf_nxt, vp + 8L * " << ds_l << ", " << ds_a << ");\n";
+          }
+          os_ << pi << "    simdgroup_multiply_accumulate(o_0_" << j << ", pf_0, vf_cur, o_0_" << j << ");\n";
+          os_ << pi << "    simdgroup_multiply_accumulate(o_1_" << j << ", pf_1, vf_cur, o_1_" << j << ");\n";
+          if (j + 1 < 8 || ku == 0) {
+            os_ << pi << "    vf_cur = vf_nxt;\n";
+          }
+        }
+        os_ << pi << "  }\n";
+      }
+      os_ << pi << "  vp += 16L * " << ds_l << ";\n";
+      os_ << pi << "}\n";
+      for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 8; ++j) {
+          os_ << pi << "simdgroup_store(o_" << i << "_" << j << ", m1_Ob + (m1_q0 + " << (row_off + i * 8) << "L) * "
+              << ds_l << " + m1_sgd0 + " << (j * 8) << "L, " << ds_a << ");\n";
+        }
+      }
+      if (!full_d) {
+        os_ << ind << "  }\n";
+      }
+      os_ << ind << "}\n";
+    };
+
+    emit_wave_softmax_pv(0u);
+    os_ << ind << "threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << ind << "{\n";
+    os_ << ind << "  const int m1_sc0 = (int)m1_sg * 32;\n";
+    if (!full_lkv) {
+      os_ << ind << "  if ((long)m1_sc0 < m1_Lkv) {\n";
     }
-    os_ << "          qp_0 += 16L; qp_1 += 16L;\n";
-    os_ << "          kp_0 += 16L; kp_1 += 16L; kp_2 += 16L; kp_3 += 16L;\n";
-    os_ << "        }\n";
+    for (int i = 0; i < 4; ++i) {
+      for (int j = 2; j < 4; ++j) {
+        os_ << si << "simdgroup_store(s_" << i << "_" << j << ", m1_shm + " << ((j - 2) * 8 * kLdp)
+            << " + (m1_sc0 + " << (i * 8) << "), " << kLdp << ", ulong2(0, 0), true);\n";
+      }
+    }
+    if (!full_lkv) {
+      os_ << ind << "  }\n";
+    }
+    os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << ind << "}\n";
+    emit_wave_softmax_pv(16u);
+
+    if (!plan_.fast_only) {
+      os_ << "    return;\n";
+      os_ << "  }\n";
+      emit_general_rowwise(256u, "  ");
+    }
+  }
+
+  void emit_single_pass_sgmm() {
+    constexpr uint32_t kLdp = 512u;
+    const std::string ds_l = d_stride_long();
+    const std::string ds_a = d_stride_arg();
+    const std::string lkv_i = lkv_int_expr();
+    const std::string ind = plan_.fast_only ? "  " : "    ";
+    if (!plan_.fast_only) {
+      os_ << "  if (m1_q0 + 16L <= m1_Lq && m1_Lkv > 0L && m1_Lkv <= 512L && (m1_Lkv & 31L) == 0L && "
+             "m1_D > 0L && m1_D <= 1024L && (m1_D & 63L) == 0L) {\n";
+    }
+
+    os_ << ind << "{\n";
+    os_ << ind << "  const int m1_sc0 = (int)m1_sg * 32;\n";
+    os_ << ind << "  if ((long)m1_sc0 < m1_Lkv) {\n";
     for (int i = 0; i < 2; ++i) {
       for (int j = 0; j < 4; ++j) {
-        os_ << "        simdgroup_store(s_" << i << "_" << j << ", m1_shm + " << (i * 8 * kLdp)
+        os_ << ind << "    simdgroup_float8x8 s_" << i << "_" << j
+            << " = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);\n";
+      }
+    }
+    os_ << ind << "    device const float* qp_0 = m1_Qb + m1_q0 * " << ds_l << ";\n";
+    os_ << ind << "    device const float* qp_1 = qp_0 + 8L * " << ds_l << ";\n";
+    for (int j = 0; j < 4; ++j) {
+      os_ << ind << "    device const float* kp_" << j << " = m1_Kb + (long)(m1_sc0 + " << (j * 8) << ") * " << ds_l
+          << ";\n";
+    }
+    os_ << ind << "    for (long m1_d0 = 0L; m1_d0 < " << ds_l << "; m1_d0 += 16L) {\n";
+    for (int ks = 0; ks < 16; ks += 8) {
+      os_ << ind << "      {\n";
+      os_ << ind << "        simdgroup_float8x8 fa_0; simdgroup_load(fa_0, qp_0 + " << ks << ", " << ds_a << ");\n";
+      os_ << ind << "        simdgroup_float8x8 fa_1; simdgroup_load(fa_1, qp_1 + " << ks << ", " << ds_a << ");\n";
+      os_ << ind << "        simdgroup_float8x8 fb_cur, fb_nxt;\n";
+      os_ << ind << "        simdgroup_load(fb_cur, kp_0 + " << ks << ", " << ds_a << ", ulong2(0, 0), true);\n";
+      for (int j = 0; j < 4; ++j) {
+        if (j + 1 < 4) {
+          os_ << ind << "        simdgroup_load(fb_nxt, kp_" << (j + 1) << " + " << ks << ", " << ds_a
+              << ", ulong2(0, 0), true);\n";
+        }
+        os_ << ind << "        simdgroup_multiply_accumulate(s_0_" << j << ", fa_0, fb_cur, s_0_" << j << ");\n";
+        os_ << ind << "        simdgroup_multiply_accumulate(s_1_" << j << ", fa_1, fb_cur, s_1_" << j << ");\n";
+        if (j + 1 < 4) {
+          os_ << ind << "        fb_cur = fb_nxt;\n";
+        }
+      }
+      os_ << ind << "      }\n";
+    }
+    os_ << ind << "      qp_0 += 16L; qp_1 += 16L;\n";
+    os_ << ind << "      kp_0 += 16L; kp_1 += 16L; kp_2 += 16L; kp_3 += 16L;\n";
+    os_ << ind << "    }\n";
+    for (int i = 0; i < 2; ++i) {
+      for (int j = 0; j < 4; ++j) {
+        os_ << ind << "    simdgroup_store(s_" << i << "_" << j << ", m1_shm + " << (i * 8 * kLdp)
             << " + (m1_sc0 + " << (j * 8) << "), " << kLdp << ");\n";
       }
     }
-    os_ << "      }\n";
-    os_ << "      threadgroup_barrier(mem_flags::mem_threadgroup);\n";
-    os_ << "    }\n";
+    os_ << ind << "  }\n";
+    os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << ind << "}\n";
 
-    os_ << "    {\n";
-    os_ << "      const int m1_row = (int)m1_sg;\n";
-    os_ << "      const long m1_kmax = " << kmax_expr("m1_row") << ";\n";
-    os_ << "      float m1_vals[16];\n";
-    os_ << "      float m1_mx = -1e30f;\n";
+    os_ << ind << "{\n";
+    os_ << ind << "  const int m1_row = (int)m1_sg;\n";
+    os_ << ind << "  const long m1_kmax = " << kmax_expr("m1_row") << ";\n";
+    os_ << ind << "  float m1_vals[16];\n";
+    os_ << ind << "  float m1_mx = -1e30f;\n";
     for (int j = 0; j < 16; ++j) {
-      os_ << "      { const int c = (int)m1_lane + " << (j * 32) << "; "
+      os_ << ind << "  { const int c = (int)m1_lane + " << (j * 32) << "; "
           << "const float v = ((long)c < m1_kmax) ? (m1_shm[m1_row * " << kLdp
           << " + c] * m1_scale_log2) : -1e30f; m1_vals[" << j << "] = v; m1_mx = max(m1_mx, v); }\n";
     }
-    os_ << "      m1_mx = simd_max(m1_mx);\n";
-    os_ << "      const bool m1_valid = (m1_kmax > 0L) && (m1_mx > -1e29f);\n";
-    os_ << "      float m1_rs = 0.0f;\n";
+    os_ << ind << "  m1_mx = simd_max(m1_mx);\n";
+    os_ << ind << "  const bool m1_valid = (m1_kmax > 0L) && (m1_mx > -1e29f);\n";
+    os_ << ind << "  float m1_rs = 0.0f;\n";
     for (int j = 0; j < 16; ++j) {
-      os_ << "      { const int c = (int)m1_lane + " << (j * 32) << "; "
+      os_ << ind << "  { const int c = (int)m1_lane + " << (j * 32) << "; "
           << "const float p = (m1_valid && (long)c < m1_kmax) ? exp2(m1_vals[" << j << "] - m1_mx) : 0.0f; "
           << "m1_vals[" << j << "] = p; m1_rs += p; }\n";
     }
-    os_ << "      m1_rs = simd_sum(m1_rs);\n";
-    os_ << "      const float m1_inv = (m1_valid && m1_rs > 0.0f) ? (1.0f / m1_rs) : 0.0f;\n";
+    os_ << ind << "  m1_rs = simd_sum(m1_rs);\n";
+    os_ << ind << "  const float m1_inv = (m1_valid && m1_rs > 0.0f) ? (1.0f / m1_rs) : 0.0f;\n";
     for (int j = 0; j < 16; ++j) {
-      os_ << "      m1_shm[m1_row * " << kLdp << " + (int)m1_lane + " << (j * 32) << "] = m1_vals[" << j
+      os_ << ind << "  m1_shm[m1_row * " << kLdp << " + (int)m1_lane + " << (j * 32) << "] = m1_vals[" << j
           << "] * m1_inv;\n";
     }
-    os_ << "      threadgroup_barrier(mem_flags::mem_threadgroup);\n";
-    os_ << "    }\n";
+    os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << ind << "}\n";
 
-    os_ << "    {\n";
-    os_ << "      const int m1_sgd0 = (int)m1_sg * 64;\n";
-    os_ << "      if ((long)m1_sgd0 < m1_D) {\n";
+    os_ << ind << "{\n";
+    os_ << ind << "  const int m1_sgd0 = (int)m1_sg * 64;\n";
+    os_ << ind << "  if ((long)m1_sgd0 < " << ds_l << ") {\n";
     for (int i = 0; i < 2; ++i) {
       for (int j = 0; j < 8; ++j) {
-        os_ << "        simdgroup_float8x8 o_" << i << "_" << j
+        os_ << ind << "    simdgroup_float8x8 o_" << i << "_" << j
             << " = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);\n";
       }
     }
-    os_ << "        device const float* vp = m1_Vb + (long)m1_sgd0;\n";
-    os_ << "        for (int m1_k0 = 0; m1_k0 < (int)m1_Lkv; m1_k0 += 16) {\n";
+    os_ << ind << "    device const float* vp = m1_Vb + (long)m1_sgd0;\n";
+    os_ << ind << "    for (int m1_k0 = 0; m1_k0 < " << lkv_i << "; m1_k0 += 16) {\n";
     for (int ku = 0; ku < 2; ++ku) {
-      os_ << "          {\n";
-      os_ << "            const int kk = m1_k0 + " << (ku * 8) << ";\n";
-      os_ << "            simdgroup_float8x8 pf_0; simdgroup_load(pf_0, m1_shm + kk, " << kLdp << ");\n";
-      os_ << "            simdgroup_float8x8 pf_1; simdgroup_load(pf_1, m1_shm + " << (8 * kLdp) << " + kk, " << kLdp
+      os_ << ind << "      {\n";
+      os_ << ind << "        const int kk = m1_k0 + " << (ku * 8) << ";\n";
+      os_ << ind << "        simdgroup_float8x8 pf_0; simdgroup_load(pf_0, m1_shm + kk, " << kLdp << ");\n";
+      os_ << ind << "        simdgroup_float8x8 pf_1; simdgroup_load(pf_1, m1_shm + " << (8 * kLdp) << " + kk, " << kLdp
           << ");\n";
-      os_ << "            simdgroup_float8x8 vf_cur, vf_nxt;\n";
-      os_ << "            simdgroup_load(vf_cur, vp + " << (ku * 8) << "L * m1_D, m1_D);\n";
+      os_ << ind << "        simdgroup_float8x8 vf_cur, vf_nxt;\n";
+      os_ << ind << "        simdgroup_load(vf_cur, vp + " << (ku * 8) << "L * " << ds_l << ", " << ds_a << ");\n";
       for (int j = 0; j < 8; ++j) {
         if (j + 1 < 8) {
-          os_ << "            simdgroup_load(vf_nxt, vp + " << (ku * 8) << "L * m1_D + " << ((j + 1) * 8)
-              << ", m1_D);\n";
+          os_ << ind << "        simdgroup_load(vf_nxt, vp + " << (ku * 8) << "L * " << ds_l << " + " << ((j + 1) * 8)
+              << ", " << ds_a << ");\n";
         }
-        os_ << "            simdgroup_multiply_accumulate(o_0_" << j << ", pf_0, vf_cur, o_0_" << j << ");\n";
-        os_ << "            simdgroup_multiply_accumulate(o_1_" << j << ", pf_1, vf_cur, o_1_" << j << ");\n";
+        os_ << ind << "        simdgroup_multiply_accumulate(o_0_" << j << ", pf_0, vf_cur, o_0_" << j << ");\n";
+        os_ << ind << "        simdgroup_multiply_accumulate(o_1_" << j << ", pf_1, vf_cur, o_1_" << j << ");\n";
         if (j + 1 < 8) {
-          os_ << "            vf_cur = vf_nxt;\n";
+          os_ << ind << "        vf_cur = vf_nxt;\n";
         }
       }
-      os_ << "          }\n";
+      os_ << ind << "      }\n";
     }
-    os_ << "          vp += 16L * m1_D;\n";
-    os_ << "        }\n";
+    os_ << ind << "      vp += 16L * " << ds_l << ";\n";
+    os_ << ind << "    }\n";
     for (int i = 0; i < 2; ++i) {
       for (int j = 0; j < 8; ++j) {
-        os_ << "        simdgroup_store(o_" << i << "_" << j << ", m1_Ob + (m1_q0 + " << (i * 8)
-            << "L) * m1_D + (long)(m1_sgd0 + " << (j * 8) << "), m1_D);\n";
+        os_ << ind << "    simdgroup_store(o_" << i << "_" << j << ", m1_Ob + (m1_q0 + " << (i * 8) << "L) * " << ds_l
+            << " + (long)(m1_sgd0 + " << (j * 8) << "), " << ds_a << ");\n";
       }
     }
-    os_ << "      }\n";
-    os_ << "    }\n";
-    os_ << "    return;\n";
-    os_ << "  }\n";
-
-    emit_general_rowwise(256u, "  ");
+    os_ << ind << "  }\n";
+    os_ << ind << "}\n";
+    if (!plan_.fast_only) {
+      os_ << "    return;\n";
+      os_ << "  }\n";
+      emit_general_rowwise(256u, "  ");
+    }
   }
 
   void emit_multitile_sgmm() {
@@ -446,8 +748,12 @@ class FlashAttnWriter {
     const uint32_t bd_step = bd_sg * d_grp_count;
     const uint32_t n_soft = bn / 32u;
 
-    os_ << "  if (m1_q0 + 16L <= m1_Lq && m1_Lkv > 0L && (m1_Lkv & 31L) == 0L && "
-           "m1_D > 0L && m1_D <= 1024L && (m1_D & 63L) == 0L) {\n";
+    if (!plan_.fast_only) {
+      os_ << "  if (m1_q0 + 16L <= m1_Lq && m1_Lkv > 0L && (m1_Lkv & 31L) == 0L && "
+             "m1_D > 0L && m1_D <= 1024L && (m1_D & 63L) == 0L) {\n";
+    } else {
+      os_ << "  {\n";
+    }
     os_ << "    if (m1_tid < 16u) { m1_ms[m1_tid] = -1e30f; m1_ls[m1_tid] = 0.0f; m1_as[m1_tid] = 1.0f; }\n";
     os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
     for (int i = 0; i < 2; ++i) {
@@ -595,10 +901,13 @@ class FlashAttnWriter {
       os_ << "      }\n";
     }
     os_ << "    }\n";
-    os_ << "    return;\n";
-    os_ << "  }\n";
-
-    emit_general_rowwise(std::min<uint32_t>(bn, 256u), "  ");
+    if (!plan_.fast_only) {
+      os_ << "    return;\n";
+      os_ << "  }\n";
+      emit_general_rowwise(std::min<uint32_t>(bn, 256u), "  ");
+    } else {
+      os_ << "  }\n";
+    }
   }
 
   void emit_general_rowwise(uint32_t tile_n, const std::string& ind) {

@@ -908,6 +908,12 @@ class TileAffineAnalyzer {
     const Op& op = kernel_.op(val.def_op);
 
     switch (op.kind) {
+      case OpKind::Cast: {
+        if (!op.operands.empty() && !is_float_dtype(scalar_dtype_of(val.type))) {
+          out = analyze_2d_ptr(op.operands[0]);
+        }
+        break;
+      }
       case OpKind::Splat: {
         ScalarInfo s = scalar_.analyze(op.operands[0]);
         if (s.valid) {
@@ -1308,6 +1314,7 @@ struct SgmmSchedule {
   bool swizzle_along_n = true;
   bool use_tm1 = true;
   bool interleave_sgmm = true;
+  bool use_mma2 = false;
   uint32_t smem_bytes = 0;
 };
 
@@ -1396,26 +1403,31 @@ bool select_sg_grid(uint32_t bm, uint32_t bn, const std::optional<TileSpecAttr>&
   if (ts.has_value() && ts->num_simdgroups > 0) {
     uint32_t req = ts->num_simdgroups;
     if (req * 32u <= target.max_threads_per_threadgroup) {
-      uint32_t best_diff = UINT32_MAX;
-      bool found = false;
-      for (uint32_t gm = 1; gm <= req; ++gm) {
-        if (req % gm != 0) continue;
-        uint32_t gn = req / gm;
-        if (m8 % gm != 0 || n8 % gn != 0) continue;
-        uint32_t tm = m8 / gm;
-        uint32_t tn = n8 / gn;
-        if (tm * tn > 16u) continue;
-        uint32_t diff = (tm > tn) ? (tm - tn) : (tn - tm);
-        if (diff < best_diff) {
-          best_diff = diff;
-          sg_m_out = gm;
-          sg_n_out = gn;
-          tm_out = tm;
-          tn_out = tn;
-          found = true;
+      for (uint32_t max_frags : {16u, 32u}) {
+        uint32_t best_diff = UINT32_MAX;
+        bool best_tm_ge = false;
+        bool found = false;
+        for (uint32_t gm = 1; gm <= req; ++gm) {
+          if (req % gm != 0) continue;
+          uint32_t gn = req / gm;
+          if (m8 % gm != 0 || n8 % gn != 0) continue;
+          uint32_t tm = m8 / gm;
+          uint32_t tn = n8 / gn;
+          if (tm * tn > max_frags) continue;
+          uint32_t diff = (tm > tn) ? (tm - tn) : (tn - tm);
+          bool tm_ge = (tm >= tn);
+          if (!found || diff < best_diff || (diff == best_diff && tm_ge && !best_tm_ge)) {
+            best_diff = diff;
+            best_tm_ge = tm_ge;
+            sg_m_out = gm;
+            sg_n_out = gn;
+            tm_out = tm;
+            tn_out = tn;
+            found = true;
+          }
         }
+        if (found) return true;
       }
-      if (found) return true;
     }
   }
 
@@ -1448,6 +1460,15 @@ bool select_schedule(const Kernel& kernel, const Op& dot_op, const TargetSpec& t
   bool b_always_rm = plan.stride_bn_const.has_value() && *plan.stride_bn_const == 1;
   if (b_always_rm) b_can_cm = false;
 
+  bool f32_all = (plan.a_elem_dt == ScalarDType::F32 && plan.b_elem_dt == ScalarDType::F32 &&
+                  plan.c_elem_dt == ScalarDType::F32 && plan.acc_dt == ScalarDType::F32);
+  bool eligible_mma2 =
+      f32_all && !plan.is_atomic && plan.structure == MatrixStructure::Dense && (s.bk == 16u) &&
+      ((s.bm == 64u && s.bn == 64u && s.num_sgs == 4u && s.tm == 4u && s.tn == 4u) ||
+       (s.bm == 64u && s.bn == 128u && s.num_sgs == 8u && s.tm == 4u && s.tn == 4u) ||
+       (s.bm == 128u && s.bn == 64u && s.num_sgs == 8u && s.tm == 4u && s.tn == 4u) ||
+       (s.bm == 128u && s.bn == 128u && s.num_sgs == 8u && s.tm == 8u && s.tn == 4u));
+
   uint32_t mma_bytes = ir::dtype_bytes(plan.mma_dt);
   uint32_t acc_bytes = ir::dtype_bytes(plan.acc_dt);
   uint32_t sg_tile_bytes = (s.tm * 8u) * (s.tn * 8u + 4u) * acc_bytes;
@@ -1463,6 +1484,28 @@ bool select_schedule(const Kernel& kernel, const Op& dot_op, const TargetSpec& t
 
   bool want_db = ts.has_value() ? ts->double_buffer
                                 : (s.bk <= 16u && calc_smem_bytes(2u, 4u, true) <= 20480u);
+
+  if (eligible_mma2 && !want_db) {
+    uint32_t mma2_bytes = (s.bm * (s.bk + 4u) + s.bk * (s.bn + 4u)) * mma_bytes;
+    if (target.fits_threadgroup_memory(mma2_bytes)) {
+      s.num_bufs = 1u;
+      s.pad_a = 4u;
+      s.pad_b = 4u;
+      s.use_tm1 = false;
+      s.use_mma2 = true;
+      s.smem_bytes = mma2_bytes;
+      if (plan.simple_2d_pid_grid) {
+        uint32_t req_sw = ts.has_value() ? ts->swizzle_w : 8u;
+        s.swizzle_w = (req_sw <= 1u) ? 1u : req_sw;
+        s.swizzle_along_n = true;
+      } else {
+        s.swizzle_w = 1u;
+      }
+      s.interleave_sgmm = false;
+      plan.sched = s;
+      return true;
+    }
+  }
 
   bool fitted = false;
   struct Attempt {
@@ -2247,12 +2290,463 @@ void emit_safe_k_loop(std::ostringstream& os, const SgmmPlan& plan, const std::s
      << ind << "}\n";
 }
 
+void emit_mma2_gmem_load_a(std::ostringstream& os, const SgmmPlan& plan, const std::string& a_ptr_expr,
+                           const std::string& sam_u, const std::string& sak_u, const std::string& k_expr,
+                           const std::string& dst_prefix, bool a_cm, const std::string& ind) {
+  const auto& s = plan.sched;
+  uint32_t nvec = (s.bm * s.bk) / 4u;
+  uint32_t vpr = (!a_cm ? s.bk : s.bm) / 4u;
+  uint32_t per = (nvec + s.num_threads - 1u) / s.num_threads;
+  for (uint32_t p = 0u; p < per; ++p) {
+    std::string vi = "(m1_tid_linear + " + std::to_string(p * s.num_threads) + "u)";
+    std::string r = "(" + vi + " / " + std::to_string(vpr) + "u)";
+    std::string c4 = "((" + vi + " % " + std::to_string(vpr) + "u) * 4u)";
+    std::string ptr_off = !a_cm ? ("ulong(m1_row0 + " + r + ") * " + sam_u + " + ulong(" + k_expr + " + " + c4 + ")")
+                                : ("ulong(" + k_expr + " + " + r + ") * " + sak_u + " + ulong(m1_row0 + " + c4 + ")");
+    if ((p + 1u) * s.num_threads > nvec) {
+      os << ind << "float4 " << dst_prefix << "_" << p << " = float4(0.0f);\n"
+         << ind << "if (" << vi << " < " << nvec << "u) " << dst_prefix << "_" << p
+         << " = float4(*(const device packed_float4*)(" << a_ptr_expr << " + " << ptr_off << "));\n";
+    } else {
+      os << ind << "float4 " << dst_prefix << "_" << p << " = float4(*(const device packed_float4*)(" << a_ptr_expr
+         << " + " << ptr_off << "));\n";
+    }
+  }
+}
+
+void emit_mma2_sram_store_a(std::ostringstream& os, const SgmmPlan& plan, uint32_t a_ld,
+                            const std::string& src_prefix, bool a_cm, const std::string& ind) {
+  const auto& s = plan.sched;
+  uint32_t nvec = (s.bm * s.bk) / 4u;
+  uint32_t vpr = (!a_cm ? s.bk : s.bm) / 4u;
+  uint32_t per = (nvec + s.num_threads - 1u) / s.num_threads;
+  for (uint32_t p = 0u; p < per; ++p) {
+    std::string vi = "(m1_tid_linear + " + std::to_string(p * s.num_threads) + "u)";
+    std::string r = "(" + vi + " / " + std::to_string(vpr) + "u)";
+    std::string c4 = "((" + vi + " % " + std::to_string(vpr) + "u) * 4u)";
+    std::string cond = ((p + 1u) * s.num_threads > nvec) ? ("if (" + vi + " < " + std::to_string(nvec) + "u) ") : "";
+    if (!a_cm) {
+      os << ind << cond << "*(threadgroup float4*)(m1_sa + " << r << " * " << a_ld << "u + " << c4 << ") = "
+         << src_prefix << "_" << p << ";\n";
+    } else {
+      os << ind << cond << "{ m1_sa[(" << c4 << " + 0u) * " << a_ld << "u + " << r << "] = " << src_prefix << "_" << p
+         << ".x; m1_sa[(" << c4 << " + 1u) * " << a_ld << "u + " << r << "] = " << src_prefix << "_" << p
+         << ".y; m1_sa[(" << c4 << " + 2u) * " << a_ld << "u + " << r << "] = " << src_prefix << "_" << p
+         << ".z; m1_sa[(" << c4 << " + 3u) * " << a_ld << "u + " << r << "] = " << src_prefix << "_" << p << ".w; }\n";
+    }
+  }
+}
+
+void emit_mma2_gmem_load_b(std::ostringstream& os, const SgmmPlan& plan, const std::string& b_ptr_expr,
+                           const std::string& sbk_u, const std::string& sbn_u, const std::string& k_expr,
+                           const std::string& dst_prefix, bool b_cm, const std::string& ind) {
+  const auto& s = plan.sched;
+  uint32_t nvec = (s.bk * s.bn) / 4u;
+  uint32_t vpr = (!b_cm ? s.bn : s.bk) / 4u;
+  uint32_t per = (nvec + s.num_threads - 1u) / s.num_threads;
+  for (uint32_t p = 0u; p < per; ++p) {
+    std::string vi = "(m1_tid_linear + " + std::to_string(p * s.num_threads) + "u)";
+    std::string r = "(" + vi + " / " + std::to_string(vpr) + "u)";
+    std::string c4 = "((" + vi + " % " + std::to_string(vpr) + "u) * 4u)";
+    std::string ptr_off = !b_cm ? ("ulong(" + k_expr + " + " + r + ") * " + sbk_u + " + ulong(m1_col0 + " + c4 + ")")
+                                : ("ulong(m1_col0 + " + r + ") * " + sbn_u + " + ulong(" + k_expr + " + " + c4 + ")");
+    if ((p + 1u) * s.num_threads > nvec) {
+      os << ind << "float4 " << dst_prefix << "_" << p << " = float4(0.0f);\n"
+         << ind << "if (" << vi << " < " << nvec << "u) " << dst_prefix << "_" << p
+         << " = float4(*(const device packed_float4*)(" << b_ptr_expr << " + " << ptr_off << "));\n";
+    } else {
+      os << ind << "float4 " << dst_prefix << "_" << p << " = float4(*(const device packed_float4*)(" << b_ptr_expr
+         << " + " << ptr_off << "));\n";
+    }
+  }
+}
+
+void emit_mma2_sram_store_b(std::ostringstream& os, const SgmmPlan& plan, uint32_t b_ld,
+                            const std::string& src_prefix, bool b_cm, const std::string& ind) {
+  const auto& s = plan.sched;
+  uint32_t nvec = (s.bk * s.bn) / 4u;
+  uint32_t vpr = (!b_cm ? s.bn : s.bk) / 4u;
+  uint32_t per = (nvec + s.num_threads - 1u) / s.num_threads;
+  for (uint32_t p = 0u; p < per; ++p) {
+    std::string vi = "(m1_tid_linear + " + std::to_string(p * s.num_threads) + "u)";
+    std::string r = "(" + vi + " / " + std::to_string(vpr) + "u)";
+    std::string c4 = "((" + vi + " % " + std::to_string(vpr) + "u) * 4u)";
+    std::string cond = ((p + 1u) * s.num_threads > nvec) ? ("if (" + vi + " < " + std::to_string(nvec) + "u) ") : "";
+    if (!b_cm) {
+      os << ind << cond << "*(threadgroup float4*)(m1_sb + " << r << " * " << b_ld << "u + " << c4 << ") = "
+         << src_prefix << "_" << p << ";\n";
+    } else {
+      os << ind << cond << "{ m1_sb[(" << c4 << " + 0u) * " << b_ld << "u + " << r << "] = " << src_prefix << "_" << p
+         << ".x; m1_sb[(" << c4 << " + 1u) * " << b_ld << "u + " << r << "] = " << src_prefix << "_" << p
+         << ".y; m1_sb[(" << c4 << " + 2u) * " << b_ld << "u + " << r << "] = " << src_prefix << "_" << p
+         << ".z; m1_sb[(" << c4 << " + 3u) * " << b_ld << "u + " << r << "] = " << src_prefix << "_" << p << ".w; }\n";
+    }
+  }
+}
+
+void emit_mma2_safe_loads(std::ostringstream& os, const SgmmPlan& plan, const std::string& a_ptr_expr,
+                          const std::string& b_ptr_expr, uint32_t a_ld, uint32_t b_ld, const std::string& ind) {
+  const auto& s = plan.sched;
+  std::string m_cond = plan.m_bound.has_value() ? "(m1_gr < m1_M)" : "true";
+  std::string n_cond = plan.n_bound.has_value() ? "(m1_gc < m1_N)" : "true";
+  std::string k_cond = "(m1_gk < m1_k_end)";
+  if (plan.k_lower_mask.has_value()) {
+    k_cond = "(" + k_cond + " && (m1_gk >= m1_k_mask_lo))";
+  }
+  std::string sam_off = (plan.stride_am_const == 1) ? "long(m1_gr)" : ("long(m1_gr) * long(" + plan.stride_am_expr + ")");
+  std::string sak_off = (plan.stride_ak_const == 1) ? "long(m1_gk)" : ("long(m1_gk) * long(" + plan.stride_ak_expr + ")");
+  std::string sbk_off = (plan.stride_bk_const == 1) ? "long(m1_gk)" : ("long(m1_gk) * long(" + plan.stride_bk_expr + ")");
+  std::string sbn_off = (plan.stride_bn_const == 1) ? "long(m1_gc)" : ("long(m1_gc) * long(" + plan.stride_bn_expr + ")");
+
+  os << ind << "for (uint m1_idx = m1_tid_linear; m1_idx < " << (s.bm * s.bk) << "u; m1_idx += " << s.num_threads
+     << "u) {\n"
+     << ind << "  uint m1_r = m1_idx / " << s.bk << "u;\n"
+     << ind << "  uint m1_c = m1_idx % " << s.bk << "u;\n"
+     << ind << "  uint m1_gr = m1_row0 + m1_r;\n"
+     << ind << "  uint m1_gk = m1_k0 + m1_c;\n"
+     << ind << "  float m1_av = (" << m_cond << " && " << k_cond << ") ? (" << a_ptr_expr << ")[" << sam_off << " + "
+     << sak_off << "] : 0.0f;\n"
+     << ind << "  m1_sa[m1_r * " << a_ld << "u + m1_c] = m1_av;\n"
+     << ind << "}\n"
+     << ind << "for (uint m1_idx = m1_tid_linear; m1_idx < " << (s.bk * s.bn) << "u; m1_idx += " << s.num_threads
+     << "u) {\n"
+     << ind << "  uint m1_r = m1_idx / " << s.bn << "u;\n"
+     << ind << "  uint m1_c = m1_idx % " << s.bn << "u;\n"
+     << ind << "  uint m1_gk = m1_k0 + m1_r;\n"
+     << ind << "  uint m1_gc = m1_col0 + m1_c;\n"
+     << ind << "  float m1_bv = (" << k_cond << " && " << n_cond << ") ? (" << b_ptr_expr << ")[" << sbk_off << " + "
+     << sbn_off << "] : 0.0f;\n"
+     << ind << "  m1_sb[m1_r * " << b_ld << "u + m1_c] = m1_bv;\n"
+     << ind << "}\n";
+}
+
+void emit_mma2_compute(std::ostringstream& os, const SgmmPlan& plan, uint32_t a_ld, uint32_t b_ld,
+                       const std::string& ind) {
+  const auto& s = plan.sched;
+  for (uint32_t ks = 0u; ks < s.bk; ks += 8u) {
+    os << ind << "{\n";
+    for (uint32_t j = 0u; j < s.tn; ++j) {
+      os << ind << "  float2 m1_fb_" << j << " = *(threadgroup const float2*)(m1_sb + (" << ks
+         << "u + m1_fr) * " << b_ld << "u + (m1_sg_col + " << (j * 8u) << "u + m1_fc));\n";
+    }
+    os << ind << "  float2 m1_fa_c = *(threadgroup const float2*)(m1_sa + (m1_sg_row + m1_fr) * " << a_ld
+       << "u + (" << ks << "u + m1_fc));\n"
+       << ind << "  float2 m1_fa_n;\n";
+    for (uint32_t i = 0u; i < s.tm; ++i) {
+      if (i + 1u < s.tm) {
+        os << ind << "  m1_fa_n = *(threadgroup const float2*)(m1_sa + (m1_sg_row + " << ((i + 1u) * 8u)
+           << "u + m1_fr) * " << a_ld << "u + (" << ks << "u + m1_fc));\n";
+      }
+      for (uint32_t j = 0u; j < s.tn; ++j) {
+        os << ind << "  m1_c_" << i << "_" << j << " = m1_mma2(m1_fa_c, m1_fb_" << j << ", m1_c_" << i << "_" << j
+           << ");\n";
+      }
+      if (i + 1u < s.tm) {
+        os << ind << "  m1_fa_c = m1_fa_n;\n";
+      }
+    }
+    os << ind << "}\n";
+  }
+}
+
+void emit_mma2_fast_loop_body(std::ostringstream& os, const SgmmPlan& plan, const std::string& a_ptr_expr,
+                              const std::string& b_ptr_expr, const std::string& sam_u, const std::string& sak_u,
+                              const std::string& sbk_u, const std::string& sbn_u, uint32_t a_ld, uint32_t b_ld,
+                              bool a_cm, bool b_cm, bool use_reg_prefetch, bool needs_trailing_barrier,
+                              const std::string& ind) {
+  const auto& s = plan.sched;
+  if (use_reg_prefetch) {
+    os << ind << "if (m1_k0 < m1_k_full_end) {\n"
+       << ind << "  {\n";
+    emit_mma2_gmem_load_a(os, plan, a_ptr_expr, sam_u, sak_u, "m1_k0", "m1_pa", a_cm, ind + "    ");
+    emit_mma2_gmem_load_b(os, plan, b_ptr_expr, sbk_u, sbn_u, "m1_k0", "m1_pb", b_cm, ind + "    ");
+    emit_mma2_sram_store_a(os, plan, a_ld, "m1_pa", a_cm, ind + "    ");
+    emit_mma2_sram_store_b(os, plan, b_ld, "m1_pb", b_cm, ind + "    ");
+    os << ind << "  }\n"
+       << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+       << ind << "  for (m1_k0 += " << s.bk << "u; m1_k0 < m1_k_full_end; m1_k0 += " << s.bk << "u) {\n";
+    emit_mma2_gmem_load_a(os, plan, a_ptr_expr, sam_u, sak_u, "m1_k0", "m1_ra", a_cm, ind + "    ");
+    emit_mma2_gmem_load_b(os, plan, b_ptr_expr, sbk_u, sbn_u, "m1_k0", "m1_rb", b_cm, ind + "    ");
+    emit_mma2_compute(os, plan, a_ld, b_ld, ind + "    ");
+    os << ind << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    emit_mma2_sram_store_a(os, plan, a_ld, "m1_ra", a_cm, ind + "    ");
+    emit_mma2_sram_store_b(os, plan, b_ld, "m1_rb", b_cm, ind + "    ");
+    os << ind << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+       << ind << "  }\n";
+    emit_mma2_compute(os, plan, a_ld, b_ld, ind + "  ");
+    if (needs_trailing_barrier) {
+      os << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    }
+    os << ind << "}\n";
+  } else {
+    os << ind << "for (; m1_k0 < m1_k_full_end; m1_k0 += " << s.bk << "u) {\n";
+    emit_mma2_gmem_load_a(os, plan, a_ptr_expr, sam_u, sak_u, "m1_k0", "m1_ra", a_cm, ind + "  ");
+    emit_mma2_gmem_load_b(os, plan, b_ptr_expr, sbk_u, sbn_u, "m1_k0", "m1_rb", b_cm, ind + "  ");
+    emit_mma2_sram_store_a(os, plan, a_ld, "m1_ra", a_cm, ind + "  ");
+    emit_mma2_sram_store_b(os, plan, b_ld, "m1_rb", b_cm, ind + "  ");
+    os << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    emit_mma2_compute(os, plan, a_ld, b_ld, ind + "  ");
+    os << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+       << ind << "}\n";
+  }
+}
+
+std::string emit_mma2_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
+  const auto& s = plan.sched;
+  const uint32_t a_ld = s.bk + s.pad_a;
+  const uint32_t b_ld = s.bn + s.pad_b;
+  std::ostringstream os;
+  os << "#include <metal_stdlib>\n"
+     << "#include <metal_simdgroup_matrix>\n"
+     << "using namespace metal;\n\n"
+     << "static inline float2 m1_mma2(float2 a, float2 b, float2 c) {\n"
+     << "  simdgroup_float8x8 am, bm, cm;\n"
+     << "  reinterpret_cast<thread float2&>(am.thread_elements()) = a;\n"
+     << "  reinterpret_cast<thread float2&>(bm.thread_elements()) = b;\n"
+     << "  reinterpret_cast<thread float2&>(cm.thread_elements()) = c;\n"
+     << "  simdgroup_multiply_accumulate(cm, am, bm, cm);\n"
+     << "  return reinterpret_cast<thread float2&>(cm.thread_elements());\n"
+     << "}\n\n"
+     << "[[max_total_threads_per_threadgroup(" << s.num_threads << ")]]\n"
+     << "kernel void " << kernel.name << "(\n";
+  for (const auto& slot : plan.params.slots) {
+    if (slot.is_pointer) {
+      os << "    device " << (slot.writable ? "" : "const ") << msl_scalar_type(slot.dtype) << "* " << slot.name
+         << " [[buffer(" << slot.buffer_index << ")]],\n";
+    } else {
+      os << "    constant " << msl_scalar_type(slot.dtype) << "& " << slot.name << " [[buffer(" << slot.buffer_index
+         << ")]],\n";
+    }
+  }
+  os << "    uint3 m1_tg_pos [[threadgroup_position_in_grid]],\n"
+     << "    uint3 m1_grid_dim [[threadgroups_per_grid]],\n"
+     << "    uint3 m1_tid [[thread_position_in_threadgroup]],\n"
+     << "    uint3 m1_tg_size [[threads_per_threadgroup]],\n"
+     << "    uint m1_tid_linear [[thread_index_in_threadgroup]],\n"
+     << "    uint m1_simd_id [[simdgroup_index_in_threadgroup]],\n"
+     << "    uint m1_lane [[thread_index_in_simdgroup]]) {\n"
+     << "  (void)m1_tid; (void)m1_tg_size; (void)m1_grid_dim;\n";
+
+  if (plan.simple_2d_pid_grid && s.swizzle_w > 1u) {
+    std::string raw_m = "m1_tg_pos." + axis_component(plan.pid_m_axis);
+    std::string raw_n = "m1_tg_pos." + axis_component(plan.pid_n_axis);
+    std::string dim_m = "m1_grid_dim." + axis_component(plan.pid_m_axis);
+    std::string dim_n = "m1_grid_dim." + axis_component(plan.pid_n_axis);
+    os << "  uint m1_num_m = " << dim_m << ";\n"
+       << "  uint m1_num_n = " << dim_n << ";\n"
+       << "  uint m1_pid = " << raw_n << " * m1_num_m + " << raw_m << ";\n"
+       << "  uint m1_gw = " << s.swizzle_w << "u;\n";
+    if (s.swizzle_along_n) {
+      os << "  uint m1_npg = m1_gw * m1_num_m;\n"
+         << "  uint m1_gid = m1_pid / m1_npg;\n"
+         << "  uint m1_fn = m1_gid * m1_gw;\n"
+         << "  uint m1_gsn = min(m1_num_n - m1_fn, m1_gw);\n"
+         << "  uint m1_rem = m1_pid % m1_npg;\n"
+         << "  uint m1_pid_n = m1_fn + (m1_rem % m1_gsn);\n"
+         << "  uint m1_pid_m = m1_rem / m1_gsn;\n"
+         << "  if (m1_gid & 1u) m1_pid_m = m1_num_m - 1u - m1_pid_m;\n";
+    } else {
+      os << "  uint m1_npg = m1_gw * m1_num_n;\n"
+         << "  uint m1_gid = m1_pid / m1_npg;\n"
+         << "  uint m1_fm = m1_gid * m1_gw;\n"
+         << "  uint m1_gsm = min(m1_num_m - m1_fm, m1_gw);\n"
+         << "  uint m1_rem = m1_pid % m1_npg;\n"
+         << "  uint m1_pid_m = m1_fm + (m1_rem % m1_gsm);\n"
+         << "  uint m1_pid_n = m1_rem / m1_gsm;\n"
+         << "  if (m1_gid & 1u) m1_pid_n = m1_num_n - 1u - m1_pid_n;\n";
+    }
+    os << "  uint m1_row0 = m1_pid_m * " << s.bm << "u;\n"
+       << "  uint m1_col0 = m1_pid_n * " << s.bn << "u;\n";
+  } else {
+    os << "  uint m1_row0 = uint(" << plan.row0_expr << ");\n"
+       << "  uint m1_col0 = uint(" << plan.col0_expr << ");\n";
+  }
+
+  if (plan.m_bound.has_value()) {
+    os << "  uint m1_M = uint(max(0l, long(" << *plan.m_bound << ")));\n"
+       << "  if (m1_row0 >= m1_M) return;\n";
+  }
+  if (plan.n_bound.has_value()) {
+    os << "  uint m1_N = uint(max(0l, long(" << *plan.n_bound << ")));\n"
+       << "  if (m1_col0 >= m1_N) return;\n";
+  }
+
+  const bool k_begin_zero = (plan.k_begin_ir == "0");
+  if (!k_begin_zero) {
+    os << "  uint m1_k_begin = uint(max(0l, long(" << plan.k_begin_ir << ")));\n";
+  }
+  os << "  uint m1_k_end = uint(max(0l, long(" << plan.k_end_ir << ")));\n";
+  if (plan.k_bound.has_value() && *plan.k_bound != plan.k_end_ir) {
+    os << "  m1_k_end = min(m1_k_end, uint(max(0l, long(" << *plan.k_bound << "))));\n";
+  }
+  if (plan.k_lower_mask.has_value()) {
+    os << "  uint m1_k_mask_lo = uint(max(0l, long(" << *plan.k_lower_mask << ")));\n";
+  }
+
+  std::string a_ptr_expr = (plan.a_batch_off == "0")
+                               ? plan.a_param
+                               : ("(" + plan.a_param + " + long(" + plan.a_batch_off + "))");
+  std::string b_ptr_expr = (plan.b_batch_off == "0")
+                               ? plan.b_param
+                               : ("(" + plan.b_param + " + long(" + plan.b_batch_off + "))");
+  std::string c_ptr_expr = (plan.c_batch_off == "0")
+                               ? plan.c_param
+                               : ("(" + plan.c_param + " + long(" + plan.c_batch_off + "))");
+
+  std::string sam_u = (plan.stride_am_const == 1) ? "1ul" : ("ulong(" + plan.stride_am_expr + ")");
+  std::string sak_u = (plan.stride_ak_const == 1) ? "1ul" : ("ulong(" + plan.stride_ak_expr + ")");
+  std::string sbk_u = (plan.stride_bk_const == 1) ? "1ul" : ("ulong(" + plan.stride_bk_expr + ")");
+  std::string sbn_u = (plan.stride_bn_const == 1) ? "1ul" : ("ulong(" + plan.stride_bn_expr + ")");
+  std::string scm_u = (plan.stride_cm_const == 1) ? "1ul" : ("ulong(" + plan.stride_cm_expr + ")");
+
+  os << "  threadgroup float m1_sa[" << (s.bm * a_ld) << "];\n"
+     << "  threadgroup float m1_sb[" << (s.bk * b_ld) << "];\n"
+     << "  uint m1_sg_row = (m1_simd_id / " << s.sg_n << "u) * " << (s.tm * 8u) << "u;\n"
+     << "  uint m1_sg_col = (m1_simd_id % " << s.sg_n << "u) * " << (s.tn * 8u) << "u;\n"
+     << "  uint m1_qid = m1_lane >> 2u;\n"
+     << "  uint m1_fr = (m1_qid & 4u) + ((m1_lane >> 1u) & 3u);\n"
+     << "  uint m1_fc = ((m1_qid & 2u) << 1u) + ((m1_lane & 1u) << 1u);\n";
+  for (uint32_t i = 0u; i < s.tm; ++i) {
+    for (uint32_t j = 0u; j < s.tn; ++j) {
+      os << "  float2 m1_c_" << i << "_" << j << " = float2(0.0f);\n";
+    }
+  }
+
+  std::string full_m_expr = plan.m_bound ? ("(m1_row0 + " + std::to_string(s.bm) + "u <= m1_M)") : "true";
+  std::string full_n_expr = plan.n_bound ? ("(m1_col0 + " + std::to_string(s.bn) + "u <= m1_N)") : "true";
+  std::string k_begin_s = k_begin_zero ? "0u" : "m1_k_begin";
+  std::string k_mask_guard = plan.k_lower_mask.has_value() ? ("(m1_k_mask_lo <= " + k_begin_s + ")") : "true";
+
+  bool a_always_rm = plan.stride_ak_const.has_value() && *plan.stride_ak_const == 1;
+  bool a_always_cm = !a_always_rm && plan.stride_am_const.has_value() && *plan.stride_am_const == 1;
+  bool b_always_rm = plan.stride_bn_const.has_value() && *plan.stride_bn_const == 1;
+  bool b_always_cm = !b_always_rm && plan.stride_bk_const.has_value() && *plan.stride_bk_const == 1;
+  bool c_always_rm = plan.stride_cn_const.has_value() && *plan.stride_cn_const == 1;
+  const bool layout_compile_time_known = (a_always_rm || a_always_cm) && (b_always_rm || b_always_cm);
+  const bool use_reg_prefetch = (s.tm * s.tn <= 16u) && (s.swizzle_w > 1u);
+  const bool aligned_fast_only = !plan.m_bound.has_value() && !plan.n_bound.has_value() && !plan.k_bound.has_value() &&
+                                 !plan.k_lower_mask.has_value() && layout_compile_time_known && c_always_rm &&
+                                 k_begin_zero;
+
+  if (aligned_fast_only) {
+    os << "  uint m1_k0 = 0u;\n"
+       << "  uint m1_k_full_end = m1_k_end;\n";
+    emit_mma2_fast_loop_body(os, plan, a_ptr_expr, b_ptr_expr, sam_u, sak_u, sbk_u, sbn_u, a_ld, b_ld, a_always_cm,
+                             b_always_cm, use_reg_prefetch, false, "  ");
+    for (uint32_t i = 0u; i < s.tm; ++i) {
+      for (uint32_t j = 0u; j < s.tn; ++j) {
+        os << "  { simdgroup_float8x8 m1_cm; reinterpret_cast<thread float2&>(m1_cm.thread_elements()) = m1_c_" << i
+           << "_" << j << "; simdgroup_store(m1_cm, " << c_ptr_expr << " + ulong(m1_row0 + m1_sg_row + " << (i * 8u)
+           << "u) * " << scm_u << " + ulong(m1_col0 + m1_sg_col + " << (j * 8u) << "u), " << scm_u << "); }\n";
+      }
+    }
+    os << "}\n";
+    return os.str();
+  }
+
+  os << "  uint m1_k0 = " << k_begin_s << ";\n";
+  if (layout_compile_time_known) {
+    os << "  if (" << full_m_expr << " && " << full_n_expr << " && " << k_mask_guard << ") {\n";
+    if (k_begin_zero) {
+      os << "    uint m1_k_full_end = m1_k_end & ~" << (s.bk - 1u) << "u;\n";
+    } else {
+      os << "    uint m1_k_full_end = (m1_k_end > m1_k_begin) ? (m1_k_begin + ((m1_k_end - m1_k_begin) & ~"
+         << (s.bk - 1u) << "u)) : m1_k_begin;\n";
+    }
+    emit_mma2_fast_loop_body(os, plan, a_ptr_expr, b_ptr_expr, sam_u, sak_u, sbk_u, sbn_u, a_ld, b_ld, a_always_cm,
+                             b_always_cm, use_reg_prefetch, true, "    ");
+    os << "  }\n";
+  } else {
+    bool a_can_rm = !a_always_cm && (!plan.stride_ak_const.has_value() || *plan.stride_ak_const == 1);
+    bool b_can_rm = !b_always_cm && (!plan.stride_bn_const.has_value() || *plan.stride_bn_const == 1);
+    if (a_can_rm && b_can_rm) {
+      os << "  if (" << full_m_expr << " && " << full_n_expr << " && " << k_mask_guard << " && (long("
+         << plan.stride_ak_expr << ") == 1l) && (long(" << plan.stride_bn_expr << ") == 1l)) {\n";
+      if (k_begin_zero) {
+        os << "    uint m1_k_full_end = m1_k_end & ~" << (s.bk - 1u) << "u;\n";
+      } else {
+        os << "    uint m1_k_full_end = (m1_k_end > m1_k_begin) ? (m1_k_begin + ((m1_k_end - m1_k_begin) & ~"
+           << (s.bk - 1u) << "u)) : m1_k_begin;\n";
+      }
+      emit_mma2_fast_loop_body(os, plan, a_ptr_expr, b_ptr_expr, sam_u, sak_u, sbk_u, sbn_u, a_ld, b_ld, false, false,
+                               use_reg_prefetch, true, "    ");
+      os << "  }\n";
+    }
+  }
+
+  os << "  if (m1_k0 < m1_k_end) {\n"
+     << "    for (; m1_k0 < m1_k_end; m1_k0 += " << s.bk << "u) {\n";
+  emit_mma2_safe_loads(os, plan, a_ptr_expr, b_ptr_expr, a_ld, b_ld, "      ");
+  os << "      threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+  emit_mma2_compute(os, plan, a_ld, b_ld, "      ");
+  os << "      threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+     << "    }\n"
+     << "  }\n";
+
+  std::string c_rm_cond = c_always_rm ? "" : (" && (long(" + plan.stride_cn_expr + ") == 1l)");
+  os << "  if (" << full_m_expr << " && " << full_n_expr << c_rm_cond << ") {\n";
+  for (uint32_t i = 0u; i < s.tm; ++i) {
+    for (uint32_t j = 0u; j < s.tn; ++j) {
+      os << "    { simdgroup_float8x8 m1_cm; reinterpret_cast<thread float2&>(m1_cm.thread_elements()) = m1_c_" << i
+         << "_" << j << "; simdgroup_store(m1_cm, " << c_ptr_expr << " + ulong(m1_row0 + m1_sg_row + " << (i * 8u)
+         << "u) * " << scm_u << " + ulong(m1_col0 + m1_sg_col + " << (j * 8u) << "u), " << scm_u << "); }\n";
+    }
+  }
+  os << "  } else {\n";
+  for (uint32_t i = 0u; i < s.tm; ++i) {
+    os << "    {\n"
+       << "      uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n";
+    if (plan.m_bound.has_value()) {
+      os << "      if (m1_gr < m1_M) {\n";
+    }
+    if (c_always_rm) {
+      os << "        device float* m1_cr = " << c_ptr_expr << " + ulong(m1_gr) * " << scm_u << ";\n";
+      for (uint32_t j = 0u; j < s.tn; ++j) {
+        os << "        { uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;";
+        if (plan.n_bound.has_value()) {
+          os << " if (m1_gc < m1_N) m1_cr[m1_gc] = m1_c_" << i << "_" << j
+             << ".x; if (m1_gc + 1u < m1_N) m1_cr[m1_gc + 1u] = m1_c_" << i << "_" << j << ".y; }\n";
+        } else {
+          os << " m1_cr[m1_gc] = m1_c_" << i << "_" << j << ".x; m1_cr[m1_gc + 1u] = m1_c_" << i << "_" << j
+             << ".y; }\n";
+        }
+      }
+    } else {
+      for (uint32_t j = 0u; j < s.tn; ++j) {
+        os << "        { uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;";
+        if (plan.n_bound.has_value()) {
+          os << " if (m1_gc < m1_N) (" << c_ptr_expr << ")[long(m1_gr) * long(" << plan.stride_cm_expr
+             << ") + long(m1_gc) * long(" << plan.stride_cn_expr << ")] = m1_c_" << i << "_" << j
+             << ".x; if (m1_gc + 1u < m1_N) (" << c_ptr_expr << ")[long(m1_gr) * long(" << plan.stride_cm_expr
+             << ") + long(m1_gc + 1u) * long(" << plan.stride_cn_expr << ")] = m1_c_" << i << "_" << j << ".y; }\n";
+        } else {
+          os << " (" << c_ptr_expr << ")[long(m1_gr) * long(" << plan.stride_cm_expr << ") + long(m1_gc) * long("
+             << plan.stride_cn_expr << ")] = m1_c_" << i << "_" << j << ".x; (" << c_ptr_expr << ")[long(m1_gr) * long("
+             << plan.stride_cm_expr << ") + long(m1_gc + 1u) * long(" << plan.stride_cn_expr << ")] = m1_c_" << i
+             << "_" << j << ".y; }\n";
+        }
+      }
+    }
+    if (plan.m_bound.has_value()) {
+      os << "      }\n";
+    }
+    os << "    }\n";
+  }
+  os << "  }\n"
+     << "}\n";
+  return os.str();
+}
+
 std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
+  if (plan.sched.use_mma2) {
+    return emit_mma2_sgmm_msl(kernel, plan);
+  }
   const auto& s = plan.sched;
   std::ostringstream os;
   os << "#include <metal_stdlib>\n"
      << "#include <metal_simdgroup_matrix>\n"
-     << "using namespace metal;\n\n";
+     << "using namespace metal;\n\n"
+     << "[[max_total_threads_per_threadgroup(" << s.num_threads << ")]]\n";
 
   os << "kernel void " << kernel.name << "(\n";
   for (const auto& slot : plan.params.slots) {
@@ -2551,47 +3045,7 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
   }
 
   if (plan.acc_dt == plan.c_elem_dt) {
-    uint32_t v_sg_ld = s.tn * 8u;
-    uint32_t v_sg_elems = (s.tm * 8u) * v_sg_ld;
-    uint32_t v_max_sgs = std::max<uint32_t>(1u, (s.smem_bytes / ir::dtype_bytes(plan.acc_dt)) / v_sg_elems);
-    uint32_t v_vec4_per_sg = v_sg_elems / 4u;
-    std::string pvec4_t = msl_packed_vec4_type(plan.c_elem_dt);
-    std::string vec4_t = msl_vec4_type(plan.c_elem_dt);
-
-    os << "  if (m1_full_m && m1_full_n && (m1_scn == 1l)" << diag_cond << ") {\n"
-       << "    if (m1_scm >= 8192l) {\n"
-       << "      threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-       << "      threadgroup " << acc_t << "* m1_vepi = reinterpret_cast<threadgroup " << acc_t << "*>(m1_smem);\n"
-       << "      for (uint m1_sb = 0u; m1_sb < " << s.num_sgs << "u; m1_sb += " << v_max_sgs << "u) {\n"
-       << "        if (m1_simd_id >= m1_sb && m1_simd_id < m1_sb + " << v_max_sgs << "u) {\n"
-       << "          threadgroup " << acc_t << "* m1_sg_s = m1_vepi + (m1_simd_id - m1_sb) * " << v_sg_elems << "u;\n";
-    for (uint32_t i = 0; i < s.tm; ++i) {
-      for (uint32_t j = 0; j < s.tn; ++j) {
-        os << "          simdgroup_store(m1_acc[" << i << "][" << j << "], m1_sg_s + " << (i * 8u) << "u * "
-           << v_sg_ld << "u + " << (j * 8u) << "u, " << v_sg_ld << ");\n";
-      }
-    }
-    os << "        }\n"
-       << "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-       << "        uint m1_act = min(" << v_max_sgs << "u, " << s.num_sgs << "u - m1_sb);\n"
-       << "        for (uint m1_v = m1_tid_linear; m1_v < m1_act * " << v_vec4_per_sg << "u; m1_v += "
-       << s.num_threads << "u) {\n"
-       << "          uint m1_lsg = m1_v / " << v_vec4_per_sg << "u;\n"
-       << "          uint m1_rem = m1_v % " << v_vec4_per_sg << "u;\n"
-       << "          uint m1_lr = m1_rem / " << (v_sg_ld / 4u) << "u;\n"
-       << "          uint m1_lc = (m1_rem % " << (v_sg_ld / 4u) << "u) * 4u;\n"
-       << "          uint m1_gsg = m1_sb + m1_lsg;\n"
-       << "          uint m1_gr = m1_row0 + (m1_gsg / " << s.sg_n << "u) * " << (s.tm * 8u) << "u + m1_lr;\n"
-       << "          uint m1_gc = m1_col0 + (m1_gsg % " << s.sg_n << "u) * " << (s.tn * 8u) << "u + m1_lc;\n"
-       << "          " << vec4_t << " m1_ov = *(const threadgroup " << vec4_t << "*)(m1_vepi + m1_lsg * "
-       << v_sg_elems << "u + m1_lr * " << v_sg_ld << "u + m1_lc);\n"
-       << "          *(device " << pvec4_t << "*)(m1_C + ulong(m1_gr) * ulong(m1_scm) + ulong(m1_gc)) = " << pvec4_t
-       << "(m1_ov);\n"
-       << "        }\n"
-       << "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-       << "      }\n"
-       << "      return;\n"
-       << "    }\n";
+    os << "  if (m1_full_m && m1_full_n && (m1_scn == 1l)" << diag_cond << ") {\n";
     for (uint32_t i = 0; i < s.tm; ++i) {
       for (uint32_t j = 0; j < s.tn; ++j) {
         os << "    simdgroup_store(m1_acc[" << i << "][" << j << "], m1_C + ulong(m1_row0 + m1_sg_row + " << (i * 8u)

@@ -46,6 +46,7 @@ def conv_transpose1d_kernel(
     W_BLK8: tl.constexpr,
     HALO: tl.constexpr,
     TILE_W: tl.constexpr,
+    FUSE_SW: tl.constexpr = 0,
 ):
     if HAS_BIAS:
         tlx.implicit_gemm_conv(
@@ -94,6 +95,7 @@ def conv_transpose2d_kernel(
     HALO: tl.constexpr,
     TILE_H: tl.constexpr,
     TILE_W: tl.constexpr,
+    FUSE_SW: tl.constexpr = 0,
 ):
     if HAS_BIAS:
         tlx.implicit_gemm_conv(
@@ -150,6 +152,7 @@ def conv_transpose3d_kernel(
     TILE_D: tl.constexpr,
     TILE_H: tl.constexpr,
     TILE_W: tl.constexpr,
+    FUSE_SW: tl.constexpr = 0,
 ):
     if HAS_BIAS:
         tlx.implicit_gemm_conv(
@@ -209,17 +212,21 @@ def _halo_overhangs(k: tuple[int, ...], s: tuple[int, ...], d: tuple[int, ...]) 
 
 
 def _choose_halo_tile(
-    ndim: int, bn: int, bk: int, overhangs: list[int]
+    ndim: int, bn: int, bk: int, overhangs: list[int], max_tw: int | None = None
 ) -> tuple[tuple[int, ...], int] | None:
     candidates: list[tuple[int, ...]] = []
     if ndim == 1:
         candidates = [(bn,)]
     elif ndim == 2:
         for tw in (64, 32, 16, 8):
+            if max_tw is not None and tw > max_tw:
+                continue
             if bn % tw == 0:
                 candidates.append((bn // tw, tw))
     else:
         for tw in (64, 32, 16, 8):
+            if max_tw is not None and tw > max_tw:
+                continue
             if bn % tw != 0:
                 continue
             rem = bn // tw
@@ -246,6 +253,47 @@ def _choose_halo_tile(
     return (best_tile, best_bytes) if best_tile is not None else None
 
 
+def _active_w_info(kw: int, sw: int, pw: int, dw: int) -> tuple[int, int]:
+    """Returns (num_active_w_phases, fused_w_halo_overhang)."""
+    n_act = 0
+    sh_min: int | None = None
+    sh_max: int | None = None
+    for aw in range(sw):
+        found = False
+        for rw in range(kw):
+            num = aw + pw - rw * dw
+            if num % sw == 0:
+                found = True
+                sh = num // sw
+                sh_min = sh if sh_min is None else min(sh_min, sh)
+                sh_max = sh if sh_max is None else max(sh_max, sh)
+        if found:
+            n_act += 1
+    ov = 0 if sh_min is None or sh_max is None else (sh_max - sh_min)
+    return n_act, ov
+
+
+def _sg_frags(bm: int, bn: int, num_sg: int) -> int | None:
+    best: int | None = None
+    best_frags: int | None = None
+    for sm in range(1, num_sg + 1):
+        if num_sg % sm != 0:
+            continue
+        sn = num_sg // sm
+        if bm % (sm * 8) != 0 or bn % (sn * 8) != 0:
+            continue
+        wm = bm // sm
+        wn = bn // sn
+        frags = (wm // 8) * (wn // 8)
+        if frags > 32:
+            continue
+        score = min(wm, wn) * 1000 - abs(wm - wn)
+        if best is None or score > best:
+            best = score
+            best_frags = frags
+    return best_frags
+
+
 def select_schedule(
     ndim: int,
     c_in_g: int,
@@ -254,8 +302,46 @@ def select_schedule(
     s: tuple[int, ...],
     d: tuple[int, ...],
     dtype: torch.dtype,
-) -> tuple[int, int, int, int, bool, bool, tuple[int, ...]]:
-    """Selects (bm, bn, bk, num_sg, w_blk8, use_halo, spatial_tiles) tuned for M1 Max 32 KB SRAM."""
+    p: tuple[int, ...] | None = None,
+) -> tuple[int, int, int, int, bool, bool, tuple[int, ...], bool]:
+    """Selects (bm, bn, bk, num_sg, w_blk8, use_halo, spatial_tiles, fuse_sw) for M1 Max 32 KB SRAM."""
+    if p is not None and s[-1] > 1 and dtype == torch.float32:
+        n_act, ov_w = _active_w_info(k[-1], s[-1], p[-1], d[-1])
+        if n_act >= 1:
+            overhangs = _halo_overhangs(k, s, d)
+            overhangs[-1] = ov_w
+            cands: list[tuple[int, int, int, int]] = []
+            if c_out_g >= 128 and c_out_g % 128 == 0:
+                bk_pref = 32 if (ndim == 1 and c_in_g % 32 == 0) else (16 if c_in_g % 16 == 0 else 8)
+                cands.extend([(128, 64, bk_pref, 8), (64, 64, bk_pref, 8), (64, 64, bk_pref, 4)])
+            elif c_out_g >= 64 and c_out_g % 64 == 0:
+                bk_pref = 32 if (ndim == 1 and c_in_g % 32 == 0) else (16 if c_in_g % 16 == 0 else 8)
+                if ndim == 1 and n_act == 1:
+                    cands.extend([(64, 128, bk_pref, 8), (64, 64, bk_pref, 4)])
+                elif n_act == 1:
+                    cands.extend([(64, 64, bk_pref, 4), (64, 64, bk_pref, 8)])
+                elif s[-1] >= 4:
+                    cands.extend([(32, 64, bk_pref, 4), (64, 32, bk_pref, 4), (64, 64, bk_pref, 8)])
+                else:
+                    cands.extend([(64, 64, bk_pref, 8), (64, 32, bk_pref, 4)])
+            else:
+                bm_s = max(8, -(-c_out_g // 8) * 8)
+                bk_pref = 32 if (ndim == 1 and c_in_g % 32 == 0) else (16 if c_in_g % 16 == 0 else 8)
+                cands.extend([(bm_s, 64, bk_pref, 4), (bm_s, 64, bk_pref, 8), (bm_s, 32, bk_pref, 4)])
+            max_tw = 32 if (ndim == 2 and s[-1] >= 4) else None
+            for bm_c, bn_c, bk_c, nsg_c in cands:
+                if c_out_g % bm_c != 0 or c_in_g % 8 != 0 or (nsg_c * 32) % bn_c != 0:
+                    continue
+                frags = _sg_frags(bm_c, bn_c, nsg_c)
+                if frags is None or n_act * frags > 24:
+                    continue
+                for bk_try in (bk_c, 16, 8):
+                    if bk_try > bk_c or c_in_g % bk_try != 0:
+                        continue
+                    picked = _choose_halo_tile(ndim, bn_c, bk_try, overhangs, max_tw=max_tw)
+                    if picked is not None and 8 * n_act * bn_c * 4 <= _MAX_HALO_SMEM_BYTES:
+                        return bm_c, bn_c, bk_try, nsg_c, True, True, picked[0], True
+
     if c_out_g >= 128:
         bm, bn, num_sg = 128, 64, 8
         bk = 32 if (ndim == 1 and c_in_g % 32 == 0) else (16 if c_in_g % 16 == 0 else 8)
@@ -281,7 +367,7 @@ def select_schedule(
         if picked is not None:
             tiles = picked[0]
             use_halo = True
-    return bm, bn, bk, num_sg, w_blk8, use_halo, tiles
+    return bm, bn, bk, num_sg, w_blk8, use_halo, tiles, False
 
 
 _KERNELS = {1: conv_transpose1d_kernel, 2: conv_transpose2d_kernel, 3: conv_transpose3d_kernel}
@@ -300,6 +386,7 @@ def conv_transpose_nd(
     dilation: int | Sequence[int] = 1,
     groups: int = 1,
     packed_weight: torch.Tensor | None = None,
+    cached_wino_u: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Dispatches one M1Triton Metal implicit-GEMM transposed-convolution kernel on (N, C_in, *spatial)."""
     if x.dim() != ndim + 2 or weight.dim() != ndim + 2:
@@ -317,15 +404,37 @@ def conv_transpose_nd(
     d = as_tuple(dilation, ndim)
     spatial_in = [int(v) for v in x_c.shape[2:]]
     spatial_out = [conv_transpose_output_size(spatial_in[i], k[i], s[i], p[i], d[i], op[i]) for i in range(ndim)]
+    if (
+        ndim == 2
+        and k == (3, 3)
+        and s == (1, 1)
+        and d == (1, 1)
+        and op == (0, 0)
+        and groups == 1
+        and p[0] <= 2
+        and p[1] <= 2
+        and x_c.dtype == torch.float32
+        and weight.dtype == torch.float32
+        and (bias is None or bias.dtype == torch.float32)
+        and c_in >= 8
+        and c_out >= 16
+        and spatial_out[0] * spatial_out[1] >= 256
+    ):
+        from _conv_std_common import conv2d_winograd_3x3
+
+        return conv2d_winograd_3x3(
+            x_c, weight, bias, padding=(2 - p[0], 2 - p[1]), transposed=True,
+            cached_u=cached_wino_u, use_staged_4x3=False,
+        )
     out = torch.empty((n, c_out, *spatial_out), dtype=x_c.dtype, device=x_c.device)
     if out.numel() == 0:
         return out
 
-    bm, bn, bk, num_sg, w_blk8, use_halo, tiles = select_schedule(
-        ndim, c_in // groups, c_out // groups, k, s, d, weight.dtype
+    bm, bn, bk, num_sg, w_blk8, use_halo, tiles, fuse_sw = select_schedule(
+        ndim, c_in // groups, c_out // groups, k, s, d, weight.dtype, p=p
     )
     q_dims = [-(-spatial_out[i] // s[i]) for i in range(ndim)]
-    phases = math.prod(s)
+    phases = math.prod(s[:-1]) if fuse_sw else math.prod(s)
     if use_halo:
         grid_x = math.prod(m1triton.cdiv(qd, td) for qd, td in zip(q_dims, tiles))
     else:
@@ -349,6 +458,7 @@ def conv_transpose_nd(
         NUM_SG=num_sg,
         W_BLK8=int(w_blk8),
         HALO=int(use_halo),
+        FUSE_SW=int(fuse_sw),
         wait=True,
     )
     for i, tag in enumerate(_DIM_TAGS[ndim]):
