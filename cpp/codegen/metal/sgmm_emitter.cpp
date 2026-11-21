@@ -983,7 +983,62 @@ class TileAffineAnalyzer {
         break;
       }
       case OpKind::Binary: {
-        if (std::get<BinaryAttr>(op.attr).op != BinaryOp::Add) break;
+        const BinaryOp bop = std::get<BinaryAttr>(op.attr).op;
+        if (bop == BinaryOp::Mul) {
+          Affine2D l = analyze_2d_ptr(op.operands[0]);
+          Affine2D r = analyze_2d_ptr(op.operands[1]);
+          if (!l.valid || !r.valid) break;
+          if (l.base_param_idx != UINT32_MAX || r.base_param_idx != UINT32_MAX) break;
+          const bool l_has_axis = l.row.has_arange || l.col.has_arange;
+          const bool r_has_axis = r.row.has_arange || r.col.has_arange;
+          if (l_has_axis == r_has_axis) break;
+          const Affine2D& ax = l_has_axis ? l : r;
+          const Affine2D& sc = l_has_axis ? r : l;
+          if (sc.row.valid || sc.col.valid || sc.ptr_scalar_offset == "0") break;
+          const ValueId sc_vid = op.operands[l_has_axis ? 1 : 0];
+          std::optional<int64_t> sc_const;
+          if (!kernel_.value(sc_vid).type.is_tile()) {
+            sc_const = scalar_.analyze(sc_vid).const_i64;
+          } else if (kernel_.value(sc_vid).def_op != kInvalidId &&
+                     kernel_.op(kernel_.value(sc_vid).def_op).kind == OpKind::Splat) {
+            sc_const = scalar_.analyze(kernel_.op(kernel_.value(sc_vid).def_op).operands[0]).const_i64;
+          }
+          auto scale_1d = [&](Affine1D a) -> Affine1D {
+            if (!a.has_arange) return a;
+            if (!a.has_outer_scale && a.stride_const == 1) {
+              a.has_outer_scale = true;
+              a.unscaled_base_expr = a.base_expr;
+              a.outer_scale_expr = sc.ptr_scalar_offset;
+              a.outer_scale_const = sc_const;
+              a.stride_expr = sc.ptr_scalar_offset;
+              a.stride_const = sc_const;
+              a.base_expr = (a.base_expr == "0") ? "0" : ("(" + a.base_expr + " * " + sc.ptr_scalar_offset + ")");
+            } else {
+              a.outer_scale_expr = "(" + a.outer_scale_expr + " * " + sc.ptr_scalar_offset + ")";
+              if (a.outer_scale_const && sc_const) {
+                a.outer_scale_const = (*a.outer_scale_const) * (*sc_const);
+              } else {
+                a.outer_scale_const.reset();
+              }
+              a.stride_expr = "(" + a.stride_expr + " * " + sc.ptr_scalar_offset + ")";
+              if (a.stride_const && sc_const) {
+                a.stride_const = (*a.stride_const) * (*sc_const);
+              } else {
+                a.stride_const.reset();
+              }
+              a.base_expr = (a.base_expr == "0") ? "0" : ("(" + a.base_expr + " * " + sc.ptr_scalar_offset + ")");
+            }
+            return a;
+          };
+          out = ax;
+          if (out.row.has_arange) out.row = scale_1d(out.row);
+          if (out.col.has_arange) out.col = scale_1d(out.col);
+          if (out.ptr_scalar_offset != "0") {
+            out.ptr_scalar_offset = "(" + out.ptr_scalar_offset + " * " + sc.ptr_scalar_offset + ")";
+          }
+          break;
+        }
+        if (bop != BinaryOp::Add) break;
         Affine2D l = analyze_2d_ptr(op.operands[0]);
         Affine2D r = analyze_2d_ptr(op.operands[1]);
         if (!l.valid || !r.valid) break;
@@ -2404,8 +2459,16 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
   os.clear();
   os << full_code;
 
+  const bool layout_compile_time_known =
+      (a_always_rm || a_always_cm) && (b_always_rm || b_always_cm);
+
   bool first_branch = true;
   auto emit_mode_branch = [&](bool acm, bool bcm, const std::string& cond) {
+    if (layout_compile_time_known) {
+      first_branch = false;
+      emit_fast_k_loop(os, plan, acm, bcm, "      ");
+      return;
+    }
     os << "      " << (first_branch ? "if" : "} else if") << " (" << cond << ") {\n";
     first_branch = false;
     emit_fast_k_loop(os, plan, acm, bcm, "        ");
@@ -2416,12 +2479,14 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
   if (a_can_rm && b_can_cm) emit_mode_branch(false, true, "m1_a_rm && m1_b_cm");
   if (a_can_cm && b_can_cm) emit_mode_branch(true, true, "m1_a_cm && m1_b_cm");
 
-  if (!first_branch) {
-    os << "      } else {\n";
-    emit_safe_k_loop(os, plan, "        ");
-    os << "      }\n";
-  } else {
-    emit_safe_k_loop(os, plan, "      ");
+  if (!layout_compile_time_known) {
+    if (!first_branch) {
+      os << "      } else {\n";
+      emit_safe_k_loop(os, plan, "        ");
+      os << "      }\n";
+    } else {
+      emit_safe_k_loop(os, plan, "      ");
+    }
   }
   os << "    } else {\n";
   emit_safe_k_loop(os, plan, "      ");
@@ -2486,7 +2551,47 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
   }
 
   if (plan.acc_dt == plan.c_elem_dt) {
-    os << "  if (m1_full_m && m1_full_n && (m1_scn == 1l)" << diag_cond << ") {\n";
+    uint32_t v_sg_ld = s.tn * 8u;
+    uint32_t v_sg_elems = (s.tm * 8u) * v_sg_ld;
+    uint32_t v_max_sgs = std::max<uint32_t>(1u, (s.smem_bytes / ir::dtype_bytes(plan.acc_dt)) / v_sg_elems);
+    uint32_t v_vec4_per_sg = v_sg_elems / 4u;
+    std::string pvec4_t = msl_packed_vec4_type(plan.c_elem_dt);
+    std::string vec4_t = msl_vec4_type(plan.c_elem_dt);
+
+    os << "  if (m1_full_m && m1_full_n && (m1_scn == 1l)" << diag_cond << ") {\n"
+       << "    if (m1_scm >= 8192l) {\n"
+       << "      threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+       << "      threadgroup " << acc_t << "* m1_vepi = reinterpret_cast<threadgroup " << acc_t << "*>(m1_smem);\n"
+       << "      for (uint m1_sb = 0u; m1_sb < " << s.num_sgs << "u; m1_sb += " << v_max_sgs << "u) {\n"
+       << "        if (m1_simd_id >= m1_sb && m1_simd_id < m1_sb + " << v_max_sgs << "u) {\n"
+       << "          threadgroup " << acc_t << "* m1_sg_s = m1_vepi + (m1_simd_id - m1_sb) * " << v_sg_elems << "u;\n";
+    for (uint32_t i = 0; i < s.tm; ++i) {
+      for (uint32_t j = 0; j < s.tn; ++j) {
+        os << "          simdgroup_store(m1_acc[" << i << "][" << j << "], m1_sg_s + " << (i * 8u) << "u * "
+           << v_sg_ld << "u + " << (j * 8u) << "u, " << v_sg_ld << ");\n";
+      }
+    }
+    os << "        }\n"
+       << "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+       << "        uint m1_act = min(" << v_max_sgs << "u, " << s.num_sgs << "u - m1_sb);\n"
+       << "        for (uint m1_v = m1_tid_linear; m1_v < m1_act * " << v_vec4_per_sg << "u; m1_v += "
+       << s.num_threads << "u) {\n"
+       << "          uint m1_lsg = m1_v / " << v_vec4_per_sg << "u;\n"
+       << "          uint m1_rem = m1_v % " << v_vec4_per_sg << "u;\n"
+       << "          uint m1_lr = m1_rem / " << (v_sg_ld / 4u) << "u;\n"
+       << "          uint m1_lc = (m1_rem % " << (v_sg_ld / 4u) << "u) * 4u;\n"
+       << "          uint m1_gsg = m1_sb + m1_lsg;\n"
+       << "          uint m1_gr = m1_row0 + (m1_gsg / " << s.sg_n << "u) * " << (s.tm * 8u) << "u + m1_lr;\n"
+       << "          uint m1_gc = m1_col0 + (m1_gsg % " << s.sg_n << "u) * " << (s.tn * 8u) << "u + m1_lc;\n"
+       << "          " << vec4_t << " m1_ov = *(const threadgroup " << vec4_t << "*)(m1_vepi + m1_lsg * "
+       << v_sg_elems << "u + m1_lr * " << v_sg_ld << "u + m1_lc);\n"
+       << "          *(device " << pvec4_t << "*)(m1_C + ulong(m1_gr) * ulong(m1_scm) + ulong(m1_gc)) = " << pvec4_t
+       << "(m1_ov);\n"
+       << "        }\n"
+       << "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+       << "      }\n"
+       << "      return;\n"
+       << "    }\n";
     for (uint32_t i = 0; i < s.tm; ++i) {
       for (uint32_t j = 0; j < s.tn; ++j) {
         os << "    simdgroup_store(m1_acc[" << i << "][" << j << "], m1_C + ulong(m1_row0 + m1_sg_row + " << (i * 8u)

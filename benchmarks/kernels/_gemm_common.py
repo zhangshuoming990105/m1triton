@@ -35,6 +35,8 @@ def sgmm_gemm_kernel(
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
+    NUM_SG: tl.constexpr = 4,
+    SWIZZLE_W: tl.constexpr = 8,
     TRANS_A: tl.constexpr = 0,
     TRANS_B: tl.constexpr = 0,
     STRUCTURE: tl.constexpr = "dense",
@@ -43,10 +45,10 @@ def sgmm_gemm_kernel(
         BLOCK_M,
         BLOCK_N,
         BLOCK_K,
-        num_simdgroups=4,
+        num_simdgroups=NUM_SG,
         double_buffer=False,
         split_k=1,
-        swizzle_w=8,
+        swizzle_w=SWIZZLE_W,
     )
     if STRUCTURE != "dense":
         tlx.structure(STRUCTURE)
@@ -66,15 +68,21 @@ def sgmm_gemm_kernel(
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for k in range(0, K, BLOCK_K):
         k_idx = k + offs_k
-        a_ptrs = a_base + offs_m[:, None] * stride_am + k_idx[None, :] * stride_ak
-        b_ptrs = b_base + k_idx[:, None] * stride_bk + offs_n[None, :] * stride_bn
+        if TRANS_A == 0:
+            a_ptrs = a_base + offs_m[:, None] * stride_am + k_idx[None, :]
+        else:
+            a_ptrs = a_base + offs_m[:, None] + k_idx[None, :] * stride_ak
+        if TRANS_B == 0:
+            b_ptrs = b_base + k_idx[:, None] * stride_bk + offs_n[None, :]
+        else:
+            b_ptrs = b_base + k_idx[:, None] + offs_n[None, :] * stride_bn
         a_mask = (offs_m[:, None] < M) & (k_idx[None, :] < K)
         b_mask = (k_idx[:, None] < K) & (offs_n[None, :] < N)
         a = tl.load(a_ptrs, mask=a_mask, other=0.0)
         b = tl.load(b_ptrs, mask=b_mask, other=0.0)
         acc = tl.dot(a, b, acc=acc)
 
-    c_ptrs = c_base + offs_m[:, None] * stride_cm + offs_n[None, :] * stride_cn
+    c_ptrs = c_base + offs_m[:, None] * stride_cm + offs_n[None, :]
     c_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     tl.store(c_ptrs, acc, mask=c_mask)
 
@@ -99,12 +107,13 @@ def sgmm_splitk_kernel(
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
     SPLIT_K: tl.constexpr,
+    NUM_SG: tl.constexpr = 8,
 ):
     tlx.tile_spec(
         BLOCK_M,
         BLOCK_N,
         BLOCK_K,
-        num_simdgroups=4,
+        num_simdgroups=NUM_SG,
         double_buffer=False,
         split_k=SPLIT_K,
         swizzle_w=8,
@@ -125,15 +134,15 @@ def sgmm_splitk_kernel(
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for k in range(k_start, k_end, BLOCK_K):
         k_idx = k + offs_k
-        a_ptrs = a_ptr + offs_m[:, None] * stride_am + k_idx[None, :] * stride_ak
-        b_ptrs = b_ptr + k_idx[:, None] * stride_bk + offs_n[None, :] * stride_bn
+        a_ptrs = a_ptr + offs_m[:, None] * stride_am + k_idx[None, :]
+        b_ptrs = b_ptr + k_idx[:, None] * stride_bk + offs_n[None, :]
         a_mask = (offs_m[:, None] < M) & (k_idx[None, :] < K)
         b_mask = (k_idx[:, None] < K) & (offs_n[None, :] < N)
         a = tl.load(a_ptrs, mask=a_mask, other=0.0)
         b = tl.load(b_ptrs, mask=b_mask, other=0.0)
         acc = tl.dot(a, b, acc=acc)
 
-    w_ptrs = w_base + offs_m[:, None] * stride_wm + offs_n[None, :] * stride_wn
+    w_ptrs = w_base + offs_m[:, None] * stride_wm + offs_n[None, :]
     w_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     tl.store(w_ptrs, acc, mask=w_mask)
 
@@ -255,6 +264,18 @@ def diag_matmul_kernel(
     tl.store(c_ptr + (row_off + col_offs), a_val * b_vec, mask=mask)
 
 
+def _select_sgmm_schedule(m: int, n: int, k: int, structure: str) -> tuple[int, int, int, int, int]:
+    if structure != "dense":
+        return 64, 64, 32, 4, 8
+    if k <= 64:
+        return 64, 64, 32, 4, 1
+    if (m % 64 != 0) or (n % 64 != 0) or (k % 4 != 0):
+        return 64, 128, 32, 8, 8
+    if m >= 128 and n >= 64:
+        return 128, 64, 32, 8, 8
+    return 64, 64, 32, 4, 8
+
+
 def gemm_2d(
     A: torch.Tensor,
     B: torch.Tensor,
@@ -262,9 +283,11 @@ def gemm_2d(
     trans_a: bool = False,
     trans_b: bool = False,
     structure: str = "dense",
-    block_m: int = 64,
-    block_n: int = 64,
-    block_k: int = 16,
+    block_m: int | None = None,
+    block_n: int | None = None,
+    block_k: int | None = None,
+    num_sg: int | None = None,
+    swizzle_w: int | None = None,
 ) -> torch.Tensor:
     a_c = A.contiguous()
     b_c = B.contiguous()
@@ -290,8 +313,15 @@ def gemm_2d(
     if k != k_b:
         raise ValueError(f"Incompatible GEMM K dimensions: {k} vs {k_b}")
 
+    bm, bn, bk, sg, sw = _select_sgmm_schedule(m, n, k, structure)
+    bm = bm if block_m is None else block_m
+    bn = bn if block_n is None else block_n
+    bk = bk if block_k is None else block_k
+    sg = sg if num_sg is None else num_sg
+    sw = sw if swizzle_w is None else swizzle_w
+
     out = torch.empty((m, n), dtype=a_c.dtype, device=a_c.device)
-    grid = (m1triton.cdiv(m, block_m), m1triton.cdiv(n, block_n), 1)
+    grid = (m1triton.cdiv(m, bm), m1triton.cdiv(n, bn), 1)
     sgmm_gemm_kernel[grid](
         a_c,
         b_c,
@@ -308,12 +338,15 @@ def gemm_2d(
         0,
         out.stride(0),
         out.stride(1),
-        BLOCK_M=block_m,
-        BLOCK_N=block_n,
-        BLOCK_K=block_k,
+        BLOCK_M=bm,
+        BLOCK_N=bn,
+        BLOCK_K=bk,
+        NUM_SG=sg,
+        SWIZZLE_W=sw,
         TRANS_A=1 if trans_a else 0,
         TRANS_B=1 if trans_b else 0,
         STRUCTURE=structure,
+        fast_math=True,
     )
     return out
 
@@ -322,9 +355,11 @@ def bmm_3d(
     A: torch.Tensor,
     B: torch.Tensor,
     *,
-    block_m: int = 64,
+    block_m: int = 128,
     block_n: int = 64,
-    block_k: int = 16,
+    block_k: int = 32,
+    num_sg: int = 8,
+    swizzle_w: int = 8,
 ) -> torch.Tensor:
     a_c = A.contiguous()
     b_c = B.contiguous()
@@ -354,9 +389,12 @@ def bmm_3d(
         BLOCK_M=block_m,
         BLOCK_N=block_n,
         BLOCK_K=block_k,
+        NUM_SG=num_sg,
+        SWIZZLE_W=swizzle_w,
         TRANS_A=0,
         TRANS_B=0,
         STRUCTURE="dense",
+        fast_math=True,
     )
     return out
 
@@ -367,8 +405,9 @@ def gemm_splitk(
     *,
     split_k: int = 32,
     block_m: int = 64,
-    block_n: int = 64,
-    block_k: int = 16,
+    block_n: int = 128,
+    block_k: int = 32,
+    num_sg: int = 8,
     reduce_block: int = 1024,
     workspace: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -411,6 +450,8 @@ def gemm_splitk(
         BLOCK_N=block_n,
         BLOCK_K=block_k,
         SPLIT_K=split_k,
+        NUM_SG=num_sg,
+        fast_math=True,
     )
 
     n_elements = m * n

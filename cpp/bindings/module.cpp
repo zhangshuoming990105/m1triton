@@ -546,7 +546,7 @@ PYBIND11_MODULE(_C, m) {
           }
         }
 
-        auto pm = m1triton::passes::PassManager::build_m1_pipeline();
+        auto pm = m1triton::passes::PassManager::build_m2_pipeline();
         std::ostringstream pass_dump;
         m1triton::passes::PassContext ctx{target, verify_ir, dump_ir, dump_ir ? &pass_dump : nullptr};
         auto pass_res = pm.run(mod, ctx);

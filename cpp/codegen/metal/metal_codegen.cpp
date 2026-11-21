@@ -1,5 +1,8 @@
 #include "codegen/metal/metal_codegen.hpp"
 
+#include "codegen/metal/reduce_scan_emitter.hpp"
+#include "codegen/metal/sgmm_emitter.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -3146,6 +3149,36 @@ CompiledMSL MetalCodegen::emit(const ir::Kernel& kernel, const ir::TargetSpec& t
 
   if (analysis.max_rank > 2) {
     return CompiledMSL{false, "", {}, "Tiles with rank > 2 are not supported in MetalCodegen"};
+  }
+
+  if (analysis.has_reduce) {
+    bool matched = false;
+    auto red_res = try_emit_reduce_scan_kernel(kernel, target, &matched);
+    if (matched) {
+      return red_res;
+    }
+  }
+
+  if (analysis.has_dot) {
+    bool use_sgmm = kernel.hints.tile_spec.has_value();
+    if (!use_sgmm) {
+      for (const auto& op : kernel.ops) {
+        if (!op->erased && op->kind == OpKind::Dot && !op->results.empty()) {
+          const Type& rty = kernel.value(op->results[0]).type;
+          if (rty.is_tile() && rty.as_tile().layout.kind == ir::LayoutKind::SimdgroupFragment) {
+            use_sgmm = true;
+            break;
+          }
+        }
+      }
+    }
+    if (use_sgmm) {
+      bool matched = false;
+      auto sgmm_res = try_emit_sgmm_kernel(kernel, target, &matched);
+      if (matched) {
+        return sgmm_res;
+      }
+    }
   }
 
   if (analysis.has_dot || analysis.max_rank == 2) {
