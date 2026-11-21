@@ -890,41 +890,13 @@ class ConvStdModule(nn.Module):
                 self.bias.copy_(conv.bias.detach().to(self.bias.device))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        w = self.weight.detach()
-        cached_u: torch.Tensor | None = None
-        staged: bool | None = None
-        if (
-            self._NDIM == 2
-            and self.kernel_size == (3, 3)
-            and self.stride == (1, 1)
-            and self.dilation == (1, 1)
-            and self.groups == 1
-            and x.dtype == torch.float32
-            and w.dtype == torch.float32
-            and (self.bias is None or self.bias.dtype == torch.float32)
-            and self.in_channels >= 8
-            and self.out_channels >= 16
-        ):
-            h_out = conv_output_size(int(x.shape[2]), 3, 1, self.padding[0], 1)
-            w_out = conv_output_size(int(x.shape[3]), 3, 1, self.padding[1], 1)
-            if h_out * w_out >= 256:
-                staged = self.in_channels >= 64 and self.out_channels >= 128 and h_out * w_out >= 65536
-                key = (w.data_ptr(), w._version, w.device, staged)
-                cache = getattr(self, "_wino_u_cache", None)
-                if cache is not None and cache[0] == key:
-                    cached_u = cache[1]
-                else:
-                    cached_u = prepare_winograd_filter(w, transposed=False, staged_4x3=staged)
-                    self._wino_u_cache = (key, cached_u)
         return conv_nd(
             x,
-            w,
+            self.weight.detach(),
             self.bias,
             ndim=self._NDIM,
             stride=self.stride,
             padding=self.padding,
             dilation=self.dilation,
             groups=self.groups,
-            cached_wino_u=cached_u,
-            use_staged_4x3=staged,
         )

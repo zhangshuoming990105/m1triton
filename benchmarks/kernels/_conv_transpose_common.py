@@ -547,54 +547,9 @@ class ConvTransposeNdBase(nn.Module):
                 self.bias.copy_(conv.bias.detach().to(self.bias.device))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        w = self.weight.detach()
-        packed: torch.Tensor | None = None
-        cached_u: torch.Tensor | None = None
-        use_wino = (
-            self.ndim == 2
-            and self.kernel_size == (3, 3)
-            and self.stride == (1, 1)
-            and self.dilation == (1, 1)
-            and self.output_padding == (0, 0)
-            and self.groups == 1
-            and self.padding[0] <= 2
-            and self.padding[1] <= 2
-            and x.dtype == torch.float32
-            and w.dtype == torch.float32
-            and (self.bias is None or self.bias.dtype == torch.float32)
-            and self.in_channels >= 8
-            and self.out_channels >= 16
-        )
-        if use_wino:
-            h_out = conv_transpose_output_size(int(x.shape[2]), 3, 1, self.padding[0], 1, 0)
-            w_out = conv_transpose_output_size(int(x.shape[3]), 3, 1, self.padding[1], 1, 0)
-            if h_out * w_out >= 256:
-                key = (w.data_ptr(), w._version, w.device)
-                cache = getattr(self, "_wino_u_cache", None)
-                if cache is not None and cache[0] == key:
-                    cached_u = cache[1]
-                else:
-                    from _conv_std_common import prepare_winograd_filter
-
-                    cached_u = prepare_winograd_filter(w, transposed=True, staged_4x3=False)
-                    self._wino_u_cache = (key, cached_u)
-        elif w.dtype == torch.float32:
-            key = (w.data_ptr(), w._version, w.device, self.groups, self.kernel_size, self.stride, self.padding, self.dilation)
-            cache = getattr(self, "_packed_w_cache", None)
-            if cache is not None and cache[0] == key:
-                packed = cache[1]
-            else:
-                c_in_g = int(w.shape[0]) // self.groups
-                c_out_g = int(w.shape[1])
-                _, _, _, _, w_blk8, _, _, _ = select_schedule(
-                    self.ndim, c_in_g, c_out_g, self.kernel_size, self.stride, self.dilation, w.dtype, p=self.padding
-                )
-                if w_blk8:
-                    packed = pack_weight_blk8(w, self.groups)
-                    self._packed_w_cache = (key, packed)
         return conv_transpose_nd(
             x,
-            w,
+            self.weight.detach(),
             None if self.bias is None else self.bias.detach(),
             ndim=self.ndim,
             stride=self.stride,
@@ -602,6 +557,4 @@ class ConvTransposeNdBase(nn.Module):
             output_padding=self.output_padding,
             dilation=self.dilation,
             groups=self.groups,
-            packed_weight=packed,
-            cached_wino_u=cached_u,
         )
