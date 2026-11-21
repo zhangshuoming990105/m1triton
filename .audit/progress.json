@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "goalFile": "GOAL.md",
+  "createdAt": "2026-11-21T08:52:55.075Z",
+  "updatedAt": "2026-11-21T08:52:55.120Z",
+  "milestones": [
+    {
+      "id": "M0",
+      "title": "Repo foundation, guardrails, CI, KernelBench L1 fetch & frozen eval",
+      "status": "in_progress",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-21T08:52:55.119Z"
+    },
+    {
+      "id": "M1",
+      "title": "End-to-end vertical slice (Python AST -> C++ IR -> MSL -> Metal UMA runtime)",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    },
+    {
+      "id": "M2",
+      "title": "SGMM GEMM engine & KernelBench Batch 1 (#1-#18, 18 tasks)",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    },
+    {
+      "id": "M3",
+      "title": "Vectorized elementwise, online softmax & norm (#19-#40, #88, 23 tasks)",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    },
+    {
+      "id": "M4",
+      "title": "Pooling, reductions & hardware prefix scans (#41-#49, #51-#53, #89-#93, 17 tasks)",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    },
+    {
+      "id": "M5",
+      "title": "Convolution compiler lowering & microkernels (#50, #54-#87, 35 tasks)",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    },
+    {
+      "id": "M6",
+      "title": "Fused losses & FlashAttention-M1 (#94-#100, 7 tasks) -> 100/100 coverage",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    },
+    {
+      "id": "M7",
+      "title": "Compiler-DSL co-design performance sprint (research-lab hillclimb)",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    },
+    {
+      "id": "M8",
+      "title": "Full-repo unslop, docs synthesis, adversarial interrogation & final release",
+      "status": "todo",
+      "evidence": "",
+      "note": ""
+    }
+  ],
+  "scoreboard": {
+    "passed": 0,
+    "total": 0,
+    "beatsBaseline": 0,
+    "geomeanSpeedup": null,
+    "artifact": ""
+  },
+  "milestonesSinceHygiene": 0,
+  "lastCheckpoint": null,
+  "checkpoints": []
+}

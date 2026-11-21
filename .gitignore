@@ -1,0 +1,25 @@
+# Build outputs
+build/
+build-*/
+dist/
+*.egg-info/
+*.so
+*.dylib
+*.a
+*.o
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Metal caches & scratch
+.m1triton_cache/
+*.metallib
+.DS_Store
+*.swp
+*.tmp
+.audit/verify-*/

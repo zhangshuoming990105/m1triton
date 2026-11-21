@@ -1,0 +1,58 @@
+{
+  "maxJudgmentOnlyRules": 3,
+  "boundaries": [
+    {
+      "id": "ARCH-IR-PURE",
+      "from": "cpp/ir/",
+      "forbidImportsFrom": [
+        "cpp/runtime",
+        "cpp/codegen",
+        "cpp/bindings",
+        "runtime",
+        "codegen",
+        "bindings",
+        "Metal",
+        "Foundation",
+        "pybind11"
+      ],
+      "fix": "Keep cpp/ir/ pure C++20 with zero runtime, codegen, bindings, or Metal headers. Pass hardware constants via TargetSpec."
+    },
+    {
+      "id": "ARCH-PASSES-NO-RUNTIME",
+      "from": "cpp/passes/",
+      "forbidImportsFrom": [
+        "cpp/runtime",
+        "cpp/bindings",
+        "runtime",
+        "bindings",
+        "Metal",
+        "Foundation",
+        "pybind11"
+      ],
+      "fix": "Keep cpp/passes/ pure C++20 IR-to-IR transforms. Inject Apple M1 Max hardware specs through TargetSpec."
+    }
+  ],
+  "bannedPatterns": [
+    {
+      "id": "ARCH-FRONTEND-NO-TORCH-CHEAT",
+      "includePrefixes": [
+        "benchmarks/kernels/"
+      ],
+      "pattern": "\\b(?:torch\\.nn\\.functional|torch\\.matmul|torch\\.mm|torch\\.bmm|torch\\.mv|torch\\.addmm|torch\\.einsum|torch\\.tensordot|torch\\.conv|torch\\.softmax|torch\\.log_softmax|torch\\.layer_norm|torch\\.batch_norm|torch\\.group_norm|torch\\.instance_norm|torch\\.cumsum|torch\\.cumprod|torch\\.triu|torch\\.tril|torch\\.diag|torch\\.linalg|torch\\.cdist|torch\\.relu|torch\\.sigmoid|torch\\.tanh|torch\\.nn\\.Conv|torch\\.nn\\.Linear|torch\\.nn\\.BatchNorm|torch\\.nn\\.LayerNorm|torch\\.nn\\.GroupNorm|torch\\.nn\\.InstanceNorm|torch\\.nn\\.MaxPool|torch\\.nn\\.AvgPool|F\\.(?:linear|conv|conv_transpose|matmul|softmax|log_softmax|layer_norm|batch_norm|group_norm|instance_norm|relu|gelu|silu|sigmoid|tanh|elu|selu|softplus|hardsigmoid|hardswish|max_pool|avg_pool|mse_loss|cross_entropy|huber_loss|kl_div|triplet_margin_loss|hinge_embedding_loss|scaled_dot_product_attention|normalize))\\b",
+      "fix": "Implement the operator as a compiled M1Triton @triton.jit / @m1.jit kernel instead of delegating compute to PyTorch/MPSGraph."
+    }
+  ],
+  "commentHygiene": {
+    "enabled": true,
+    "excludePrefixes": [
+      "tests/",
+      "tools/",
+      ".agents/",
+      "benchmarks/kernelbench_l1/"
+    ]
+  },
+  "frozenFiles": {
+    "evals/eval_kernelbench.py": "a067d3ace8a191bdf96ead152aa6466cc61365ad209216365deca6a258898abe",
+    "evals/roofline_probe.py": "bb190cbb1eb55056f10b96a946178f0cae8fc93212201912c1496142b5737728"
+  }
+}

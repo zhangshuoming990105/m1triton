@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guardrails-and-tests:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check Guardrails and Frozen Evals
+        run: node tools/check-guardrails.mjs
+
+      - name: Install Build and Test Dependencies
+        run: |
+          brew install ninja
+          python3 -m pip install --upgrade pip pytest pybind11 numpy
+
+      - name: Run Local CI Parity Script
+        run: bash scripts/ci_local.sh
