@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "goalFile": "GOAL.md",
   "createdAt": "2026-11-21T08:52:55.075Z",
-  "updatedAt": "2026-11-21T11:57:53.748Z",
+  "updatedAt": "2026-11-21T13:14:12.536Z",
   "milestones": [
     {
       "id": "M0",
@@ -31,24 +31,26 @@
     {
       "id": "M3",
       "title": "Vectorized elementwise, online softmax & norm (#19-#40, #88, 23 tasks)",
-      "status": "in_progress",
-      "evidence": "",
+      "status": "verified",
+      "evidence": "ci_local.sh green (10/10 CTest -UNDEBUG, 52/52 pytest), 23/23 M3 tasks (#19-#40,#88) passed 3-seed GPU verify + frozen eval spot (#40 2.15x, #88 7.67x), slop-critic pro audit fixes landed, artifacts .audit/preflight_m3_m4.json + .audit/eval_m3_m4_frozen_spot.json, commit 71f40a0",
       "note": "",
-      "updatedAt": "2026-11-21T11:57:53.747Z"
+      "updatedAt": "2026-11-21T13:14:12.365Z"
     },
     {
       "id": "M4",
       "title": "Pooling, reductions & hardware prefix scans (#41-#49, #51-#53, #89-#93, 17 tasks)",
-      "status": "todo",
-      "evidence": "",
-      "note": ""
+      "status": "verified",
+      "evidence": "ci_local.sh green (10/10 CTest -UNDEBUG, 52/52 pytest), 17/17 M4 tasks (#41-#49,#51-#53,#89-#93) passed 3-seed GPU verify (#41 7.51x, #46 5.01x native Metal vs CPU, #44 4.15x, #92 3.34x, #91 2.88x, #53 2.57x, #49 2.55x), M3+M4 combined 40/40 passed (27 beats baseline, geomean 1.637x), commit 71f40a0",
+      "note": "",
+      "updatedAt": "2026-11-21T13:14:12.409Z"
     },
     {
       "id": "M5",
       "title": "Convolution compiler lowering & microkernels (#50, #54-#87, 35 tasks)",
-      "status": "todo",
+      "status": "in_progress",
       "evidence": "",
-      "note": ""
+      "note": "",
+      "updatedAt": "2026-11-21T13:14:12.535Z"
     },
     {
       "id": "M6",
@@ -73,20 +75,20 @@
     }
   ],
   "scoreboard": {
-    "passed": 18,
+    "passed": 58,
     "total": 100,
-    "beatsBaseline": 8,
-    "geomeanSpeedup": 1.2084,
-    "artifact": ".audit/eval_m2_batch1.json",
-    "updatedAt": "2026-11-21T11:57:33.637Z"
+    "beatsBaseline": 35,
+    "geomeanSpeedup": 1.4898,
+    "artifact": ".audit/preflight_m3_m4.json",
+    "updatedAt": "2026-11-21T13:14:12.451Z"
   },
   "milestonesSinceHygiene": 0,
   "lastCheckpoint": {
-    "ts": "2026-11-21T11:57:53.706Z",
-    "commit": "4f70f51",
-    "summary": "M2 verified & merged: 18/18 KB L1 (#1-#18) passing on torch 2.15.0 MPS with 1.2084x geomean speedup",
-    "next": "Launch M3 (#19-#40, #88) & M4 (#41-#49, #51-#53, #89-#93) heterogeneous multi-agent swarm, then M2+M3 hygiene checkpoint",
-    "hygieneClean": false
+    "ts": "2026-11-21T13:14:12.495Z",
+    "commit": "71f40a0",
+    "summary": "M3+M4 verified & merged + M2-M4 hygiene-clean checkpoint: 58/100 KB L1 passing (35 beats baseline, ~1.49x geomean), all slop-critic pro findings resolved, docs synced",
+    "next": "Launch M5 (35 conv tasks) & M6 (6 losses + FlashAttention-M1 #97) shared IR contract + heterogeneous multi-agent swarm -> 100/100",
+    "hygieneClean": true
   },
   "checkpoints": [
     {
@@ -109,6 +111,13 @@
       "summary": "M2 verified & merged: 18/18 KB L1 (#1-#18) passing on torch 2.15.0 MPS with 1.2084x geomean speedup",
       "next": "Launch M3 (#19-#40, #88) & M4 (#41-#49, #51-#53, #89-#93) heterogeneous multi-agent swarm, then M2+M3 hygiene checkpoint",
       "hygieneClean": false
+    },
+    {
+      "ts": "2026-11-21T13:14:12.495Z",
+      "commit": "71f40a0",
+      "summary": "M3+M4 verified & merged + M2-M4 hygiene-clean checkpoint: 58/100 KB L1 passing (35 beats baseline, ~1.49x geomean), all slop-critic pro findings resolved, docs synced",
+      "next": "Launch M5 (35 conv tasks) & M6 (6 losses + FlashAttention-M1 #97) shared IR contract + heterogeneous multi-agent swarm -> 100/100",
+      "hygieneClean": true
     }
   ]
 }
