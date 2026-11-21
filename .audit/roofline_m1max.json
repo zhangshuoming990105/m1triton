@@ -1,0 +1,38 @@
+{
+  "device_name": "Apple M1 Max",
+  "max_threads_per_threadgroup": 1024,
+  "max_threadgroup_memory_bytes": 32768,
+  "recommended_max_working_set_gb": 24.96,
+  "has_unified_memory": true,
+  "trials": 21,
+  "stream_copy": {
+    "bytes": 536870912,
+    "median_ms": 1.4361,
+    "iqr_ms": 0.0114,
+    "bandwidth_gbs": 373.83
+  },
+  "stream_triad": {
+    "bytes": 805306368,
+    "median_ms": 2.1832,
+    "iqr_ms": 0.048,
+    "bandwidth_gbs": 368.86,
+    "verified": true
+  },
+  "sgmm_fp32": {
+    "flops": 274877906944,
+    "median_ms": 27.0265,
+    "iqr_ms": 0.8243,
+    "tflops": 10.171,
+    "sample_out": 121.18
+  },
+  "sgmm_fp16": {
+    "flops": 549755813888,
+    "median_ms": 57.0615,
+    "iqr_ms": 4.8153,
+    "tflops": 9.634,
+    "sample_out": 24.0
+  },
+  "host_platform": "macOS-26.6-arm64-arm-64bit",
+  "host_machine": "arm64",
+  "loadavg_1m": 6.44
+}

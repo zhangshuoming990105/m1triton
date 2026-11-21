@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "m1triton"
+version = "0.1.0"
+description = "Apple M1 Max specialized Triton-compatible and co-designed Metal compiler"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+pythonpath = ["python", "build"]
