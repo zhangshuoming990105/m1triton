@@ -14,16 +14,16 @@ _FAST_TILE = BLOCK_SIZE * _FAST_UNROLL
 _INT32_FAST_LIMIT = 2_000_000_000
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def relu_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)
     mask = offs < n
     x = tl.load(x_ptr + offs, mask=mask, other=0.0)
-    tl.store(o_ptr + offs, tl.maximum(x, 0.0), mask=mask)
+    tl.store(o_ptr + offs, tl.where(x < 0.0, 0.0, x), mask=mask)
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def relu_fast4_kernel(x_ptr, o_ptr, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     base = tl.program_id(0) * (BLOCK * 4) + tl.arange(0, BLOCK)
@@ -31,13 +31,13 @@ def relu_fast4_kernel(x_ptr, o_ptr, BLOCK: tl.constexpr):
     x1 = tl.load(x_ptr + (base + BLOCK))
     x2 = tl.load(x_ptr + (base + BLOCK * 2))
     x3 = tl.load(x_ptr + (base + BLOCK * 3))
-    tl.store(o_ptr + base, tl.maximum(x0, 0.0))
-    tl.store(o_ptr + (base + BLOCK), tl.maximum(x1, 0.0))
-    tl.store(o_ptr + (base + BLOCK * 2), tl.maximum(x2, 0.0))
-    tl.store(o_ptr + (base + BLOCK * 3), tl.maximum(x3, 0.0))
+    tl.store(o_ptr + base, tl.where(x0 < 0.0, 0.0, x0))
+    tl.store(o_ptr + (base + BLOCK), tl.where(x1 < 0.0, 0.0, x1))
+    tl.store(o_ptr + (base + BLOCK * 2), tl.where(x2 < 0.0, 0.0, x2))
+    tl.store(o_ptr + (base + BLOCK * 3), tl.where(x3 < 0.0, 0.0, x3))
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def leaky_relu_kernel(x_ptr, o_ptr, n, SLOPE: tl.constexpr, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)
@@ -46,7 +46,7 @@ def leaky_relu_kernel(x_ptr, o_ptr, n, SLOPE: tl.constexpr, BLOCK: tl.constexpr)
     tl.store(o_ptr + offs, tl.where(x > 0.0, x, x * SLOPE), mask=mask)
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def leaky_relu_fast4_kernel(x_ptr, o_ptr, SLOPE: tl.constexpr, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     base = tl.program_id(0) * (BLOCK * 4) + tl.arange(0, BLOCK)
@@ -96,18 +96,18 @@ def gelu_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     tl.store(o_ptr + offs, 0.5 * x * (1.0 + tl.erf(x * 0.7071067811865476)), mask=mask)
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def selu_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)
     mask = offs < n
     x = tl.load(x_ptr + offs, mask=mask, other=0.0)
     pos = 1.0507009873554804934193349852946 * x
-    neg = 1.7580993408473768599402175208123 * (tl.exp(tl.minimum(x, 0.0)) - 1.0)
+    neg = 1.7580993408473768599402175208123 * (tl.exp(tl.where(x > 0.0, 0.0, x)) - 1.0)
     tl.store(o_ptr + offs, tl.where(x > 0.0, pos, neg), mask=mask)
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def selu_fast4_kernel(x_ptr, o_ptr, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     base = tl.program_id(0) * (BLOCK * 4) + tl.arange(0, BLOCK)
@@ -118,22 +118,22 @@ def selu_fast4_kernel(x_ptr, o_ptr, BLOCK: tl.constexpr):
     y0 = tl.where(
         x0 > 0.0,
         1.0507009873554804934193349852946 * x0,
-        1.7580993408473768599402175208123 * (tl.exp(tl.minimum(x0, 0.0)) - 1.0),
+        1.7580993408473768599402175208123 * (tl.exp(tl.where(x0 > 0.0, 0.0, x0)) - 1.0),
     )
     y1 = tl.where(
         x1 > 0.0,
         1.0507009873554804934193349852946 * x1,
-        1.7580993408473768599402175208123 * (tl.exp(tl.minimum(x1, 0.0)) - 1.0),
+        1.7580993408473768599402175208123 * (tl.exp(tl.where(x1 > 0.0, 0.0, x1)) - 1.0),
     )
     y2 = tl.where(
         x2 > 0.0,
         1.0507009873554804934193349852946 * x2,
-        1.7580993408473768599402175208123 * (tl.exp(tl.minimum(x2, 0.0)) - 1.0),
+        1.7580993408473768599402175208123 * (tl.exp(tl.where(x2 > 0.0, 0.0, x2)) - 1.0),
     )
     y3 = tl.where(
         x3 > 0.0,
         1.0507009873554804934193349852946 * x3,
-        1.7580993408473768599402175208123 * (tl.exp(tl.minimum(x3, 0.0)) - 1.0),
+        1.7580993408473768599402175208123 * (tl.exp(tl.where(x3 > 0.0, 0.0, x3)) - 1.0),
     )
     tl.store(o_ptr + base, y0)
     tl.store(o_ptr + (base + BLOCK), y1)
@@ -147,7 +147,7 @@ def hardsigmoid_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n
     x = tl.load(x_ptr + offs, mask=mask, other=0.0)
-    y = tl.minimum(tl.maximum(x + 3.0, 0.0), 6.0) / 6.0
+    y = tl.where(x <= -3.0, 0.0, tl.where(x >= 3.0, 1.0, (x + 3.0) * (1.0 / 6.0)))
     tl.store(o_ptr + offs, y, mask=mask)
 
 
@@ -169,16 +169,16 @@ def softsign_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     tl.store(o_ptr + offs, x / (1.0 + tl.abs(x)), mask=mask)
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def elu_kernel(x_ptr, o_ptr, n, ALPHA: tl.constexpr, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)
     mask = offs < n
     x = tl.load(x_ptr + offs, mask=mask, other=0.0)
-    tl.store(o_ptr + offs, tl.where(x > 0.0, x, ALPHA * (tl.exp(tl.minimum(x, 0.0)) - 1.0)), mask=mask)
+    tl.store(o_ptr + offs, tl.where(x > 0.0, x, ALPHA * (tl.exp(tl.where(x > 0.0, 0.0, x)) - 1.0)), mask=mask)
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def elu_fast4_kernel(x_ptr, o_ptr, ALPHA: tl.constexpr, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     base = tl.program_id(0) * (BLOCK * 4) + tl.arange(0, BLOCK)
@@ -186,22 +186,22 @@ def elu_fast4_kernel(x_ptr, o_ptr, ALPHA: tl.constexpr, BLOCK: tl.constexpr):
     x1 = tl.load(x_ptr + (base + BLOCK))
     x2 = tl.load(x_ptr + (base + BLOCK * 2))
     x3 = tl.load(x_ptr + (base + BLOCK * 3))
-    tl.store(o_ptr + base, tl.where(x0 > 0.0, x0, ALPHA * (tl.exp(tl.minimum(x0, 0.0)) - 1.0)))
-    tl.store(o_ptr + (base + BLOCK), tl.where(x1 > 0.0, x1, ALPHA * (tl.exp(tl.minimum(x1, 0.0)) - 1.0)))
-    tl.store(o_ptr + (base + BLOCK * 2), tl.where(x2 > 0.0, x2, ALPHA * (tl.exp(tl.minimum(x2, 0.0)) - 1.0)))
-    tl.store(o_ptr + (base + BLOCK * 3), tl.where(x3 > 0.0, x3, ALPHA * (tl.exp(tl.minimum(x3, 0.0)) - 1.0)))
+    tl.store(o_ptr + base, tl.where(x0 > 0.0, x0, ALPHA * (tl.exp(tl.where(x0 > 0.0, 0.0, x0)) - 1.0)))
+    tl.store(o_ptr + (base + BLOCK), tl.where(x1 > 0.0, x1, ALPHA * (tl.exp(tl.where(x1 > 0.0, 0.0, x1)) - 1.0)))
+    tl.store(o_ptr + (base + BLOCK * 2), tl.where(x2 > 0.0, x2, ALPHA * (tl.exp(tl.where(x2 > 0.0, 0.0, x2)) - 1.0)))
+    tl.store(o_ptr + (base + BLOCK * 3), tl.where(x3 > 0.0, x3, ALPHA * (tl.exp(tl.where(x3 > 0.0, 0.0, x3)) - 1.0)))
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def hardtanh_kernel(x_ptr, o_ptr, n, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)
     mask = offs < n
     x = tl.load(x_ptr + offs, mask=mask, other=0.0)
-    tl.store(o_ptr + offs, tl.minimum(tl.maximum(x, -1.0), 1.0), mask=mask)
+    tl.store(o_ptr + offs, tl.where(x < -1.0, -1.0, tl.where(x > 1.0, 1.0, x)), mask=mask)
 
 
-@m1triton.jit(fast_math=True)
+@m1triton.jit
 def hardtanh_fast4_kernel(x_ptr, o_ptr, BLOCK: tl.constexpr):
     tlx.vec_width(4)
     base = tl.program_id(0) * (BLOCK * 4) + tl.arange(0, BLOCK)
@@ -209,10 +209,10 @@ def hardtanh_fast4_kernel(x_ptr, o_ptr, BLOCK: tl.constexpr):
     x1 = tl.load(x_ptr + (base + BLOCK))
     x2 = tl.load(x_ptr + (base + BLOCK * 2))
     x3 = tl.load(x_ptr + (base + BLOCK * 3))
-    tl.store(o_ptr + base, tl.minimum(tl.maximum(x0, -1.0), 1.0))
-    tl.store(o_ptr + (base + BLOCK), tl.minimum(tl.maximum(x1, -1.0), 1.0))
-    tl.store(o_ptr + (base + BLOCK * 2), tl.minimum(tl.maximum(x2, -1.0), 1.0))
-    tl.store(o_ptr + (base + BLOCK * 3), tl.minimum(tl.maximum(x3, -1.0), 1.0))
+    tl.store(o_ptr + base, tl.where(x0 < -1.0, -1.0, tl.where(x0 > 1.0, 1.0, x0)))
+    tl.store(o_ptr + (base + BLOCK), tl.where(x1 < -1.0, -1.0, tl.where(x1 > 1.0, 1.0, x1)))
+    tl.store(o_ptr + (base + BLOCK * 2), tl.where(x2 < -1.0, -1.0, tl.where(x2 > 1.0, 1.0, x2)))
+    tl.store(o_ptr + (base + BLOCK * 3), tl.where(x3 < -1.0, -1.0, tl.where(x3 > 1.0, 1.0, x3)))
 
 
 @m1triton.jit

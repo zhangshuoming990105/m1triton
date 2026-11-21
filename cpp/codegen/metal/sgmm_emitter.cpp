@@ -747,7 +747,8 @@ class TileAffineAnalyzer {
 
     switch (op.kind) {
       case OpKind::Cast: {
-        if (!op.operands.empty() && !is_float_dtype(scalar_dtype_of(val.type))) {
+        if (!op.operands.empty() && !is_float_dtype(scalar_dtype_of(val.type)) &&
+            !is_float_dtype(scalar_dtype_of(kernel_.value(op.operands[0]).type))) {
           out = analyze_2d_ptr(op.operands[0]);
         }
         break;

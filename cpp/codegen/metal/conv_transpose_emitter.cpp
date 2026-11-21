@@ -91,7 +91,6 @@ struct ConvTransposePlan {
   int32_t fuse_shift_min_w = 0;
   uint32_t fuse_epi_rows = 8;
   std::vector<ActiveWPhase> active_w;
-  std::vector<int32_t> aw_to_idx;
 };
 
 std::optional<int64_t> literal_value(const std::string& expr) {
@@ -180,7 +179,6 @@ bool configure_fuse_sw(ConvTransposePlan& plan, const ir::TargetSpec& target, st
     err = "conv-transpose FUSE_SW=1 requires HALO=1, f32 output, and stride_w > 1";
     return false;
   }
-  plan.aw_to_idx.assign(static_cast<size_t>(wdim.s), -1);
   bool have_shift = false;
   int32_t shift_min = 0;
   int32_t shift_max = 0;
@@ -203,7 +201,6 @@ bool configure_fuse_sw(ConvTransposePlan& plan, const ir::TargetSpec& target, st
       }
     }
     if (!ph.taps.empty()) {
-      plan.aw_to_idx[static_cast<size_t>(aw)] = static_cast<int32_t>(plan.active_w.size());
       plan.active_w.push_back(std::move(ph));
     }
   }

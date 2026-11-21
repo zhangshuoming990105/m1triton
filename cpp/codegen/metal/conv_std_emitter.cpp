@@ -256,7 +256,7 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
     plan.bk = static_cast<uint32_t>(positive_constexpr_param(kernel, "BLOCK_K").value_or(16));
     plan.wino_th = static_cast<uint32_t>(positive_constexpr_param(kernel, "TILE_TH").value_or(2));
     plan.wino_tw = static_cast<uint32_t>(positive_constexpr_param(kernel, "TILE_TW").value_or(16));
-    plan.num_sgs = static_cast<uint32_t>(positive_constexpr_param(kernel, "NUM_SG").value_or(16));
+    plan.num_sgs = static_cast<uint32_t>(positive_constexpr_param(kernel, "NUM_SG").value_or(8));
     plan.num_threads = plan.num_sgs * 32u;
     if (plan.bm == 0 || plan.bn == 0 || plan.bk == 0 || (plan.bm % 8u) != 0 || (plan.bn % 8u) != 0 ||
         (plan.bk % 8u) != 0 || plan.wino_th * plan.wino_tw != plan.bn || (n_alpha % plan.num_sgs) != 0) {

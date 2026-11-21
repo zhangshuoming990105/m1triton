@@ -385,8 +385,6 @@ def conv_transpose_nd(
     output_padding: int | Sequence[int] = 0,
     dilation: int | Sequence[int] = 1,
     groups: int = 1,
-    packed_weight: torch.Tensor | None = None,
-    cached_wino_u: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Dispatches one M1Triton Metal implicit-GEMM transposed-convolution kernel on (N, C_in, *spatial)."""
     if x.dim() != ndim + 2 or weight.dim() != ndim + 2:
@@ -424,7 +422,7 @@ def conv_transpose_nd(
 
         return conv2d_winograd_3x3(
             x_c, weight, bias, padding=(2 - p[0], 2 - p[1]), transposed=True,
-            cached_u=cached_wino_u, use_staged_4x3=False,
+            use_staged_4x3=False,
         )
     out = torch.empty((n, c_out, *spatial_out), dtype=x_c.dtype, device=x_c.device)
     if out.numel() == 0:
@@ -442,7 +440,7 @@ def conv_transpose_nd(
     grid = (grid_x, m1triton.cdiv(c_out // groups, bm), n * groups * phases)
 
     if w_blk8:
-        w_arg = packed_weight if packed_weight is not None else pack_weight_blk8(weight, groups)
+        w_arg = pack_weight_blk8(weight, groups)
     else:
         w_arg = weight.contiguous()
     b_arg = bias.contiguous() if bias is not None else w_arg

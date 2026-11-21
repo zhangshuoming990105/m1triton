@@ -470,7 +470,6 @@ def conv2d_winograd_4x3_staged(
     transposed: bool = False,
     slc_budget_bytes: int = 192 * 1024 * 1024,
     bmm_tile: tuple[int, int, int, int] | None = None,
-    cached_u: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """3-stage chunked Winograd F(4x4, 3x3) with coalesced input, 36-batch SGMM, and float4 output."""
     x_c = x.contiguous()
@@ -484,17 +483,12 @@ def conv2d_winograd_4x3_staged(
     if out.numel() == 0:
         return out
 
-    if cached_u is not None:
-        u = cached_u
-        sync_first = True
-    else:
-        u = torch.empty((36, c_out, c_in), dtype=torch.float32, device=x_c.device)
-        f_grid = (m1triton.cdiv(c_out * c_in, 256),)
-        winograd_filter_4x3_rm_kernel[f_grid](
-            w_c, u, C_in=c_in, C_out=c_out, TRANSPOSED=1 if transposed else 0, BLOCK_SIZE=256,
-            sync_mps=True, wait=False,
-        )
-        sync_first = False
+    u = torch.empty((36, c_out, c_in), dtype=torch.float32, device=x_c.device)
+    f_grid = (m1triton.cdiv(c_out * c_in, 256),)
+    winograd_filter_4x3_rm_kernel[f_grid](
+        w_c, u, C_in=c_in, C_out=c_out, TRANSPOSED=1 if transposed else 0, BLOCK_SIZE=256,
+        sync_mps=True, wait=False,
+    )
 
     bm, bn, bk, nsg = bmm_tile if bmm_tile is not None else select_wino4x3_bmm_tile(c_in, c_out)
 
@@ -519,12 +513,11 @@ def conv2d_winograd_4x3_staged(
         rc = min(max_rows, total_rows - r0)
         p_cur = _pad_pld(rc * tw)
         is_last = (r0 + rc >= total_rows)
-        in_sync = sync_first and (r0 == 0)
 
         wino4x3_input_kernel[(in_gx, rc, c_in)](
             x_c, u, v_buf, r0, rc, p_cur,
             N=n, C_in=c_in, C_out=c_out, H_in=h_in, W_in=w_in, H_out=h_out, W_out=w_out,
-            P_H=ph, P_W=pw, WINOGRAD=10, sync_mps=in_sync, wait=False,
+            P_H=ph, P_W=pw, WINOGRAD=10, sync_mps=False, wait=False,
         )
         wino4x3_bmm_kernel[(m1triton.cdiv(p_cur, bn), m1triton.cdiv(c_out, bm), 36)](
             v_buf, u, m_buf, p_cur,
@@ -585,12 +578,20 @@ def conv2d_wino2x3_bias_kernel(
     )
 
 
-def select_winograd_tile(c_in: int, c_out: int) -> tuple[int, int, int, int, int, int, int, int]:
-    """(MODE, BLOCK_M, BLOCK_N, BLOCK_K, TILE_TH, TILE_TW, NUM_SG, WINO_PAD) for fused Winograd F(2x2, 3x3)."""
+def select_winograd_tile(
+    c_in: int, c_out: int, w_in: int = 0
+) -> tuple[int, int, int, int, int, int, int, int]:
+    """(MODE, BLOCK_M, BLOCK_N, BLOCK_K, TILE_TH, TILE_TW, NUM_SG, WINO_PAD) for fused Winograd F(2x2, 3x3).
+
+    NUM_SG=16 (512 threads) requires power-of-2 W_in so Metal folds address arithmetic into shifts
+    and stays within Apple M1 Max's 512-thread PSO register budget; non-power-of-2 widths use NUM_SG=8.
+    """
     bk = 16 if (c_in >= 16 and c_in % 16 == 0) else 8
     if c_in <= 16 and c_out >= 64:
         return 1, 32, 16, bk, 1, 16, 8, 1
-    return 1, 32, 32, bk, 2, 16, 16, 1
+    pow2_w = w_in > 0 and (w_in & (w_in - 1)) == 0
+    nsg = 16 if pow2_w else 8
+    return 1, 32, 32, bk, 2, 16, nsg, 1
 
 
 def conv2d_winograd_3x3(
@@ -601,10 +602,13 @@ def conv2d_winograd_3x3(
     padding: tuple[int, int] = (0, 0),
     transposed: bool = False,
     wino_tile: tuple[int, int, int, int, int, int, int, int] | None = None,
-    cached_u: torch.Tensor | None = None,
     use_staged_4x3: bool | None = None,
 ) -> torch.Tensor:
-    """Dispatches Winograd F(2x2/4x4, 3x3) Metal kernels for 2D 3x3 s=1 d=1 g=1 conv and conv_transpose."""
+    """Dispatches Winograd F(2x2/4x4, 3x3) Metal kernels for 2D 3x3 s=1 d=1 g=1 conv and conv_transpose.
+
+    F(4x4, 3x3) auto-selection is capped at c_in <= 128 to bound Cook-Toom FP32 conditioning error;
+    callers requiring strict 1e-4 accuracy on unscaled unit-variance weights can pass use_staged_4x3=False.
+    """
     x_c = x.contiguous()
     w_c = weight.detach().contiguous()
     n, c_in, h_in, w_in = (int(v) for v in x_c.shape)
@@ -613,37 +617,34 @@ def conv2d_winograd_3x3(
     h_out = conv_output_size(h_in, 3, 1, ph, 1)
     w_out = conv_output_size(w_in, 3, 1, pw, 1)
     if use_staged_4x3 is None:
-        use_staged_4x3 = wino_tile is None and c_in >= 64 and c_out >= 128 and h_out * w_out >= 65536
+        use_staged_4x3 = wino_tile is None and 64 <= c_in <= 128 and c_out >= 128 and h_out * w_out >= 65536
     if use_staged_4x3:
         return conv2d_winograd_4x3_staged(
-            x_c, w_c, bias, padding=(ph, pw), transposed=transposed, cached_u=cached_u,
+            x_c, w_c, bias, padding=(ph, pw), transposed=transposed,
         )
     out = torch.empty((n, c_out, h_out, w_out), dtype=x_c.dtype, device=x_c.device)
     if out.numel() == 0:
         return out
 
-    mode, bm, bn, bk, tth, ttw, nsg, wpad = wino_tile if wino_tile is not None else select_winograd_tile(c_in, c_out)
+    mode, bm, bn, bk, tth, ttw, nsg, wpad = (
+        wino_tile if wino_tile is not None else select_winograd_tile(c_in, c_out, w_in)
+    )
     c_in_pad = m1triton.cdiv(c_in, bk) * bk
     c_out_pad = m1triton.cdiv(c_out, bm) * bm
-    if cached_u is not None:
-        u = cached_u
-        sync_first = True
-    else:
-        u = torch.empty((16, c_in_pad // 8, c_out_pad // 8, 8, 8), dtype=torch.float32, device=x_c.device)
-        f_grid = (m1triton.cdiv(c_out_pad * c_in_pad, 256),)
-        winograd_filter_2x3_kernel[f_grid](
-            w_c,
-            u,
-            C_in=c_in,
-            C_out=c_out,
-            C_IN_PAD=c_in_pad,
-            C_OUT_PAD=c_out_pad,
-            TRANSPOSED=1 if transposed else 0,
-            BLOCK_SIZE=256,
-            sync_mps=True,
-            wait=False,
-        )
-        sync_first = False
+    u = torch.empty((16, c_in_pad // 8, c_out_pad // 8, 8, 8), dtype=torch.float32, device=x_c.device)
+    f_grid = (m1triton.cdiv(c_out_pad * c_in_pad, 256),)
+    winograd_filter_2x3_kernel[f_grid](
+        w_c,
+        u,
+        C_in=c_in,
+        C_out=c_out,
+        C_IN_PAD=c_in_pad,
+        C_OUT_PAD=c_out_pad,
+        TRANSPOSED=1 if transposed else 0,
+        BLOCK_SIZE=256,
+        sync_mps=True,
+        wait=False,
+    )
 
     th = m1triton.cdiv(h_out, 2)
     tw = m1triton.cdiv(w_out, 2)
@@ -653,41 +654,16 @@ def conv2d_winograd_3x3(
             x_c, u, out, bias.detach().contiguous(),
             N=n, C_in=c_in, C_out=c_out, H_in=h_in, W_in=w_in, H_out=h_out, W_out=w_out,
             P_H=ph, P_W=pw, BLOCK_M=bm, BLOCK_N=bn, BLOCK_K=bk, TILE_TH=tth, TILE_TW=ttw,
-            NUM_SG=nsg, WINOGRAD=mode, WINO_PAD=wpad, sync_mps=sync_first, wait=True,
+            NUM_SG=nsg, WINOGRAD=mode, WINO_PAD=wpad, sync_mps=False, wait=True,
         )
     else:
         conv2d_wino2x3_kernel[grid](
             x_c, u, out,
             N=n, C_in=c_in, C_out=c_out, H_in=h_in, W_in=w_in, H_out=h_out, W_out=w_out,
             P_H=ph, P_W=pw, BLOCK_M=bm, BLOCK_N=bn, BLOCK_K=bk, TILE_TH=tth, TILE_TW=ttw,
-            NUM_SG=nsg, WINOGRAD=mode, WINO_PAD=wpad, sync_mps=sync_first, wait=True,
+            NUM_SG=nsg, WINOGRAD=mode, WINO_PAD=wpad, sync_mps=False, wait=True,
         )
     return out
-
-
-def prepare_winograd_filter(
-    weight: torch.Tensor, *, transposed: bool, staged_4x3: bool
-) -> torch.Tensor:
-    """Pre-transforms 3x3 weight into Winograd filter domain via M1Triton kernel."""
-    w_c = weight.detach().contiguous()
-    c_in = int(w_c.shape[0]) if transposed else int(w_c.shape[1])
-    c_out = int(w_c.shape[1]) if transposed else int(w_c.shape[0])
-    if staged_4x3:
-        u = torch.empty((36, c_out, c_in), dtype=torch.float32, device=w_c.device)
-        winograd_filter_4x3_rm_kernel[(m1triton.cdiv(c_out * c_in, 256),)](
-            w_c, u, C_in=c_in, C_out=c_out, TRANSPOSED=1 if transposed else 0, BLOCK_SIZE=256,
-            sync_mps=True, wait=True,
-        )
-        return u
-    _, bm, _, bk, _, _, _, _ = select_winograd_tile(c_in, c_out)
-    c_in_pad = m1triton.cdiv(c_in, bk) * bk
-    c_out_pad = m1triton.cdiv(c_out, bm) * bm
-    u = torch.empty((16, c_in_pad // 8, c_out_pad // 8, 8, 8), dtype=torch.float32, device=w_c.device)
-    winograd_filter_2x3_kernel[(m1triton.cdiv(c_out_pad * c_in_pad, 256),)](
-        w_c, u, C_in=c_in, C_out=c_out, C_IN_PAD=c_in_pad, C_OUT_PAD=c_out_pad,
-        TRANSPOSED=1 if transposed else 0, BLOCK_SIZE=256, sync_mps=True, wait=True,
-    )
-    return u
 
 
 _KERNELS = {
@@ -765,7 +741,6 @@ def conv_nd(
     dilation: int | Sequence[int] = 1,
     groups: int = 1,
     tile: tuple[int, int, int, int] | None = None,
-    cached_wino_u: torch.Tensor | None = None,
     use_staged_4x3: bool | None = None,
 ) -> torch.Tensor:
     """Dispatches a single M1Triton implicit-GEMM Metal convolution over an (N, C, *spatial) tensor."""
@@ -799,7 +774,7 @@ def conv_nd(
     ):
         return conv2d_winograd_3x3(
             x_c, w_c, bias, padding=(p[0], p[1]), transposed=False,
-            cached_u=cached_wino_u, use_staged_4x3=use_staged_4x3,
+            use_staged_4x3=use_staged_4x3,
         )
     out = torch.empty((n, c_out, *spatial_out), dtype=x_c.dtype, device=x_c.device)
     if out.numel() == 0:

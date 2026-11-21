@@ -82,15 +82,20 @@ def row_scan(
     out = torch.empty_like(xc)
 
     n = int(xc.shape[-1])
+    needs_post_mps = d != x.dim() - 1 or compute_dtype != torch.float32
     if xc.numel() > 0:
         rows = xc.numel() // n
         flags = {"OP": op, "EXCLUSIVE": bool(exclusive), "REVERSE": bool(reverse)}
         if mask is None:
-            row_scan_kernel[(m1triton.cdiv(rows, ROWS_PER_THREADGROUP), 1, 1)](xc, out, rows, n, **flags)
+            row_scan_kernel[(m1triton.cdiv(rows, ROWS_PER_THREADGROUP), 1, 1)](
+                xc, out, rows, n, wait=needs_post_mps, **flags
+            )
         else:
             mc = mask if mask.dtype == torch.bool else mask.to(torch.bool)
             mc = _rows_last(mc.expand_as(x), d, 4)
-            masked_row_scan_kernel[(m1triton.cdiv(rows, ROWS_PER_THREADGROUP), 1, 1)](xc, out, mc, rows, n, **flags)
+            masked_row_scan_kernel[(m1triton.cdiv(rows, ROWS_PER_THREADGROUP), 1, 1)](
+                xc, out, mc, rows, n, wait=needs_post_mps, **flags
+            )
 
     if d != x.dim() - 1:
         out = out.movedim(-1, d).contiguous()

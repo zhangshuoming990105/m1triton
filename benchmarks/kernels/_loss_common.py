@@ -97,7 +97,7 @@ def loss_stage2_kernel(
 
 
 def _finalize_scalar(partial: torch.Tensor, out: torch.Tensor, num_partials: int, denom: float, kind: str) -> torch.Tensor:
-    loss_stage2_kernel[(1, 1, 1)](partial, out, int(num_partials), float(denom), KIND=kind, sync_mps=False)
+    loss_stage2_kernel[(1, 1, 1)](partial, out, int(num_partials), float(denom), KIND=kind, sync_mps=False, wait=True)
     return out.reshape(())
 
 

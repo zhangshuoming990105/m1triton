@@ -53,7 +53,8 @@ class ModelNew(nn.Module):
         n = int(xc.shape[-1])
         rows = xc.numel() // n
         out = torch.empty_like(xc)
-        _cumsum_coop_row_kernel[(rows, 1, 1)](xc, out, rows, n)
+        needs_post_mps = d != x.dim() - 1 or orig_dtype != torch.float32
+        _cumsum_coop_row_kernel[(rows, 1, 1)](xc, out, rows, n, wait=needs_post_mps)
 
         if d != x.dim() - 1:
             out = out.movedim(-1, d).contiguous()
