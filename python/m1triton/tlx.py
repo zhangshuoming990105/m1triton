@@ -25,6 +25,7 @@ class TileSpecHint:
     num_simdgroups: int = 4
     double_buffer: bool = False
     split_k: int = 1
+    swizzle_w: int = 8
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ def _jit_only(name: str) -> Any:
 
 
 def structure(
-    tensor_or_kind: Any,
+    tensor_or_kind: Any = None,
     kind: str | None = None,
     *,
     diagonal_offset: int = 0,
@@ -92,6 +93,7 @@ def tile_spec(
     num_simdgroups: int = 4,
     double_buffer: bool = False,
     split_k: int = 1,
+    swizzle_w: int = 8,
 ) -> TileSpecHint:
     """Attach an explicit M1 Max tile/SIMD-group schedule hint."""
     return TileSpecHint(
@@ -101,6 +103,7 @@ def tile_spec(
         num_simdgroups=int(num_simdgroups),
         double_buffer=bool(double_buffer),
         split_k=int(split_k),
+        swizzle_w=int(swizzle_w),
     )
 
 
