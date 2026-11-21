@@ -13,18 +13,22 @@ namespace {
 
 constexpr uint32_t kDefaultSimdgroups = 4;
 constexpr uint32_t kMaxFragsPerSimdgroup = 16;
-constexpr uint32_t kDepthwiseTileH = 16;
-constexpr uint32_t kDepthwiseTileW = 32;
+constexpr uint32_t kDepthwiseTileH = 32;
+constexpr uint32_t kDepthwiseTileW = 64;
 constexpr uint32_t kDepthwiseHaloBudget = 16384;
 
-void normalize_vec(std::vector<int32_t>& v, uint32_t ndim, int32_t fill) {
-  if (v.size() == ndim) return;
+bool normalize_vec(std::vector<int32_t>& v, uint32_t ndim, int32_t fill) {
+  if (v.size() == ndim) return true;
+  if (v.empty()) {
+    v.assign(ndim, fill);
+    return true;
+  }
   if (v.size() == 1) {
     const int32_t scalar = v[0];
     v.assign(ndim, scalar);
-  } else {
-    v.assign(ndim, fill);
+    return true;
   }
+  return false;
 }
 
 std::string validate(const ir::ConvAttr& ca) {
@@ -181,6 +185,8 @@ void schedule_depthwise(ir::ConvAttr& ca, const ir::Kernel& kernel, const ir::Op
     if (hint->bm > 0) th = hint->bm;
     if (hint->bn > 0) tw = hint->bn;
   }
+  if (auto v = constexpr_param(kernel, "BLOCK_H")) th = static_cast<uint32_t>(*v);
+  if (auto v = constexpr_param(kernel, "BLOCK_W")) tw = static_cast<uint32_t>(*v);
   const uint32_t nd = ca.ndim;
   const int32_t kh = nd >= 2 ? ca.kernel_size[nd - 2] : 1;
   const int32_t sh = nd >= 2 ? ca.stride[nd - 2] : 1;
@@ -209,6 +215,10 @@ void schedule_transposed(ir::ConvAttr& ca, const ir::Kernel& kernel, const ir::O
     if (hint->bk > 0) bk = snap_bk(hint->bk);
     if (hint->num_simdgroups > 0) sgs = std::min<uint32_t>(hint->num_simdgroups, 32);
   }
+  if (auto v = constexpr_param(kernel, "BLOCK_M")) bm = snap_tile(static_cast<uint32_t>(*v));
+  if (auto v = constexpr_param(kernel, "BLOCK_N")) bn = snap_tile(static_cast<uint32_t>(*v));
+  if (auto v = constexpr_param(kernel, "BLOCK_K")) bk = snap_bk(static_cast<uint32_t>(*v));
+  if (auto v = constexpr_param(kernel, "NUM_SG")) sgs = std::min<uint32_t>(static_cast<uint32_t>(*v), 32);
   while (gemm_smem_bytes(bm, bn, bk) > ctx.target.max_threadgroup_memory_bytes && bk > 8) bk /= 2;
   while (gemm_smem_bytes(bm, bn, bk) > ctx.target.max_threadgroup_memory_bytes && bn > 16) bn /= 2;
   ca.bm = bm;
@@ -233,11 +243,13 @@ PassResult ConvLoweringPass::run(ir::Kernel& kernel, const PassContext& ctx) {
     }
     const ir::ConvAttr before = *ca;
     const uint32_t nd = ca->ndim;
-    normalize_vec(ca->kernel_size, nd, 1);
-    normalize_vec(ca->stride, nd, 1);
-    normalize_vec(ca->padding, nd, 0);
-    normalize_vec(ca->dilation, nd, 1);
-    normalize_vec(ca->output_padding, nd, 0);
+    if (!normalize_vec(ca->kernel_size, nd, 1) || !normalize_vec(ca->stride, nd, 1) ||
+        !normalize_vec(ca->padding, nd, 0) || !normalize_vec(ca->dilation, nd, 1) ||
+        !normalize_vec(ca->output_padding, nd, 0)) {
+      res.ok = false;
+      res.diagnostic = "implicit_gemm_conv: vector attribute length mismatch with ndim";
+      return res;
+    }
     if (const std::string err = validate(*ca); !err.empty()) {
       res.ok = false;
       res.diagnostic = "implicit_gemm_conv: " + err;
@@ -257,6 +269,16 @@ PassResult ConvLoweringPass::run(ir::Kernel& kernel, const PassContext& ctx) {
       schedule_gemm(*ca, kernel, op, ctx);
     }
     if (!(*ca == before)) res.changed = true;
+
+    if (op.operands.size() > 2) {
+      const ir::Value& ov = kernel.value(op.operands[2]);
+      if (ov.def_op == ir::kInvalidId && ov.def_block == kernel.entry_block && ov.arg_idx < kernel.params.size()) {
+        if (!kernel.params[ov.arg_idx].writable) {
+          kernel.params[ov.arg_idx].writable = true;
+          res.changed = true;
+        }
+      }
+    }
   }
   return res;
 }

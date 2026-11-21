@@ -363,15 +363,18 @@ class ConvStdWriter {
     os_ << "  const int m1_Cog = (int)(m1_Cout / m1_G);\n";
     os_ << "  const int m1_K = m1_Cig * m1_KS;\n";
     os_ << "  const int m1_KFull = (m1_K / m1_BK) * m1_BK;\n";
-    os_ << "  const uint m1_HWo = (uint)m1_Hout * (uint)m1_Wout;\n";
-    os_ << "  const uint m1_P = (uint)m1_Dout * m1_HWo;\n";
-    os_ << "  const uint m1_M = (uint)m1_N * m1_P;\n";
+    os_ << "  const ulong m1_HWo64 = (ulong)m1_Hout * (ulong)m1_Wout;\n";
+    os_ << "  const ulong m1_P64 = (ulong)m1_Dout * m1_HWo64;\n";
+    os_ << "  const ulong m1_M = (ulong)m1_N * m1_P64;\n";
+    os_ << "  const bool m1_m32 = (m1_M <= 0xfffffffful);\n";
+    os_ << "  const uint m1_HWo = (uint)m1_HWo64;\n";
+    os_ << "  const uint m1_P = (uint)m1_P64;\n";
     os_ << "  const long m1_Pin = (long)m1_Din * (long)m1_Hin * (long)m1_Win;\n";
     os_ << "  typedef " << (plan_.idx32 ? "int" : "long") << " m1_idx;\n";
     os_ << "  const m1_idx m1_PinI = (m1_idx)m1_Pin;\n";
     os_ << "  const int m1_g = (int)m1_tgid.z;\n";
     os_ << "  const int m1_co0 = (int)m1_tgid.y * m1_BM;\n";
-    os_ << "  const uint m1_m0 = m1_tgid.x * (uint)m1_BN;\n";
+    os_ << "  const ulong m1_m0 = (ulong)m1_tgid.x * (ulong)m1_BN;\n";
     os_ << "  if (m1_g >= m1_G || m1_co0 >= m1_Cog || m1_m0 >= m1_M) return;\n";
     os_ << "  threadgroup float m1_smem[" << plan_.smem_floats << "];\n";
     os_ << "  threadgroup float* m1_sw = m1_smem;\n";
@@ -382,9 +385,9 @@ class ConvStdWriter {
     os_ << "  const int m1_xr0 = (int)(m1_tid / " << x_vpr() << "u);\n";
     os_ << "  device const " << plan_.w_elem << "* m1_wb = " << plan_.w_name
         << " + (long)(m1_g * m1_Cog + m1_co0) * (long)m1_K;\n";
-    os_ << "  const uint m1_mx = m1_m0 + (uint)m1_xc;\n";
-    os_ << "  const uint m1_nx = (m1_mx < m1_M) ? (m1_mx / m1_P) : 0u;\n";
-    os_ << "  const uint m1_px = (m1_mx < m1_M) ? (m1_mx - m1_nx * m1_P) : 0u;\n";
+    os_ << "  const ulong m1_mx = m1_m0 + (ulong)m1_xc;\n";
+    os_ << "  const ulong m1_nx = (m1_mx < m1_M) ? (m1_m32 ? (ulong)((uint)m1_mx / m1_P) : (m1_mx / m1_P64)) : 0ul;\n";
+    os_ << "  const ulong m1_px = (m1_mx < m1_M) ? (m1_mx - m1_nx * m1_P64) : 0ul;\n";
     os_ << "  device const " << plan_.x_elem << "* m1_xb = " << plan_.x_name
         << " + ((long)m1_nx * m1_Cin + (long)m1_g * (long)m1_Cig) * m1_Pin;\n";
     os_ << "  const int m1_sgr = (int)(m1_sg / " << plan_.sg_n << "u) * " << (fm() * 8) << ";\n";
@@ -447,7 +450,7 @@ class ConvStdWriter {
   void emit_pointwise_loop() {
     const std::string xpv4 = msl_packed_vec4(plan_.x_elem);
     const bool need_x_guard = x_per() * x_rstep() > plan_.bk;
-    os_ << "  const bool m1_x4 = (m1_mx + 3u < m1_M) && (m1_px + 3u < m1_P);\n";
+    os_ << "  const bool m1_x4 = (m1_mx + 3ul < m1_M) && (m1_px + 3ul < m1_P64);\n";
     os_ << "  device const " << plan_.x_elem << "* m1_xp = m1_xb + (long)m1_px;\n";
     os_ << "  for (int m1_k0 = 0; m1_k0 < m1_K; m1_k0 += m1_BK) {\n";
     emit_safe_w_load("m1_k0", "    ");
@@ -463,10 +466,10 @@ class ConvStdWriter {
       os_ << "          m1_v = float4(*(const device " << xpv4 << "*)(m1_xp + (m1_idx)m1_k * m1_PinI));\n";
       os_ << "        } else {\n";
       os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
-      os_ << "            const uint m1_me = m1_mx + (uint)m1_e;\n";
+      os_ << "            const ulong m1_me = m1_mx + (ulong)m1_e;\n";
       os_ << "            if (m1_me < m1_M) {\n";
-      os_ << "              const uint m1_ne = m1_me / m1_P;\n";
-      os_ << "              const uint m1_pe = m1_me - m1_ne * m1_P;\n";
+      os_ << "              const ulong m1_ne = m1_m32 ? (ulong)((uint)m1_me / m1_P) : (m1_me / m1_P64);\n";
+      os_ << "              const ulong m1_pe = m1_me - m1_ne * m1_P64;\n";
       os_ << "              m1_v[m1_e] = (float)" << plan_.x_name
           << "[((long)m1_ne * m1_Cin + (long)(m1_g * m1_Cig + m1_k)) * m1_Pin + (long)m1_pe];\n";
       os_ << "            }\n";
@@ -502,20 +505,20 @@ class ConvStdWriter {
     const int32_t d_kh = d_rem2 / W.k;
     const int32_t d_kw = d_rem2 % W.k;
 
-    os_ << "  const uint m1_m1 = m1_m0 + (uint)(m1_BN - 1);\n";
-    os_ << "  const uint m1_n0 = m1_m0 / m1_P;\n";
-    os_ << "  const uint m1_p0 = m1_m0 - m1_n0 * m1_P;\n";
-    os_ << "  const uint m1_n1 = (m1_m1 < m1_M) ? (m1_m1 / m1_P) : (m1_n0 + 1u);\n";
-    os_ << "  const uint m1_p1 = (m1_m1 < m1_M) ? (m1_m1 - m1_n1 * m1_P) : 0u;\n";
-    os_ << "  const int m1_od0 = (int)(m1_p0 / m1_HWo);\n";
-    os_ << "  const uint m1_pr0 = m1_p0 - (uint)m1_od0 * m1_HWo;\n";
-    os_ << "  const int m1_oh0 = (int)(m1_pr0 / (uint)m1_Wout);\n";
-    os_ << "  const int m1_ow0 = (int)(m1_pr0 - (uint)m1_oh0 * (uint)m1_Wout);\n";
+    os_ << "  const ulong m1_m1 = m1_m0 + (ulong)(m1_BN - 1);\n";
+    os_ << "  const ulong m1_n0 = m1_m32 ? (ulong)((uint)m1_m0 / m1_P) : (m1_m0 / m1_P64);\n";
+    os_ << "  const ulong m1_p0 = m1_m0 - m1_n0 * m1_P64;\n";
+    os_ << "  const ulong m1_n1 = (m1_m1 < m1_M) ? (m1_m32 ? (ulong)((uint)m1_m1 / m1_P) : (m1_m1 / m1_P64)) : (m1_n0 + 1ul);\n";
+    os_ << "  const ulong m1_p1 = (m1_m1 < m1_M) ? (m1_m1 - m1_n1 * m1_P64) : 0ul;\n";
+    os_ << "  const int m1_od0 = (int)(m1_m32 ? ((uint)m1_p0 / m1_HWo) : (uint)(m1_p0 / m1_HWo64));\n";
+    os_ << "  const ulong m1_pr0 = m1_p0 - (ulong)m1_od0 * m1_HWo64;\n";
+    os_ << "  const int m1_oh0 = (int)(m1_m32 ? ((uint)m1_pr0 / (uint)m1_Wout) : (uint)(m1_pr0 / (ulong)m1_Wout));\n";
+    os_ << "  const int m1_ow0 = (int)(m1_pr0 - (ulong)m1_oh0 * (ulong)m1_Wout);\n";
     os_ << "  const int m1_id_lo = m1_od0 * " << D.s << " - " << D.p << ";\n";
     os_ << "  const int m1_ih_lo = m1_oh0 * " << H.s << " - " << H.p << ";\n";
     os_ << "  const int m1_iw_lo = m1_ow0 * " << W.s << " - " << W.p << ";\n";
     os_ << "  const bool m1_tg_fast = (m1_co0 + m1_BM <= m1_Cog) && (m1_m1 < m1_M) && (m1_n0 == m1_n1) &&\n";
-    os_ << "      (m1_p0 / (uint)m1_Wout == m1_p1 / (uint)m1_Wout) &&\n";
+    os_ << "      (m1_m32 ? ((uint)m1_p0 / (uint)m1_Wout == (uint)m1_p1 / (uint)m1_Wout) : (m1_p0 / (ulong)m1_Wout == m1_p1 / (ulong)m1_Wout)) &&\n";
     os_ << "      (m1_id_lo >= 0) && (m1_id_lo + " << ((D.k - 1) * D.d) << " < m1_Din) &&\n";
     os_ << "      (m1_ih_lo >= 0) && (m1_ih_lo + " << ((H.k - 1) * H.d) << " < m1_Hin) &&\n";
     os_ << "      (m1_iw_lo >= 0) && (m1_iw_lo + " << ((static_cast<int32_t>(plan_.bn) - 1) * W.s + (W.k - 1) * W.d)
@@ -674,14 +677,14 @@ class ConvStdWriter {
     }
 
     os_ << "  } else {\n";
-    os_ << "    const int m1_odx = (int)(m1_px / m1_HWo);\n";
-    os_ << "    const uint m1_prx = m1_px - (uint)m1_odx * m1_HWo;\n";
-    os_ << "    const int m1_ohx = (int)(m1_prx / (uint)m1_Wout);\n";
-    os_ << "    const int m1_owx = (int)(m1_prx - (uint)m1_ohx * (uint)m1_Wout);\n";
+    os_ << "    const int m1_odx = (int)(m1_m32 ? ((uint)m1_px / m1_HWo) : (uint)(m1_px / m1_HWo64));\n";
+    os_ << "    const ulong m1_prx = m1_px - (ulong)m1_odx * m1_HWo64;\n";
+    os_ << "    const int m1_ohx = (int)(m1_m32 ? ((uint)m1_prx / (uint)m1_Wout) : (uint)(m1_prx / (ulong)m1_Wout));\n";
+    os_ << "    const int m1_owx = (int)(m1_prx - (ulong)m1_ohx * (ulong)m1_Wout);\n";
     os_ << "    const int m1_idx0 = m1_odx * " << D.s << " - " << D.p << ";\n";
     os_ << "    const int m1_ihx0 = m1_ohx * " << H.s << " - " << H.p << ";\n";
     os_ << "    const int m1_iwx0 = m1_owx * " << W.s << " - " << W.p << ";\n";
-    os_ << "    const bool m1_x4 = (m1_mx + 3u < m1_M) && (m1_owx + 3 < m1_Wout) &&\n";
+    os_ << "    const bool m1_x4 = (m1_mx + 3ul < m1_M) && (m1_owx + 3 < m1_Wout) &&\n";
     os_ << "        (m1_idx0 >= 0) && (m1_idx0 + " << ((D.k - 1) * D.d) << " < m1_Din) &&\n";
     os_ << "        (m1_ihx0 >= 0) && (m1_ihx0 + " << ((H.k - 1) * H.d) << " < m1_Hin) &&\n";
     os_ << "        (m1_iwx0 >= 0) && (m1_iwx0 + " << (3 * W.s + (W.k - 1) * W.d) << " < m1_Win);\n";
@@ -715,14 +718,14 @@ class ConvStdWriter {
       }
       os_ << "          } else {\n";
       os_ << "            for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
-      os_ << "              const uint m1_me = m1_mx + (uint)m1_e;\n";
+      os_ << "              const ulong m1_me = m1_mx + (ulong)m1_e;\n";
       os_ << "              if (m1_me < m1_M) {\n";
-      os_ << "                const uint m1_ne = m1_me / m1_P;\n";
-      os_ << "                const uint m1_pe = m1_me - m1_ne * m1_P;\n";
-      os_ << "                const int m1_ode = (int)(m1_pe / m1_HWo);\n";
-      os_ << "                const uint m1_pre = m1_pe - (uint)m1_ode * m1_HWo;\n";
-      os_ << "                const int m1_ohe = (int)(m1_pre / (uint)m1_Wout);\n";
-      os_ << "                const int m1_owe = (int)(m1_pre - (uint)m1_ohe * (uint)m1_Wout);\n";
+      os_ << "                const ulong m1_ne = m1_m32 ? (ulong)((uint)m1_me / m1_P) : (m1_me / m1_P64);\n";
+      os_ << "                const ulong m1_pe = m1_me - m1_ne * m1_P64;\n";
+      os_ << "                const int m1_ode = (int)(m1_m32 ? ((uint)m1_pe / m1_HWo) : (uint)(m1_pe / m1_HWo64));\n";
+      os_ << "                const ulong m1_pre = m1_pe - (ulong)m1_ode * m1_HWo64;\n";
+      os_ << "                const int m1_ohe = (int)(m1_m32 ? ((uint)m1_pre / (uint)m1_Wout) : (uint)(m1_pre / (ulong)m1_Wout));\n";
+      os_ << "                const int m1_owe = (int)(m1_pre - (ulong)m1_ohe * (ulong)m1_Wout);\n";
       os_ << "                const int m1_id = m1_ode * " << D.s << " - " << D.p << " + m1_kd * " << D.d << ";\n";
       os_ << "                const int m1_ih = m1_ohe * " << H.s << " - " << H.p << " + m1_kh * " << H.d << ";\n";
       os_ << "                const int m1_iw = m1_owe * " << W.s << " - " << W.p << " + m1_kw * " << W.d << ";\n";
@@ -758,7 +761,7 @@ class ConvStdWriter {
     const uint32_t v4_per_sg = sg_elems / 4;
     const uint32_t v4_per_row = sg_ld / 4;
 
-    os_ << "  device " << oe << "* m1_ob = " << plan_.out_name << " + (long)m1_g * (long)m1_Cog * (long)m1_P;\n";
+    os_ << "  device " << oe << "* m1_ob = " << plan_.out_name << " + (long)m1_g * (long)m1_Cog * (long)m1_P64;\n";
     os_ << "  for (uint m1_sb = 0u; m1_sb < " << plan_.num_sgs << "u; m1_sb += " << max_sgs << "u) {\n";
     os_ << "    if (m1_sg >= m1_sb && m1_sg < m1_sb + " << max_sgs << "u) {\n";
     os_ << "      threadgroup float* m1_sgs = m1_smem + (m1_sg - m1_sb) * " << sg_elems << "u;\n";
@@ -779,25 +782,25 @@ class ConvStdWriter {
     os_ << "      const uint m1_lc = (m1_rem - m1_lr * " << v4_per_row << "u) * 4u;\n";
     os_ << "      const uint m1_gsg = m1_sb + m1_lsg;\n";
     os_ << "      const int m1_co = m1_co0 + (int)(m1_gsg / " << plan_.sg_n << "u) * " << sg_rows << " + (int)m1_lr;\n";
-    os_ << "      const uint m1_mm = m1_m0 + (m1_gsg % " << plan_.sg_n << "u) * " << sg_ld << "u + m1_lc;\n";
+    os_ << "      const ulong m1_mm = m1_m0 + (ulong)((m1_gsg % " << plan_.sg_n << "u) * " << sg_ld << "u + m1_lc);\n";
     os_ << "      if (m1_co < m1_Cog && m1_mm < m1_M) {\n";
     os_ << "        float4 m1_ov = *(const threadgroup float4*)(m1_smem + m1_lsg * " << sg_elems << "u + m1_lr * "
         << sg_ld << "u + m1_lc);\n";
     if (plan_.attr.has_bias) {
       os_ << "        m1_ov += float4((float)" << plan_.bias_name << "[m1_g * m1_Cog + m1_co]);\n";
     }
-    os_ << "        const uint m1_nn = m1_mm / m1_P;\n";
-    os_ << "        const uint m1_pp = m1_mm - m1_nn * m1_P;\n";
-    os_ << "        if (m1_mm + 3u < m1_M && m1_pp + 3u < m1_P) {\n";
-    os_ << "          *(device " << opv4 << "*)(m1_ob + ((long)m1_nn * m1_Cout + (long)m1_co) * (long)m1_P + "
+    os_ << "        const ulong m1_nn = m1_m32 ? (ulong)((uint)m1_mm / m1_P) : (m1_mm / m1_P64);\n";
+    os_ << "        const ulong m1_pp = m1_mm - m1_nn * m1_P64;\n";
+    os_ << "        if (m1_mm + 3ul < m1_M && m1_pp + 3ul < m1_P64) {\n";
+    os_ << "          *(device " << opv4 << "*)(m1_ob + ((long)m1_nn * m1_Cout + (long)m1_co) * (long)m1_P64 + "
         << "(long)m1_pp) = " << opv4 << "(" << ov4 << "(m1_ov));\n";
     os_ << "        } else {\n";
     os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
-    os_ << "            const uint m1_me = m1_mm + (uint)m1_e;\n";
+    os_ << "            const ulong m1_me = m1_mm + (ulong)m1_e;\n";
     os_ << "            if (m1_me < m1_M) {\n";
-    os_ << "              const uint m1_ne = m1_me / m1_P;\n";
-    os_ << "              const uint m1_pe = m1_me - m1_ne * m1_P;\n";
-    os_ << "              m1_ob[((long)m1_ne * m1_Cout + (long)m1_co) * (long)m1_P + (long)m1_pe] = " << oe
+    os_ << "              const ulong m1_ne = m1_m32 ? (ulong)((uint)m1_me / m1_P) : (m1_me / m1_P64);\n";
+    os_ << "              const ulong m1_pe = m1_me - m1_ne * m1_P64;\n";
+    os_ << "              m1_ob[((long)m1_ne * m1_Cout + (long)m1_co) * (long)m1_P64 + (long)m1_pe] = " << oe
         << "(m1_ov[m1_e]);\n";
     os_ << "            }\n";
     os_ << "          }\n";

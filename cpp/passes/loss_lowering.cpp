@@ -168,9 +168,11 @@ PassResult LossLoweringPass::run(ir::Kernel& kernel, const PassContext& ctx) {
       res.diagnostic = "fused_loss hyperparameters (margin, beta, eps) must be finite";
       return res;
     }
-    if (attr->kind == ir::LossKind::Huber && attr->beta < 0.0f) {
+    if (attr->kind == ir::LossKind::Huber &&
+        (attr->beta < 0.0f ||
+         (attr->beta > 0.0f && !std::isfinite(static_cast<float>(0.5 / static_cast<double>(attr->beta)))))) {
       res.ok = false;
-      res.diagnostic = "fused_loss huber beta must be non-negative";
+      res.diagnostic = "fused_loss huber beta must be non-negative and produce finite 0.5/beta";
       return res;
     }
     if (attr->kind == ir::LossKind::TripletMargin && attr->eps < 0.0f) {

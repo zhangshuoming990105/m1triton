@@ -146,7 +146,12 @@ def hinge_loss(predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor
         tgt = _contig(tgt)
         rows = 1
         cols = int(pred.numel())
-    elif pred.ndim >= 2 and int(tgt.numel()) == int(pred.shape[-1]):
+    elif (
+        pred.ndim >= 2
+        and 1 <= tgt.ndim <= pred.ndim
+        and int(tgt.shape[-1]) == int(pred.shape[-1])
+        and all(int(d) == 1 for d in tgt.shape[:-1])
+    ):
         tgt = _contig(tgt)
         cols = int(pred.shape[-1])
         rows = int(pred.numel()) // max(cols, 1)

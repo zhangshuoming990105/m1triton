@@ -180,7 +180,7 @@ def pointwise_conv_kernel(
         acc15 = acc15 + tl.load(bias_ptr + co0 + 15, mask=m15, other=0.0)
 
     for k in range(0, K):
-        xv = tl.load(x_base + k * N + offs_n, mask=mask_n, other=0.0)
+        xv = tl.load(x_base + k.to(tl.int64) * N + offs_n, mask=mask_n, other=0.0)
         acc0 = acc0 + tl.load(w_ptr + (co0 + 0) * K + k, mask=m0, other=0.0) * xv
         acc1 = acc1 + tl.load(w_ptr + (co0 + 1) * K + k, mask=m1, other=0.0) * xv
         acc2 = acc2 + tl.load(w_ptr + (co0 + 2) * K + k, mask=m2, other=0.0) * xv

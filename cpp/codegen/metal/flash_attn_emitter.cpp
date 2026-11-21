@@ -99,7 +99,6 @@ struct FlashAttnPlan {
   std::string d_expr;
   uint32_t bm = 16;
   uint32_t bn = 256;
-  uint32_t bd = 16;
   uint32_t num_sg = 16;
   uint32_t tg_threads = 512;
   FlashAttnMode mode = FlashAttnMode::GeneralRowWise;
@@ -179,7 +178,6 @@ std::optional<FlashAttnPlan> build_plan(const Kernel& kernel, const ir::TargetSp
   const uint32_t simd = std::max<uint32_t>(1u, target.simd_width);
   plan.bm = fa->bm > 0u ? fa->bm : 16u;
   plan.bn = fa->bn > 0u ? fa->bn : 256u;
-  plan.bd = fa->bd > 0u ? fa->bd : 16u;
   plan.num_sg = fa->num_simdgroups > 0u ? fa->num_simdgroups : 16u;
   plan.tg_threads = plan.num_sg * simd;
 
@@ -566,10 +564,10 @@ class FlashAttnWriter {
           << " + kk + m1_fc);\n";
       os_ << "            device const float* vr = m1_Vb + (m1_kv0 + (long)(kk + m1_fr)) * m1_D + (long)(m1_sgd0 + "
              "m1_fc);\n";
-      os_ << "            float2 vf_nxt; float2 vf_cur = *(device const float2*)(vr);\n";
+      os_ << "            float2 vf_nxt; float2 vf_cur = float2(*(device const packed_float2*)(vr));\n";
       for (int j = 0; j < 8; ++j) {
         if (j + 1 < 8) {
-          os_ << "            vf_nxt = *(device const float2*)(vr + " << ((j + 1) * 8) << ");\n";
+          os_ << "            vf_nxt = float2(*(device const packed_float2*)(vr + " << ((j + 1) * 8) << "));\n";
         }
         os_ << "            o_0_" << j << " = m1_mma2(pf_0, vf_cur, o_0_" << j << ");\n";
         os_ << "            o_1_" << j << " = m1_mma2(pf_1, vf_cur, o_1_" << j << ");\n";
@@ -591,8 +589,8 @@ class FlashAttnWriter {
       os_ << "        const float lval = m1_ls[" << (i * 8) << " + m1_fr];\n";
       os_ << "        const float inv = (lval > 0.0f) ? (1.0f / lval) : 0.0f;\n";
       for (int j = 0; j < 8; ++j) {
-        os_ << "        *(device float2*)(m1_Ob + qr * m1_D + (long)(m1_sgd0 + " << (j * 8) << " + m1_fc)) = o_" << i
-            << "_" << j << " * inv;\n";
+        os_ << "        *(device packed_float2*)(m1_Ob + qr * m1_D + (long)(m1_sgd0 + " << (j * 8)
+            << " + m1_fc)) = packed_float2(o_" << i << "_" << j << " * inv);\n";
       }
       os_ << "      }\n";
     }

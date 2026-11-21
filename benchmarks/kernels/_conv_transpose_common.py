@@ -400,23 +400,6 @@ class ConvTransposeNdBase(nn.Module):
             self.bias = nn.Parameter(torch.empty(self.out_channels))
         else:
             self.register_parameter("bias", None)
-        self._packed_w: torch.Tensor | None = None
-        self._packed_key: tuple[int, int, torch.device, torch.dtype] | None = None
-
-    def _get_packed_weight(self) -> torch.Tensor | None:
-        w = self.weight.detach()
-        if w.dtype != torch.float32:
-            return None
-        g = self.groups
-        c_in_g = int(w.shape[0]) // g
-        c_out_g = int(w.shape[1])
-        if c_in_g % 8 != 0 or c_out_g % 8 != 0:
-            return None
-        key = (int(w.data_ptr()), int(w._version), w.device, w.dtype)
-        if self._packed_key != key or self._packed_w is None:
-            self._packed_w = pack_weight_blk8(w, g)
-            self._packed_key = key
-        return self._packed_w
 
     def _apply_reference_geometry(self, conv: nn.Module) -> None:
         nd = self.ndim
@@ -452,9 +435,6 @@ class ConvTransposeNdBase(nn.Module):
             self.weight.copy_(conv.weight.detach().to(self.weight.device))
             if self.bias is not None and conv.bias is not None:
                 self.bias.copy_(conv.bias.detach().to(self.bias.device))
-        self._packed_w = None
-        self._packed_key = None
-        self._get_packed_weight()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return conv_transpose_nd(
@@ -467,5 +447,4 @@ class ConvTransposeNdBase(nn.Module):
             output_padding=self.output_padding,
             dilation=self.dilation,
             groups=self.groups,
-            packed_weight=self._get_packed_weight(),
         )

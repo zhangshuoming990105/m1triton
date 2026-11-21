@@ -228,8 +228,10 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
   plan.hout_expr = dims[at++];
   plan.wout_expr = dims[at++];
 
-  plan.bw = static_cast<uint32_t>(constexpr_param(kernel, kBlockWParam, kDefaultBlockW));
-  plan.bh = static_cast<uint32_t>(constexpr_param(kernel, kBlockHParam, kDefaultBlockH));
+  const int64_t def_bw = (ca->bk == 1 && ca->bn > 0) ? static_cast<int64_t>(ca->bn) : kDefaultBlockW;
+  const int64_t def_bh = (ca->bk == 1 && ca->bm > 0) ? static_cast<int64_t>(ca->bm) : kDefaultBlockH;
+  plan.bw = static_cast<uint32_t>(constexpr_param(kernel, kBlockWParam, def_bw));
+  plan.bh = static_cast<uint32_t>(constexpr_param(kernel, kBlockHParam, def_bh));
   plan.tx = fit_divisor(kDefaultThreadsX, plan.bw);
   plan.ty = fit_divisor(kDefaultThreadsY, plan.bh);
   if (plan.tx * plan.ty > target.max_threads_per_threadgroup) {
