@@ -87,9 +87,16 @@ class Analyzer {
       IndexFact f;
       f.step = 0;
       f.contiguity = 1;
-      f.alignment = div;
+      if (p.type.is_ptr()) {
+        const uint32_t eb = std::max<uint32_t>(1, dtype_bytes(p.type.as_ptr().pointee));
+        const uint32_t elem_div = (div >= eb && (div % eb) == 0) ? (div / eb) : 1;
+        f.alignment = elem_div;
+        f.base_ptr_divisibility = elem_div;
+      } else {
+        f.alignment = div;
+        f.base_ptr_divisibility = 1;
+      }
       f.uniform = true;
-      f.base_ptr_divisibility = p.type.is_ptr() ? div : 1;
       facts_[vid] = f;
     }
     analyze_block(kernel_.entry_block);

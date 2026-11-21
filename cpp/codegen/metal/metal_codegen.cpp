@@ -51,33 +51,15 @@ using ir::ValueId;
 using ir::kInvalidId;
 
 uint32_t local_dtype_bytes(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-    case ScalarDType::I32:
-    case ScalarDType::U32:
-      return 4;
-    case ScalarDType::F16:
-      return 2;
-    case ScalarDType::I64:
-      return 8;
-    case ScalarDType::Bool:
-      return 1;
-  }
-  return 4;
+  return ir::dtype_bytes(dt);
 }
 
 bool is_ptr_type(const Type& ty) {
-  if (ty.is_ptr()) return true;
-  if (ty.is_tile()) return std::holds_alternative<PtrType>(ty.as_tile().elem);
-  return false;
+  return ty.is_ptr_elem();
 }
 
 ScalarDType scalar_dtype_of(const Type& ty) {
-  if (ty.is_scalar()) return ty.as_scalar();
-  if (ty.is_ptr()) return ty.as_ptr().pointee;
-  const auto& elem = ty.as_tile().elem;
-  if (std::holds_alternative<ScalarDType>(elem)) return std::get<ScalarDType>(elem);
-  return std::get<PtrType>(elem).pointee;
+  return ty.is_ptr_elem() ? ty.ptr_elem().pointee : ty.scalar_elem();
 }
 
 bool is_float_dtype(ScalarDType dt) {
@@ -1857,13 +1839,16 @@ struct General1DEmitter {
 
     if (op.kind == OpKind::Store) {
       auto so = extract_store_operands(op);
-      bool is_scalar_store = !kernel.value(so.ptrs).type.is_tile();
+      const Type& pty = kernel.value(so.ptrs).type;
+      bool is_scalar_store = !pty.is_tile();
       std::string pe = exprs.at(so.ptrs);
-      ScalarDType pdt = scalar_dtype_of(kernel.value(so.ptrs).type);
+      ScalarDType pdt = scalar_dtype_of(pty);
       std::string ve = msl_cast_expr(exprs.at(so.val), scalar_dtype_of(kernel.value(so.val).type), pdt, false);
       std::string guard;
       if (is_scalar_store) {
         guard = in_lane_loop ? "(m1_lane == 0u)" : "(m1_tid_linear == 0u)";
+      } else if (in_lane_loop && !pty.as_tile().shape.empty() && pty.as_tile().shape[0] < block_size) {
+        guard = "(m1_lane < " + std::to_string(pty.as_tile().shape[0]) + "u)";
       }
       if (so.mask != kInvalidId) {
         guard = guard.empty() ? exprs.at(so.mask) : ("(" + guard + " && (" + exprs.at(so.mask) + "))");
@@ -1879,14 +1864,20 @@ struct General1DEmitter {
     }
 
     if (op.kind == OpKind::AtomicAdd && !op.operands.empty()) {
-      bool is_scalar_atomic = !kernel.value(op.operands[0]).type.is_tile();
+      const Type& pty = kernel.value(op.operands[0]).type;
+      bool is_scalar_atomic = !pty.is_tile();
       ValueId rid = op.results.empty() ? kInvalidId : op.results[0];
-      ScalarDType rdt = scalar_dtype_of(kernel.value(op.operands[0]).type);
+      ScalarDType rdt = scalar_dtype_of(pty);
       std::string expr = emit_scalar_op_expr(kernel, analysis, op, exprs, helpers, err);
       if (!err.empty()) return false;
       std::string vname = (rid != kInvalidId) ? ssa_var(rid) : ("m1_atom_" + std::to_string(oid));
+      std::string cond;
       if (is_scalar_atomic) {
-        std::string cond = in_lane_loop ? "(m1_lane == 0u)" : "(m1_tid_linear == 0u)";
+        cond = in_lane_loop ? "(m1_lane == 0u)" : "(m1_tid_linear == 0u)";
+      } else if (in_lane_loop && !pty.as_tile().shape.empty() && pty.as_tile().shape[0] < block_size) {
+        cond = "(m1_lane < " + std::to_string(pty.as_tile().shape[0]) + "u)";
+      }
+      if (!cond.empty()) {
         out << indent_str(ind) << msl_scalar_type(rdt) << " " << vname << " = " << msl_zero_literal(rdt, false)
             << ";\n";
         out << indent_str(ind) << "if (" << cond << ") { " << vname << " = " << expr << "; }\n";
@@ -2725,6 +2716,11 @@ struct Tiled2DEmitter {
             scalar_exprs[rid] = rv;
             ytargets.push_back(YieldTarget{YieldTarget::Kind::Scalar, rv, rdt, rid});
           } else {
+            const auto& sh = rty.as_tile().shape;
+            if (is_ptr_type(rty) || sh.size() != 2 || sh[0] != bm || sh[1] != bn) {
+              err = "Unsupported tile result type on 2D If in MetalCodegen";
+              return false;
+            }
             out << indent_str(ind) << msl_scalar_type(rdt) << " " << rv << "[" << (rm * rn) << "];\n";
             mat_tile_var[rid] = rv;
             ytargets.push_back(YieldTarget{YieldTarget::Kind::Tile2D, rv, rdt, rid});
@@ -3055,11 +3051,25 @@ CompiledMSL emit_2d_tiled(const Kernel& kernel, const TargetSpec& target, const 
     return sh.size() == 2 && sh[0] == bm && sh[1] == bn;
   };
 
+  size_t mem_write_ops = 0;
+  for (BlockId bid : all_blocks) {
+    for (OpId oid : kernel.block(bid).ops) {
+      const Op& op = kernel.op(oid);
+      if (op.erased) continue;
+      if (op.kind == OpKind::Store || op.kind == OpKind::AtomicAdd) {
+        ++mem_write_ops;
+      }
+    }
+  }
+
   for (BlockId bid : all_blocks) {
     for (OpId oid : kernel.block(bid).ops) {
       const Op& op = kernel.op(oid);
       if (op.erased) continue;
       if (op.kind == OpKind::Dot && !op.results.empty()) {
+        em.materialized_2d.insert(op.results[0]);
+      } else if (op.kind == OpKind::Load && mem_write_ops >= 2 && !op.results.empty() &&
+                 is_primary_data_tile(op.results[0])) {
         em.materialized_2d.insert(op.results[0]);
       } else if (op.kind == OpKind::ForLoop && !op.regions.empty()) {
         const Block& body = kernel.block(op.regions[0]);

@@ -343,3 +343,90 @@ def test_vector_add_memory_bandwidth_64m():
     finally:
         del x, y, out
         torch.mps.empty_cache()
+
+
+@m1triton.jit
+def multi_len_1d_kernel(a_ptr, b_ptr):
+    offs_small = tl.arange(0, 64)
+    offs_big = tl.arange(0, 128)
+    tl.store(a_ptr + offs_small, offs_small.to(tl.float32))
+    tl.store(b_ptr + offs_big, offs_big.to(tl.float32))
+
+
+@m1triton.jit
+def war_2d_kernel(p_ptr, q_ptr):
+    rows = tl.arange(0, 16)[:, None]
+    cols = tl.arange(0, 16)[None, :]
+    offs = rows * 16 + cols
+    x = tl.load(p_ptr + offs)
+    tl.store(p_ptr + offs, x * 2.0)
+    tl.store(q_ptr + offs, x + 1.0)
+
+
+@m1triton.jit
+def ptr_select_kernel(a_ptr, b_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):
+    pid = tl.program_id(0)
+    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    mask = offs < n
+    src = tl.where(offs < (n // 2), a_ptr + offs, b_ptr + offs)
+    v = tl.load(src, mask=mask, other=0.0)
+    tl.store(out_ptr + offs, v, mask=mask)
+
+
+def test_m1_regressions_and_m1triton_opt():
+    import subprocess
+    from pathlib import Path
+
+    # 1. Multi-length 1D kernel must not write OOB past smaller tile length.
+    a = torch.full((128,), -7.0, dtype=torch.float32, device="mps")
+    b = torch.zeros((128,), dtype=torch.float32, device="mps")
+    multi_len_1d_kernel[(1,)](a, b)
+    rt.synchronize()
+    assert torch.equal(a[:64].cpu(), torch.arange(64, dtype=torch.float32))
+    assert torch.all(a[64:].cpu() == -7.0)
+    assert torch.equal(b.cpu(), torch.arange(128, dtype=torch.float32))
+
+    # 2. 2D WAR hazard: second store must observe original load value, not mutated buffer.
+    p = torch.full((16, 16), 5.0, dtype=torch.float32, device="mps")
+    q = torch.zeros((16, 16), dtype=torch.float32, device="mps")
+    war_2d_kernel[(1, 1)](p, q)
+    rt.synchronize()
+    assert torch.all(p.cpu() == 10.0)
+    assert torch.all(q.cpu() == 6.0)
+
+    # 3. 4-byte aligned f32 pointer must NOT be falsely upgraded to vec_width=4.
+    base = torch.arange(512, dtype=torch.float32, device="mps")
+    unaligned_x = base[1:257]
+    unaligned_y = base[1:257]
+    unaligned_out = torch.empty(256, dtype=torch.float32, device="mps")
+    msl_unaligned = vector_add_kernel.inspect_msl(unaligned_x, unaligned_y, unaligned_out, 256, BLOCK_SIZE=256)
+    assert "float4" not in msl_unaligned
+    vector_add_kernel[(1,)](unaligned_x, unaligned_y, unaligned_out, 256, BLOCK_SIZE=256)
+    rt.synchronize()
+    assert torch.allclose(unaligned_out.cpu(), (unaligned_x + unaligned_y).cpu())
+
+    # 4. tl.where on pointer tiles compiles and executes correctly.
+    n = 128
+    aa = torch.full((n,), 3.0, dtype=torch.float32, device="mps")
+    bb = torch.full((n,), 9.0, dtype=torch.float32, device="mps")
+    oo = torch.empty((n,), dtype=torch.float32, device="mps")
+    ptr_select_kernel[(1,)](aa, bb, oo, n, BLOCK_SIZE=128)
+    rt.synchronize()
+    expected = torch.cat([torch.full((64,), 3.0), torch.full((64,), 9.0)])
+    assert torch.equal(oo.cpu(), expected)
+
+    # 5. m1triton-opt CLI round-trips IR, runs --passes=m1, and emits MSL.
+    repo_root = Path(__file__).resolve().parents[2]
+    opt_bin = repo_root / "build" / "m1triton-opt"
+    assert opt_bin.is_file()
+    pre_ir, _ = vector_add_kernel.inspect_ir(aa, bb, oo, n, BLOCK_SIZE=128)
+    proc = subprocess.run(
+        [str(opt_bin), "-", "--passes=m1", "--emit-msl"],
+        input=pre_ir,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert "kernel void vector_add_kernel" in proc.stdout
+    assert "float4" in proc.stdout
+

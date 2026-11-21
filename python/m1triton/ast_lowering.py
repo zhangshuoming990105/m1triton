@@ -1121,6 +1121,27 @@ class _ASTIRLowerer(ast.NodeVisitor):
 
     def _lower_select(self, cond: Any, true_val: Any, false_val: Any) -> _SSAVal:
         cond_ssa = self._ensure_bool(cond)
+        t_is_ptr = isinstance(true_val, _SSAVal) and self.kernel.value_type(true_val.vid).is_ptr_elem()
+        f_is_ptr = isinstance(false_val, _SSAVal) and self.kernel.value_type(false_val.vid).is_ptr_elem()
+        if t_is_ptr or f_is_ptr:
+            if not (t_is_ptr and f_is_ptr):
+                raise TypeError("tl.where cannot mix pointer and non-pointer branches")
+            t_ty = self.kernel.value_type(true_val.vid)
+            f_ty = self.kernel.value_type(false_val.vid)
+            if t_ty.ptr_elem() != f_ty.ptr_elem():
+                raise TypeError("tl.where pointer branches must have matching pointee types")
+            target_shape = _broadcast_shapes(
+                self.kernel.value_type(cond_ssa.vid).shape(),
+                _broadcast_shapes(t_ty.shape(), f_ty.shape()),
+            )
+            t_ssa, f_ssa = true_val, false_val
+            if target_shape:
+                cond_ssa = self._broadcast_to_shape(cond_ssa, target_shape)
+                t_ssa = self._broadcast_to_shape(t_ssa, target_shape)
+                f_ssa = self._broadcast_to_shape(f_ssa, target_shape)
+            vid = self.builder.emit_select(cond_ssa.vid, t_ssa.vid, f_ssa.vid)
+            return _SSAVal(vid=vid, ptr_params=t_ssa.ptr_params | f_ssa.ptr_params)
+
         t_ssa, f_ssa, _ = self._align_binary_operands(true_val, false_val)
         c_shape = self.kernel.value_type(cond_ssa.vid).shape()
         v_shape = self.kernel.value_type(t_ssa.vid).shape()

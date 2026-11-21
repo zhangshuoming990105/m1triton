@@ -577,7 +577,7 @@ bool canonicalize_block(Kernel& k, BlockId blk_id) {
         const ScalarDType dt1 = o1_ty.scalar_elem();
         const ScalarDType dt2 = o2_ty.scalar_elem();
         const ScalarDType common_dt =
-            (dt1 == ScalarDType::I64 || dt2 == ScalarDType::I64) ? ScalarDType::I64 : dt1;
+            (dt1 == ScalarDType::I64 || dt2 == ScalarDType::I64 || dt1 != dt2) ? ScalarDType::I64 : dt1;
 
         Type add_ty;
         if (o1_ty.is_tile() && o2_ty.is_tile()) {

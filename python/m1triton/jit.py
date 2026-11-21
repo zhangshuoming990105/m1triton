@@ -471,12 +471,7 @@ class JITFunction:
         has_mps_buffer = False
 
         for slot in spec.param_slots:
-            if slot.name in runtime_by_name:
-                val = runtime_by_name[slot.name]
-            elif slot.param_index < len(param_specs) and not param_specs[slot.param_index].is_constexpr:
-                val = runtime_by_name[param_specs[slot.param_index].name]
-            else:
-                val = runtime_ordered[slot.param_index]
+            val = runtime_by_name[slot.name]
             if slot.is_pointer:
                 if _is_mps_tensor(val):
                     has_mps_buffer = True
@@ -489,6 +484,7 @@ class JITFunction:
             if torch_mod is not None and hasattr(torch_mod, "mps"):
                 torch_mod.mps.synchronize()
 
+        profile_enabled = os.environ.get("M1TRITON_PROFILE", "0") == "1"
         gpu_ms = rt.launch_kernel(
             compiled.kernel_id,
             buffers,
@@ -496,8 +492,14 @@ class JITFunction:
             grid=grid_3d,
             threads_per_threadgroup=(int(spec.tg_x), int(spec.tg_y), int(spec.tg_z)),
             threadgroup_mem_bytes=int(spec.threadgroup_mem_bytes),
-            wait=wait,
+            wait=bool(wait or profile_enabled),
         )
+        if profile_enabled:
+            print(
+                f"[M1TRITON_PROFILE] kernel={spec.entry_name} grid={grid_3d} "
+                f"tg=({spec.tg_x},{spec.tg_y},{spec.tg_z}) vec={spec.vec_width} gpu_ms={gpu_ms:.4f}",
+                file=sys.stderr,
+            )
         compiled.last_gpu_ms = gpu_ms
         return compiled
 

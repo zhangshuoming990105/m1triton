@@ -57,10 +57,13 @@ def make_buffer_arg(tensor_or_array: Any, index: int, *, writable: bool = False)
         if is_mps:
             arg.handle = int(tensor_or_array.untyped_storage().data_ptr())
             arg.byte_offset = int(tensor_or_array.storage_offset()) * int(tensor_or_array.element_size())
+            arg.nbytes = int(tensor_or_array.numel()) * int(tensor_or_array.element_size())
         else:
+            if not tensor_or_array.is_contiguous():
+                raise ValueError("Non-contiguous CPU tensor views must be made contiguous before Metal dispatch")
             arg.handle = int(tensor_or_array.data_ptr())
             arg.byte_offset = 0
-        arg.nbytes = int(tensor_or_array.numel()) * int(tensor_or_array.element_size())
+            arg.nbytes = int(tensor_or_array.numel()) * int(tensor_or_array.element_size())
         return arg
 
     if hasattr(tensor_or_array, "__array_interface__"):
