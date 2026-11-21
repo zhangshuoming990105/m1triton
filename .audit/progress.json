@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "goalFile": "GOAL.md",
   "createdAt": "2026-11-21T08:52:55.075Z",
-  "updatedAt": "2026-11-21T14:44:35.189780Z",
+  "updatedAt": "2026-11-21T16:23:49.637789Z",
   "milestones": [
     {
       "id": "M0",
@@ -63,34 +63,35 @@
     {
       "id": "M7",
       "title": "Compiler-DSL co-design performance sprint (research-lab hillclimb)",
-      "status": "in_progress",
-      "evidence": "",
+      "status": "verified",
+      "evidence": "ci_local.sh green (15/15 CTest, 52/52 pytest), 6 research-lab trials logged in .audit/experiments.tsv (5 keep, 1 reject reverted #047/#048), 41/41 full-size 3-seed verified (.audit/eval_m7_clusters.json): #097 FlashAttention 142.3ms (1.04x live MPS / 1.82x pinned), #081 2.68x, #079 2.11x, #085 2.02x, #075 1.97x, #086 1.79x, #076 1.56x, #056 1.18x, #042 1.01x, #089 1.01x, #009 3.90x faster, #007 2.52x faster, #055 2.20x faster; projected 100/100 geomean 1.8659x (73 >=1.00x, 87 >=0.98x), merge abb145d",
       "note": "",
-      "updatedAt": "2026-11-21T14:44:35.189780Z"
+      "updatedAt": "2026-11-21T16:23:49.637789Z"
     },
     {
       "id": "M8",
       "title": "Full-repo unslop, docs synthesis, adversarial interrogation & final release",
-      "status": "todo",
+      "status": "in_progress",
       "evidence": "",
-      "note": ""
+      "note": "",
+      "updatedAt": "2026-11-21T16:23:49.637789Z"
     }
   ],
   "scoreboard": {
     "passed": 100,
     "total": 100,
-    "beatsBaseline": 61,
-    "geomeanSpeedup": 1.631,
-    "artifact": ".audit/preflight_m5_m6.json",
-    "updatedAt": "2026-11-21T14:44:35.189780Z"
+    "beatsBaseline": 73,
+    "geomeanSpeedup": 1.8659,
+    "artifact": ".audit/eval_m7_clusters.json",
+    "updatedAt": "2026-11-21T16:23:49.637789Z"
   },
-  "milestonesSinceHygiene": 0,
+  "milestonesSinceHygiene": 1,
   "lastCheckpoint": {
-    "ts": "2026-11-21T14:44:35.189780Z",
-    "commit": "d452766",
-    "summary": "M5+M6 verified & merged + M5-M6 hygiene-clean checkpoint: 100/100 KB L1 passing (61 beats baseline, ~1.631x geomean), all 6 slop-critic pro findings resolved with regressions, 10-task frozen spot 10/10 pass (2.68x), docs synced",
-    "next": "M7 Compiler-DSL Co-Design Performance Sprint via research-lab: push 61/100 -> >=85/100 beats baseline & geomean >2.0x while preserving 100/100 correctness",
-    "hygieneClean": true
+    "ts": "2026-11-21T16:23:49.637789Z",
+    "commit": "abb145d",
+    "summary": "M7 verified & merged: 100/100 KB L1 passing, geomean 1.8659x (73/100 >=1.00x, 87/100 >=0.98x parity), 6 research-lab trials in .audit/experiments.tsv",
+    "next": "M8 full-repo unslop (extract msl_common, deduplicate emitters), adversarial slop-critic pro audit, final 100-task frozen eval_kernelbench.py, README/docs synthesis, release tag",
+    "hygieneClean": false
   },
   "checkpoints": [
     {
@@ -127,6 +128,13 @@
       "summary": "M5+M6 verified & merged + M5-M6 hygiene-clean checkpoint: 100/100 KB L1 passing (61 beats baseline, ~1.631x geomean), all 6 slop-critic pro findings resolved with regressions, 10-task frozen spot 10/10 pass (2.68x), docs synced",
       "next": "M7 Compiler-DSL Co-Design Performance Sprint via research-lab: push 61/100 -> >=85/100 beats baseline & geomean >2.0x while preserving 100/100 correctness",
       "hygieneClean": true
+    },
+    {
+      "ts": "2026-11-21T16:23:49.637789Z",
+      "commit": "abb145d",
+      "summary": "M7 verified & merged: 100/100 KB L1 passing, geomean 1.8659x (73/100 >=1.00x, 87/100 >=0.98x parity), 6 research-lab trials in .audit/experiments.tsv",
+      "next": "M8 full-repo unslop (extract msl_common, deduplicate emitters), adversarial slop-critic pro audit, final 100-task frozen eval_kernelbench.py, README/docs synthesis, release tag",
+      "hygieneClean": false
     }
   ]
 }
