@@ -3,8 +3,13 @@
 ## EntryPoints
 
 - `scripts/ci_local.sh`
+- `python/m1triton/__init__.py`
+- `python/m1triton/jit.py`
+- `python/m1triton/ast_lowering.py`
 - `python/m1triton/runtime.py`
-- `cpp/ir/target_spec.hpp`
+- `cpp/ir/ir.hpp`
+- `cpp/passes/pass_manager.hpp`
+- `cpp/codegen/metal/metal_codegen.hpp`
 - `cpp/runtime/metal_runtime.mm`
 - `evals/roofline_probe.py`
 - `evals/eval_kernelbench.py`
@@ -12,12 +17,13 @@
 
 ## Observable Behaviors
 
-- `bash scripts/ci_local.sh` runs guardrails, feature map audit, C++20/ObjC++ build via Apple Clang + Ninja, CTest, and Python pytest and exits 0.
-- `m1triton.runtime.device_info()` reports the active Apple M1 Max Metal device with unified memory enabled and `>= 32768` bytes threadgroup SRAM.
-- `evals/roofline_probe.py` compiles and runs native Metal STREAM and SGMM kernels and reports measured GB/s and TFLOPS.
+- `@m1triton.jit` / `@triton.jit` lowers Python AST to C++20 SSA IR (`IRBuilder`), runs `PassManager::build_m1_pipeline()`, verifies IR invariants, emits readable MSL (`MetalCodegen`), compiles via native Metal `newLibraryWithSource` + `MTLBinaryArchive`, and executes zero-copy over PyTorch MPS `MTLBuffer`s.
+- `bash scripts/ci_local.sh` runs guardrails, feature map audit, C++20/ObjC++ build (`-Wall -Wextra -Werror`), CTest (with `-UNDEBUG`), and Python pytest and exits 0.
+- `evals/eval_kernelbench.py` enforces static AST, runtime `TorchDispatchMode`, and native Metal dispatch count anti-cheat gates.
 
 ## Invariants
 
-- `cpp/ir/` has zero includes of runtime, codegen, bindings, or Metal headers (`ARCH-IR-PURE`).
-- `cpp/passes/` has zero includes of runtime, bindings, or Metal headers (`ARCH-PASSES-NO-RUNTIME`).
+- `cpp/ir/` has zero includes of runtime, codegen, bindings, Metal, or pybind11 (`ARCH-IR-PURE`).
+- `cpp/passes/` has zero includes of runtime, bindings, Metal, or pybind11 (`ARCH-PASSES-NO-RUNTIME`).
+- `evals/eval_kernelbench.py` and `evals/roofline_probe.py` remain SHA-256 frozen in `guardrails.json` (`FROZEN-EVAL`).
 - Parallel verification runs in different checkouts or worktrees never share the same port or `.audit/` state path.
