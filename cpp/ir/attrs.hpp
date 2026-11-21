@@ -68,6 +68,14 @@ enum class NormKind : uint8_t {
   L1Norm,
   L2Norm,
 };
+enum class LossKind : uint8_t {
+  MSE,
+  CrossEntropy,
+  Huber,
+  KLDiv,
+  TripletMargin,
+  Hinge,
+};
 enum class BarrierScope : uint8_t { Simdgroup, Threadgroup, DeviceMem };
 enum class TensorLayoutHint : uint8_t { NCHW, NHWC, NCDHW, RowMajor, ColMajor };
 
@@ -184,11 +192,21 @@ struct ScanAttr {
 
 struct ConvAttr {
   uint32_t ndim = 2;
+  std::vector<int32_t> kernel_size;
   std::vector<int32_t> stride;
   std::vector<int32_t> padding;
   std::vector<int32_t> dilation;
+  std::vector<int32_t> output_padding;
   int32_t groups = 1;
   bool transposed = false;
+  bool has_bias = false;
+  bool is_depthwise = false;
+  bool is_pointwise = false;
+  bool use_sram_halo = false;
+  uint32_t bm = 64;
+  uint32_t bn = 64;
+  uint32_t bk = 16;
+  uint32_t num_simdgroups = 4;
   TensorLayoutHint layout = TensorLayoutHint::NCHW;
   bool operator==(const ConvAttr&) const = default;
 };
@@ -197,7 +215,21 @@ struct FlashAttnAttr {
   float scale = 1.0f;
   bool causal = false;
   int32_t causal_offset = 0;
+  uint32_t bm = 16;
+  uint32_t bn = 64;
+  uint32_t bd = 32;
+  uint32_t num_simdgroups = 16;
   bool operator==(const FlashAttnAttr&) const = default;
+};
+
+struct LossAttr {
+  LossKind kind = LossKind::MSE;
+  float margin = 1.0f;
+  float beta = 1.0f;
+  float eps = 1e-6f;
+  int32_t stage = 1;
+  uint32_t tg_threads = 256;
+  bool operator==(const LossAttr&) const = default;
 };
 
 struct ThreadgroupAllocAttr {
@@ -287,7 +319,8 @@ using OpPayload = std::variant<
     SimdgroupMatmulAttr,
     OnlineSoftmaxAttr,
     WelfordNormAttr,
-    PoolAttr>;
+    PoolAttr,
+    LossAttr>;
 
 std::string_view unary_op_name(UnaryOp op);
 std::string_view binary_op_name(BinaryOp op);

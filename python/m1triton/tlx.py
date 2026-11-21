@@ -199,22 +199,46 @@ def simd_scan(
 
 
 def implicit_gemm_conv(
-    x: Any,
-    weight: Any,
-    *,
-    stride: tuple[int, ...] = (1, 1),
-    padding: tuple[int, ...] = (0, 0),
-    dilation: tuple[int, ...] = (1, 1),
+    x_ptr: Any,
+    w_ptr: Any,
+    out_ptr: Any,
+    *args: Any,
+    ndim: int = 2,
+    kernel_size: tuple[int, ...] | list[int] | int = 3,
+    stride: tuple[int, ...] | list[int] | int = 1,
+    padding: tuple[int, ...] | list[int] | int = 0,
+    dilation: tuple[int, ...] | list[int] | int = 1,
+    output_padding: tuple[int, ...] | list[int] | int = 0,
     groups: int = 1,
+    transposed: bool = False,
+    has_bias: bool = False,
+    is_depthwise: bool = False,
+    is_pointwise: bool = False,
     layout: str = "nchw",
 ) -> Any:
     return _jit_only("implicit_gemm_conv")
 
 
+def fused_loss(
+    kind: str,
+    *args: Any,
+    margin: float = 1.0,
+    beta: float = 1.0,
+    eps: float = 1e-6,
+    stage: int = 1,
+) -> Any:
+    return _jit_only("fused_loss")
+
+
 def flash_attention_tile(
-    q: Any,
-    k: Any,
-    v: Any,
+    q_ptr: Any,
+    k_ptr: Any,
+    v_ptr: Any,
+    out_ptr: Any,
+    bh: Any = None,
+    lq: Any = None,
+    lkv: Any = None,
+    d: Any = None,
     *,
     scale: float = 1.0,
     causal: bool = False,
@@ -240,5 +264,6 @@ __all__ = [
     "row_scan",
     "simd_scan",
     "implicit_gemm_conv",
+    "fused_loss",
     "flash_attention_tile",
 ]

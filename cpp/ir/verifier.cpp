@@ -1016,6 +1016,59 @@ class KernelVerifier {
         break;
       }
 
+      case OpKind::ImplicitGemmConv: {
+        if (!std::holds_alternative<ConvAttr>(node.attr)) {
+          error(tag + ": missing ConvAttr");
+          break;
+        }
+        const auto& ca = std::get<ConvAttr>(node.attr);
+        if (ca.ndim < 1 || ca.ndim > 3) {
+          error(tag + ": ndim must be 1, 2, or 3");
+          break;
+        }
+        if (node.operands.size() < 6 || !node.results.empty()) {
+          error(tag + ": expects >= 6 operands and 0 results");
+          break;
+        }
+        if (!kernel_.value(node.operands[0]).type.is_ptr() || !kernel_.value(node.operands[1]).type.is_ptr() ||
+            !kernel_.value(node.operands[2]).type.is_ptr()) {
+          error(tag + ": operands 0, 1, 2 (x, w, out) must be device pointers");
+        }
+        break;
+      }
+
+      case OpKind::FusedLoss: {
+        if (!std::holds_alternative<LossAttr>(node.attr)) {
+          error(tag + ": missing LossAttr");
+          break;
+        }
+        if (node.operands.size() < 4 || !node.results.empty()) {
+          error(tag + ": expects >= 4 operands and 0 results");
+          break;
+        }
+        if (!kernel_.value(node.operands[0]).type.is_ptr() || !kernel_.value(node.operands[1]).type.is_ptr()) {
+          error(tag + ": operands 0 and 1 must be device pointers");
+        }
+        break;
+      }
+
+      case OpKind::FlashAttentionTile: {
+        if (!std::holds_alternative<FlashAttnAttr>(node.attr)) {
+          error(tag + ": missing FlashAttnAttr");
+          break;
+        }
+        if (node.operands.size() != 8 || !node.results.empty()) {
+          error(tag + ": expects 8 operands (q, k, v, out, BH, L_q, L_kv, D) and 0 results");
+          break;
+        }
+        for (size_t i = 0; i < 4; ++i) {
+          if (!kernel_.value(node.operands[i]).type.is_ptr()) {
+            error(tag + ": operand " + std::to_string(i) + " must be a device pointer");
+          }
+        }
+        break;
+      }
+
       case OpKind::Barrier: {
         if (!node.operands.empty() || !node.results.empty() || !std::holds_alternative<BarrierAttr>(node.attr)) {
           error(tag + ": expects 0 operands, 0 results, and BarrierAttr");
