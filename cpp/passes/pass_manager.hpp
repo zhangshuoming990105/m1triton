@@ -18,6 +18,7 @@ class PassManager {
   PassResult run(ir::Module& mod, const PassContext& ctx) const;
 
   static PassManager build_m1_pipeline();
+  static PassManager build_m2_pipeline();
 
  private:
   std::vector<std::unique_ptr<Pass>> passes_;
