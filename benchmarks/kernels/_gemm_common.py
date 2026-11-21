@@ -40,6 +40,9 @@ def sgmm_gemm_kernel(
     TRANS_A: tl.constexpr = 0,
     TRANS_B: tl.constexpr = 0,
     STRUCTURE: tl.constexpr = "dense",
+    N_MAJOR: tl.constexpr = 0,
+    IS_BATCHED: tl.constexpr = 0,
+    ALIGNED_MNK: tl.constexpr = 0,
 ):
     tlx.tile_spec(
         BLOCK_M,
@@ -53,17 +56,26 @@ def sgmm_gemm_kernel(
     if STRUCTURE != "dense":
         tlx.structure(STRUCTURE)
 
-    pid_m = tl.program_id(0)
-    pid_n = tl.program_id(1)
-    pid_b = tl.program_id(2)
+    if N_MAJOR == 0:
+        pid_m = tl.program_id(0)
+        pid_n = tl.program_id(1)
+    else:
+        pid_n = tl.program_id(0)
+        pid_m = tl.program_id(1)
 
     offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     offs_k = tl.arange(0, BLOCK_K)
 
-    a_base = a_ptr + pid_b.to(tl.int64) * stride_ab
-    b_base = b_ptr + pid_b.to(tl.int64) * stride_bb
-    c_base = c_ptr + pid_b.to(tl.int64) * stride_cb
+    if IS_BATCHED == 0:
+        a_base = a_ptr
+        b_base = b_ptr
+        c_base = c_ptr
+    else:
+        pid_b = tl.program_id(2)
+        a_base = a_ptr + pid_b.to(tl.int64) * stride_ab
+        b_base = b_ptr + pid_b.to(tl.int64) * stride_bb
+        c_base = c_ptr + pid_b.to(tl.int64) * stride_cb
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for k in range(0, K, BLOCK_K):
@@ -76,15 +88,22 @@ def sgmm_gemm_kernel(
             b_ptrs = b_base + k_idx[:, None] * stride_bk + offs_n[None, :]
         else:
             b_ptrs = b_base + k_idx[:, None] + offs_n[None, :] * stride_bn
-        a_mask = (offs_m[:, None] < M) & (k_idx[None, :] < K)
-        b_mask = (k_idx[:, None] < K) & (offs_n[None, :] < N)
-        a = tl.load(a_ptrs, mask=a_mask, other=0.0)
-        b = tl.load(b_ptrs, mask=b_mask, other=0.0)
+        if ALIGNED_MNK == 1:
+            a = tl.load(a_ptrs)
+            b = tl.load(b_ptrs)
+        else:
+            a_mask = (offs_m[:, None] < M) & (k_idx[None, :] < K)
+            b_mask = (k_idx[:, None] < K) & (offs_n[None, :] < N)
+            a = tl.load(a_ptrs, mask=a_mask, other=0.0)
+            b = tl.load(b_ptrs, mask=b_mask, other=0.0)
         acc = tl.dot(a, b, acc=acc)
 
     c_ptrs = c_base + offs_m[:, None] * stride_cm + offs_n[None, :]
-    c_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
-    tl.store(c_ptrs, acc, mask=c_mask)
+    if ALIGNED_MNK == 1:
+        tl.store(c_ptrs, acc)
+    else:
+        c_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
+        tl.store(c_ptrs, acc, mask=c_mask)
 
 
 @m1triton.jit
@@ -233,12 +252,29 @@ def mat_scalar_mul_kernel(
     scalar,
     n_elements,
     BLOCK_SIZE: tl.constexpr,
+    USE_VEC4: tl.constexpr = 1,
 ):
+    if USE_VEC4:
+        tlx.vec_width(4)
+
     pid = tl.program_id(0)
-    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    mask = offs < n_elements
-    a = tl.load(a_ptr + offs, mask=mask)
-    tl.store(out_ptr + offs, a * scalar, mask=mask)
+    base = pid * (4 * BLOCK_SIZE) + tl.arange(0, BLOCK_SIZE)
+    o0 = base
+    o1 = base + BLOCK_SIZE
+    o2 = base + 2 * BLOCK_SIZE
+    o3 = base + 3 * BLOCK_SIZE
+    m0 = o0 < n_elements
+    m1 = o1 < n_elements
+    m2 = o2 < n_elements
+    m3 = o3 < n_elements
+    a0 = tl.load(a_ptr + o0, mask=m0)
+    a1 = tl.load(a_ptr + o1, mask=m1)
+    a2 = tl.load(a_ptr + o2, mask=m2)
+    a3 = tl.load(a_ptr + o3, mask=m3)
+    tl.store(out_ptr + o0, a0 * scalar, mask=m0)
+    tl.store(out_ptr + o1, a1 * scalar, mask=m1)
+    tl.store(out_ptr + o2, a2 * scalar, mask=m2)
+    tl.store(out_ptr + o3, a3 * scalar, mask=m3)
 
 
 @m1triton.jit(hints=[tlx.structure("diagonal")])
@@ -264,16 +300,21 @@ def diag_matmul_kernel(
     tl.store(c_ptr + (row_off + col_offs), a_val * b_vec, mask=mask)
 
 
-def _select_sgmm_schedule(m: int, n: int, k: int, structure: str) -> tuple[int, int, int, int, int]:
+def _select_sgmm_schedule(
+    m: int,
+    n: int,
+    k: int,
+    structure: str,
+    trans_a: bool = False,
+    trans_b: bool = False,
+) -> tuple[int, int, int, int, int, int]:
     if structure != "dense":
-        return 64, 64, 32, 4, 8
+        return 64, 64, 32, 4, 8, 0
     if k <= 64:
-        return 64, 64, 32, 4, 1
-    if (m % 64 != 0) or (n % 64 != 0) or (k % 4 != 0):
-        return 64, 128, 32, 8, 8
-    if m >= 128 and n >= 64:
-        return 128, 64, 32, 8, 8
-    return 64, 64, 32, 4, 8
+        return 64, 64, 16, 4, 1, 1
+    if (trans_a or trans_b) and m >= 64 and n >= 128:
+        return 64, 128, 16, 8, 8, 0
+    return 64, 64, 16, 4, 8, 0
 
 
 def gemm_2d(
@@ -313,15 +354,16 @@ def gemm_2d(
     if k != k_b:
         raise ValueError(f"Incompatible GEMM K dimensions: {k} vs {k_b}")
 
-    bm, bn, bk, sg, sw = _select_sgmm_schedule(m, n, k, structure)
+    bm, bn, bk, sg, sw, n_maj = _select_sgmm_schedule(m, n, k, structure, trans_a, trans_b)
     bm = bm if block_m is None else block_m
     bn = bn if block_n is None else block_n
     bk = bk if block_k is None else block_k
     sg = sg if num_sg is None else num_sg
     sw = sw if swizzle_w is None else swizzle_w
 
+    aligned = 1 if (structure == "dense" and m % bm == 0 and n % bn == 0 and k % bk == 0 and k > 0) else 0
     out = torch.empty((m, n), dtype=a_c.dtype, device=a_c.device)
-    grid = (m1triton.cdiv(m, bm), m1triton.cdiv(n, bn), 1)
+    grid = (m1triton.cdiv(n, bn), m1triton.cdiv(m, bm), 1) if n_maj else (m1triton.cdiv(m, bm), m1triton.cdiv(n, bn), 1)
     sgmm_gemm_kernel[grid](
         a_c,
         b_c,
@@ -346,6 +388,9 @@ def gemm_2d(
         TRANS_A=1 if trans_a else 0,
         TRANS_B=1 if trans_b else 0,
         STRUCTURE=structure,
+        N_MAJOR=n_maj,
+        IS_BATCHED=0,
+        ALIGNED_MNK=aligned,
         fast_math=True,
     )
     return out
@@ -355,10 +400,10 @@ def bmm_3d(
     A: torch.Tensor,
     B: torch.Tensor,
     *,
-    block_m: int = 128,
+    block_m: int = 64,
     block_n: int = 64,
-    block_k: int = 32,
-    num_sg: int = 8,
+    block_k: int = 16,
+    num_sg: int = 4,
     swizzle_w: int = 8,
 ) -> torch.Tensor:
     a_c = A.contiguous()
@@ -368,6 +413,7 @@ def bmm_3d(
     if batch != b_batch or k != k_b:
         raise ValueError(f"Incompatible BMM shapes: {tuple(a_c.shape)} vs {tuple(b_c.shape)}")
 
+    aligned = 1 if (m % block_m == 0 and n % block_n == 0 and k % block_k == 0 and k > 0) else 0
     out = torch.empty((batch, m, n), dtype=a_c.dtype, device=a_c.device)
     grid = (m1triton.cdiv(m, block_m), m1triton.cdiv(n, block_n), batch)
     sgmm_gemm_kernel[grid](
@@ -394,6 +440,9 @@ def bmm_3d(
         TRANS_A=0,
         TRANS_B=0,
         STRUCTURE="dense",
+        N_MAJOR=0,
+        IS_BATCHED=0 if batch == 1 else 1,
+        ALIGNED_MNK=aligned,
         fast_math=True,
     )
     return out
@@ -487,17 +536,20 @@ def gemv(A: torch.Tensor, B: torch.Tensor, *, block_k: int = 1024) -> torch.Tens
     return out
 
 
-def mat_scalar_mul(A: torch.Tensor, s: float, *, block_size: int = 1024) -> torch.Tensor:
+def mat_scalar_mul(A: torch.Tensor, s: float, *, block_size: int = 512) -> torch.Tensor:
     a_c = A.contiguous()
     out = torch.empty_like(a_c)
     n_elements = a_c.numel()
-    grid = (m1triton.cdiv(n_elements, block_size),)
+    aligned = _is_16b_aligned(a_c) and _is_16b_aligned(out)
+    grid = (m1triton.cdiv(n_elements, 4 * block_size),)
     mat_scalar_mul_kernel[grid](
         a_c,
         out,
         float(s),
         n_elements,
         BLOCK_SIZE=block_size,
+        USE_VEC4=1 if aligned else 0,
+        fast_math=True,
     )
     return out
 
