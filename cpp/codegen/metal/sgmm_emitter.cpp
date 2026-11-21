@@ -1,15 +1,13 @@
 #include "codegen/metal/sgmm_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
-#include <iomanip>
-#include <limits>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -30,7 +28,6 @@ using ir::ConstAttr;
 using ir::DotAttr;
 using ir::Kernel;
 using ir::KernelParam;
-using ir::LoadStoreAttr;
 using ir::MatrixStructure;
 using ir::Op;
 using ir::OpId;
@@ -45,139 +42,6 @@ using ir::UnaryAttr;
 using ir::UnaryOp;
 using ir::ValueId;
 using ir::kInvalidId;
-
-ScalarDType scalar_dtype_of(const Type& ty) {
-  return ty.is_ptr_elem() ? ty.ptr_elem().pointee : ty.scalar_elem();
-}
-
-bool is_float_dtype(ScalarDType dt) {
-  return dt == ScalarDType::F32 || dt == ScalarDType::F16;
-}
-
-std::string msl_scalar_type(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "float";
-}
-
-std::string format_float_literal(double d) {
-  if (std::isnan(d)) return "NAN";
-  if (std::isinf(d)) return d < 0.0 ? "(-INFINITY)" : "INFINITY";
-  std::ostringstream oss;
-  oss << std::setprecision(9) << static_cast<float>(d);
-  std::string s = oss.str();
-  if (s.find('.') == std::string::npos && s.find('e') == std::string::npos && s.find('E') == std::string::npos) {
-    s += ".0";
-  }
-  return s + "f";
-}
-
-std::string format_scalar_literal_from_i64(int64_t v, ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return format_float_literal(static_cast<double>(v));
-    case ScalarDType::F16:
-      return "half(" + format_float_literal(static_cast<double>(v)) + ")";
-    case ScalarDType::I32: {
-      int32_t i32 = static_cast<int32_t>(v);
-      if (i32 == std::numeric_limits<int32_t>::min()) return "(-2147483647 - 1)";
-      return std::to_string(i32);
-    }
-    case ScalarDType::U32:
-      return std::to_string(static_cast<uint32_t>(v)) + "u";
-    case ScalarDType::I64:
-      if (v == std::numeric_limits<int64_t>::min()) return "(-9223372036854775807ll - 1ll)";
-      return std::to_string(v) + "ll";
-    case ScalarDType::Bool:
-      return v != 0 ? "true" : "false";
-  }
-  return "0";
-}
-
-std::string msl_const_literal(const ConstAttr& attr, ScalarDType dt) {
-  return std::visit(
-      [dt](const auto& raw) -> std::string {
-        using T = std::decay_t<decltype(raw)>;
-        if constexpr (std::is_same_v<T, bool>) {
-          if (dt == ScalarDType::Bool) return raw ? "true" : "false";
-          return format_scalar_literal_from_i64(raw ? 1 : 0, dt);
-        } else if constexpr (std::is_same_v<T, double>) {
-          if (dt == ScalarDType::F32) return format_float_literal(raw);
-          if (dt == ScalarDType::F16) return "half(" + format_float_literal(raw) + ")";
-          if (dt == ScalarDType::Bool) return raw != 0.0 ? "true" : "false";
-          return format_scalar_literal_from_i64(static_cast<int64_t>(raw), dt);
-        } else if constexpr (std::is_same_v<T, uint64_t>) {
-          if (dt == ScalarDType::U32) return std::to_string(static_cast<uint32_t>(raw)) + "u";
-          if (dt == ScalarDType::F32) return format_float_literal(static_cast<double>(raw));
-          if (dt == ScalarDType::F16) return "half(" + format_float_literal(static_cast<double>(raw)) + ")";
-          if (dt == ScalarDType::Bool) return raw != 0 ? "true" : "false";
-          return format_scalar_literal_from_i64(static_cast<int64_t>(raw), dt);
-        } else {
-          return format_scalar_literal_from_i64(raw, dt);
-        }
-      },
-      attr.val);
-}
-
-std::optional<int64_t> eval_const_i64(const ConstAttr& attr) {
-  return std::visit(
-      [](const auto& raw) -> std::optional<int64_t> {
-        using T = std::decay_t<decltype(raw)>;
-        if constexpr (std::is_same_v<T, int64_t>) {
-          return raw;
-        } else if constexpr (std::is_same_v<T, uint64_t>) {
-          if (raw <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-            return static_cast<int64_t>(raw);
-          }
-          return std::nullopt;
-        } else if constexpr (std::is_same_v<T, bool>) {
-          return raw ? int64_t{1} : int64_t{0};
-        } else {
-          return std::nullopt;
-        }
-      },
-      attr.val);
-}
-
-std::optional<double> eval_const_f64(const ConstAttr& attr) {
-  return std::visit(
-      [](const auto& raw) -> std::optional<double> {
-        using T = std::decay_t<decltype(raw)>;
-        if constexpr (std::is_same_v<T, double>) {
-          return raw;
-        } else if constexpr (std::is_same_v<T, int64_t>) {
-          return static_cast<double>(raw);
-        } else if constexpr (std::is_same_v<T, uint64_t>) {
-          return static_cast<double>(raw);
-        } else {
-          return raw ? 1.0 : 0.0;
-        }
-      },
-      attr.val);
-}
-
-std::string axis_component(uint32_t axis) {
-  switch (axis) {
-    case 0:
-      return "x";
-    case 1:
-      return "y";
-    default:
-      return "z";
-  }
-}
 
 bool is_unsupported_op(OpKind kind) {
   switch (kind) {
@@ -199,19 +63,6 @@ bool is_unsupported_op(OpKind kind) {
       return true;
     default:
       return false;
-  }
-}
-
-void collect_blocks_dfs(const Kernel& kernel, BlockId bid, std::vector<BlockId>& order,
-                        std::unordered_set<BlockId>& seen) {
-  if (bid == kInvalidId || bid >= kernel.blocks.size() || !seen.insert(bid).second) return;
-  order.push_back(bid);
-  for (OpId oid : kernel.block(bid).ops) {
-    const Op& op = kernel.op(oid);
-    if (op.erased) continue;
-    for (BlockId rb : op.regions) {
-      collect_blocks_dfs(kernel, rb, order, seen);
-    }
   }
 }
 
@@ -337,20 +188,7 @@ bool build_param_mapping(const Kernel& kernel, const std::vector<BlockId>& all_b
     }
   }
 
-  uint32_t next_slot = 0;
-  for (uint32_t i = 0; i < kernel.params.size(); ++i) {
-    const KernelParam& kp = kernel.params[i];
-    if (kp.is_constexpr) continue;
-    ParamSlot slot;
-    slot.param_index = i;
-    slot.buffer_index = next_slot++;
-    slot.name = kp.name.empty() ? ("m1_arg" + std::to_string(slot.buffer_index)) : kp.name;
-    slot.is_pointer = kp.type.is_ptr();
-    slot.writable = slot.is_pointer && (kp.writable || out.written_params.count(i) > 0);
-    slot.dtype = scalar_dtype_of(kp.type);
-    out.param_msl_name[i] = slot.name;
-    out.slots.push_back(std::move(slot));
-  }
+  build_param_slots(kernel, out.written_params, out.slots, out.param_msl_name);
   return true;
 }
 
@@ -409,8 +247,8 @@ class ScalarAnalyzer {
         const auto& attr = std::get<ConstAttr>(op.attr);
         res.valid = true;
         res.expr = msl_const_literal(attr, dt);
-        res.const_i64 = eval_const_i64(attr);
-        res.const_f64 = eval_const_f64(attr);
+        res.const_i64 = const_as_i64(attr);
+        res.const_f64 = const_as_f64(attr);
         break;
       }
       case OpKind::ProgramId: {
@@ -1269,7 +1107,7 @@ bool is_zero_constant_tile(const Kernel& kernel, ValueId vid) {
   if (c_vid == kInvalidId || kernel.value(c_vid).def_op == kInvalidId) return false;
   const Op& cop = kernel.op(kernel.value(c_vid).def_op);
   if (cop.kind != OpKind::Constant) return false;
-  auto f = eval_const_f64(std::get<ConstAttr>(cop.attr));
+  auto f = const_as_f64(std::get<ConstAttr>(cop.attr));
   return f.has_value() && (*f == 0.0);
 }
 
@@ -1905,10 +1743,6 @@ std::string msl_packed_vec4_type(ScalarDType dt) {
   return (dt == ScalarDType::F16) ? "packed_half4" : "packed_float4";
 }
 
-std::string msl_vec4_type(ScalarDType dt) {
-  return (dt == ScalarDType::F16) ? "half4" : "float4";
-}
-
 std::string msl_sgmm_type(ScalarDType dt) {
   return (dt == ScalarDType::F16) ? "simdgroup_half8x8" : "simdgroup_float8x8";
 }
@@ -2509,15 +2343,7 @@ std::string emit_mma2_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
      << "}\n\n"
      << "[[max_total_threads_per_threadgroup(" << s.num_threads << ")]]\n"
      << "kernel void " << kernel.name << "(\n";
-  for (const auto& slot : plan.params.slots) {
-    if (slot.is_pointer) {
-      os << "    device " << (slot.writable ? "" : "const ") << msl_scalar_type(slot.dtype) << "* " << slot.name
-         << " [[buffer(" << slot.buffer_index << ")]],\n";
-    } else {
-      os << "    constant " << msl_scalar_type(slot.dtype) << "& " << slot.name << " [[buffer(" << slot.buffer_index
-         << ")]],\n";
-    }
-  }
+  emit_param_slot_decls(os, plan.params.slots);
   os << "    uint3 m1_tg_pos [[threadgroup_position_in_grid]],\n"
      << "    uint3 m1_grid_dim [[threadgroups_per_grid]],\n"
      << "    uint3 m1_tid [[thread_position_in_threadgroup]],\n"
@@ -2749,15 +2575,7 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
      << "[[max_total_threads_per_threadgroup(" << s.num_threads << ")]]\n";
 
   os << "kernel void " << kernel.name << "(\n";
-  for (const auto& slot : plan.params.slots) {
-    if (slot.is_pointer) {
-      os << "    device " << (slot.writable ? "" : "const ") << msl_scalar_type(slot.dtype) << "* " << slot.name
-         << " [[buffer(" << slot.buffer_index << ")]],\n";
-    } else {
-      os << "    constant " << msl_scalar_type(slot.dtype) << "& " << slot.name << " [[buffer(" << slot.buffer_index
-         << ")]],\n";
-    }
-  }
+  emit_param_slot_decls(os, plan.params.slots);
   os << "    uint3 m1_tg_pos [[threadgroup_position_in_grid]],\n"
      << "    uint3 m1_grid_dim [[threadgroups_per_grid]],\n"
      << "    uint3 m1_tid [[thread_position_in_threadgroup]],\n"

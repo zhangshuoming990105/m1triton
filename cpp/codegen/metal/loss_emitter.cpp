@@ -1,11 +1,9 @@
 #include "codegen/metal/loss_emitter.hpp"
 
-#include <cmath>
+#include "codegen/metal/msl_common.hpp"
+
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <initializer_list>
-#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -45,45 +43,6 @@ struct Emitter {
   uint32_t nsg() const { return tg / 32u; }
 };
 
-std::string msl_scalar(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "int";
-}
-
-std::string int_literal(int64_t v) {
-  if (v >= std::numeric_limits<int32_t>::min() && v <= std::numeric_limits<int32_t>::max()) {
-    return std::to_string(v);
-  }
-  return std::to_string(v) + "L";
-}
-
-std::string float_literal(double v) {
-  const float f = static_cast<float>(v);
-  char buf[64];
-  for (int prec = 6; prec <= 9; ++prec) {
-    std::snprintf(buf, sizeof(buf), "%.*e", prec, static_cast<double>(f));
-    if (std::strtof(buf, nullptr) == f) break;
-  }
-  return std::string(buf) + "f";
-}
-
-std::string msl_param_name(const ir::KernelParam& kp, uint32_t idx) {
-  return "m1p_" + (kp.name.empty() ? ("arg" + std::to_string(idx)) : kp.name);
-}
-
 bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& err) {
   const ir::Value& val = k.value(vid);
   if (val.def_op == ir::kInvalidId) {
@@ -104,9 +63,9 @@ bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& er
     }
     if (kp.is_constexpr) {
       out.konst = kp.constexpr_val;
-      out.expr = int_literal(kp.constexpr_val);
+      out.expr = msl_int_literal(kp.constexpr_val);
     } else {
-      out.expr = msl_param_name(kp, val.arg_idx);
+      out.expr = msl_prefixed_param_name(kp, val.arg_idx);
     }
     return true;
   }
@@ -121,15 +80,15 @@ bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& er
     out.dtype = val.type.is_scalar() ? val.type.as_scalar() : ScalarDType::F32;
     if (const auto* i = std::get_if<int64_t>(&c->val)) {
       out.konst = *i;
-      out.expr = int_literal(*i);
+      out.expr = msl_int_literal(*i);
     } else if (const auto* u = std::get_if<uint64_t>(&c->val)) {
       out.konst = static_cast<int64_t>(*u);
-      out.expr = int_literal(static_cast<int64_t>(*u));
+      out.expr = msl_int_literal(static_cast<int64_t>(*u));
     } else if (const auto* b = std::get_if<bool>(&c->val)) {
       out.konst = *b ? 1 : 0;
       out.expr = *b ? "1" : "0";
     } else {
-      out.expr = float_literal(std::get<double>(c->val));
+      out.expr = msl_exact_float_literal(std::get<double>(c->val));
     }
     return true;
   }
@@ -138,7 +97,7 @@ bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& er
     if (!resolve_operand(k, op.operands[0], inner, err)) return false;
     out = inner;
     out.dtype = val.type.as_scalar();
-    out.expr = msl_scalar(out.dtype) + "(" + inner.expr + ")";
+    out.expr = msl_scalar_type(out.dtype) + "(" + inner.expr + ")";
     return true;
   }
   err = "unsupported loss operand producer '" + std::string(ir::op_kind_name(op.kind)) + "'";
@@ -176,26 +135,6 @@ bool build_slots(Emitter& e, ValueId out_ptr) {
     e.slots.push_back(std::move(slot));
   }
   return true;
-}
-
-std::string signature(const Emitter& e) {
-  std::ostringstream os;
-  os << "kernel void " << e.kernel.name << "(\n";
-  for (const auto& slot : e.slots) {
-    const std::string name = msl_param_name(e.kernel.params[slot.param_index], slot.param_index);
-    if (slot.is_pointer) {
-      os << "    device " << (slot.writable ? "" : "const ") << msl_scalar(slot.dtype) << "* " << name;
-    } else {
-      os << "    constant " << msl_scalar(slot.dtype) << "& " << name;
-    }
-    os << " [[buffer(" << slot.buffer_index << ")]],\n";
-  }
-  os << "    uint3 m1_tgp [[threadgroup_position_in_grid]],\n"
-     << "    uint3 m1_ntg [[threadgroups_per_grid]],\n"
-     << "    uint m1_tid [[thread_index_in_threadgroup]],\n"
-     << "    uint m1_lane [[thread_index_in_simdgroup]],\n"
-     << "    uint m1_sg [[simdgroup_index_in_threadgroup]]) {\n";
-  return os.str();
 }
 
 constexpr const char* kPreamble = R"MSL(#include <metal_stdlib>
@@ -318,9 +257,9 @@ bool emit_flat_stage1(Emitter& e, const LossAttr& a) {
      << "  device const " << vt << "* m1_tv = (device const " << vt << "*)(" << t << ");\n";
 
   if (a.kind == LossKind::Huber && a.beta > 0.0f) {
-    os << "  const float m1_beta = " << float_literal(a.beta) << ";\n"
-       << "  const float m1_half_inv_beta = " << float_literal(0.5 / static_cast<double>(a.beta)) << ";\n"
-       << "  const float m1_half_beta = " << float_literal(0.5 * static_cast<double>(a.beta)) << ";\n";
+    os << "  const float m1_beta = " << msl_exact_float_literal(a.beta) << ";\n"
+       << "  const float m1_half_inv_beta = " << msl_exact_float_literal(0.5 / static_cast<double>(a.beta)) << ";\n"
+       << "  const float m1_half_beta = " << msl_exact_float_literal(0.5 * static_cast<double>(a.beta)) << ";\n";
   }
 
   os << "  float4 m1_acc4 = float4(0.0f);\n"
@@ -630,8 +569,8 @@ bool emit_triplet_margin_stage1(Emitter& e, const LossAttr& a) {
      << "  threadgroup float m1_shan[2][" << e.nsg() << "];\n"
      << "  const long m1_B = long(" << e.ops[4].expr << ");\n"
      << "  const long m1_D = long(" << e.ops[5].expr << ");\n"
-     << "  const float m1_eps = " << float_literal(a.eps) << ";\n"
-     << "  const float m1_margin = " << float_literal(a.margin) << ";\n"
+     << "  const float m1_eps = " << msl_exact_float_literal(a.eps) << ";\n"
+     << "  const float m1_margin = " << msl_exact_float_literal(a.margin) << ";\n"
      << "  float m1_row_sum = 0.0f;\n"
      << "  uint m1_buf = 0u;\n"
      << "  for (long m1_row = long(m1_tgp.x); m1_row < m1_B; m1_row += long(m1_ntg.x)) {\n"
@@ -764,7 +703,7 @@ CompiledMSL try_emit_loss_kernel(const ir::Kernel& kernel, const ir::TargetSpec&
 
   CompiledMSL res;
   res.ok = true;
-  res.msl_source = std::string(kPreamble) + signature(e) + e.body.str() + "}\n";
+  res.msl_source = std::string(kPreamble) + emit_prefixed_kernel_sig(e.kernel, e.slots) + e.body.str() + "}\n";
   res.launch_spec.entry_name = kernel.name;
   res.launch_spec.tg_x = e.tg;
   res.launch_spec.tg_y = 1;

@@ -1,7 +1,6 @@
 #include "passes/contiguity_analysis.hpp"
 
 #include <algorithm>
-#include <cstdlib>
 #include <numeric>
 #include <unordered_map>
 

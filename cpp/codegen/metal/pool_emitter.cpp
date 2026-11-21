@@ -1,5 +1,7 @@
 #include "codegen/metal/pool_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -19,31 +21,12 @@ using ir::OpKind;
 using ir::PoolAttr;
 using ir::PoolKind;
 using ir::ScalarDType;
-using ir::ValueId;
 
 constexpr const char* kBlockWParam = "BLOCK_W";
 constexpr const char* kBlockHParam = "BLOCK_H";
 constexpr const char* kVecWParam = "VEC_W";
 constexpr const char* kRowsPerThreadParam = "ROWS_PER_THREAD";
 constexpr int32_t kMaxRegSwKernel = 8;
-
-std::string msl_scalar(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "float";
-}
 
 struct PoolDim {
   std::string in;
@@ -75,48 +58,6 @@ struct PoolPlan {
   int64_t smem_w = 0;
   int64_t smem_h = 0;
 };
-
-std::optional<uint32_t> param_index_of(const Kernel& kernel, ValueId vid) {
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op != ir::kInvalidId || v.def_block != kernel.entry_block) return std::nullopt;
-  if (v.arg_idx >= kernel.params.size()) return std::nullopt;
-  return v.arg_idx;
-}
-
-std::optional<std::string> scalar_expr(const Kernel& kernel, ValueId vid) {
-  if (auto pidx = param_index_of(kernel, vid)) {
-    const ir::KernelParam& kp = kernel.params[*pidx];
-    if (kp.type.is_ptr()) return std::nullopt;
-    if (kp.is_constexpr) return std::to_string(kp.constexpr_val) + "L";
-    return "((long)" + kp.name + ")";
-  }
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op == ir::kInvalidId) return std::nullopt;
-  const Op& def = kernel.op(v.def_op);
-  if (def.kind == OpKind::Constant) {
-    const auto* ca = std::get_if<ir::ConstAttr>(&def.attr);
-    if (ca == nullptr) return std::nullopt;
-    if (const auto* i = std::get_if<int64_t>(&ca->val)) return std::to_string(*i) + "L";
-    if (const auto* u = std::get_if<uint64_t>(&ca->val)) return std::to_string(*u) + "L";
-    if (const auto* b = std::get_if<bool>(&ca->val)) return *b ? "1L" : "0L";
-    return std::nullopt;
-  }
-  if (def.kind == OpKind::Cast && def.operands.size() == 1) return scalar_expr(kernel, def.operands[0]);
-  return std::nullopt;
-}
-
-int64_t constexpr_param(const Kernel& kernel, const char* name, int64_t fallback) {
-  for (const auto& kp : kernel.params) {
-    if (kp.is_constexpr && kp.name == name && kp.constexpr_val > 0) return kp.constexpr_val;
-  }
-  return fallback;
-}
-
-uint32_t fit_divisor(uint32_t threads, uint32_t block) {
-  threads = std::max<uint32_t>(1, std::min(threads, block));
-  while (block % threads != 0) --threads;
-  return threads;
-}
 
 int64_t halo(int64_t tile, const PoolDim& dim) {
   return (tile - 1) * dim.s + static_cast<int64_t>(dim.d) * (dim.k - 1) + 1;
@@ -173,11 +114,11 @@ std::optional<PoolPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
   }
   plan.x_name = kernel.params[*x_idx].name;
   plan.out_name = kernel.params[*o_idx].name;
-  plan.elem = msl_scalar(x_dt);
+  plan.elem = msl_scalar_type(x_dt);
 
   std::vector<std::string> exprs;
   for (size_t i = 2; i < ops.size(); ++i) {
-    auto e = scalar_expr(kernel, ops[i]);
+    auto e = scalar_long_expr(kernel, ops[i]);
     if (!e) {
       err = "pool shape operands must be scalar kernel parameters or constants";
       return std::nullopt;
@@ -203,10 +144,10 @@ std::optional<PoolPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
 
   const uint32_t tg_x = pa->tg_x > 0 ? pa->tg_x : (nd == 1 ? 256u : 16u);
   const uint32_t tg_y = nd == 1 ? 1u : (pa->tg_y > 0 ? pa->tg_y : 16u);
-  plan.bw = static_cast<uint32_t>(constexpr_param(kernel, kBlockWParam, tg_x));
-  plan.bh = nd == 1 ? 1u : static_cast<uint32_t>(constexpr_param(kernel, kBlockHParam, tg_y));
-  const int64_t vec_w = constexpr_param(kernel, kVecWParam, 0);
-  const int64_t rh_hint = constexpr_param(kernel, kRowsPerThreadParam, 0);
+  plan.bw = static_cast<uint32_t>(positive_constexpr_param(kernel, kBlockWParam, tg_x));
+  plan.bh = nd == 1 ? 1u : static_cast<uint32_t>(positive_constexpr_param(kernel, kBlockHParam, tg_y));
+  const int64_t vec_w = positive_constexpr_param(kernel, kVecWParam, 0);
+  const int64_t rh_hint = positive_constexpr_param(kernel, kRowsPerThreadParam, 0);
 
   if (nd == 2 && plan.attr.kind == PoolKind::Max && (vec_w == 4 || plan.bw >= 128) &&
       plan.dims[1].s == 1 && plan.dims[2].s == 1 && plan.dims[1].d == 1 && plan.dims[2].d == 1 &&
@@ -310,19 +251,7 @@ class PoolWriter {
       os_ << "  return (a > b || isnan(a)) ? a : b;\n";
       os_ << "}\n\n";
     }
-    os_ << "kernel void " << kernel_.name << "(\n";
-    uint32_t slot = 0;
-    for (const auto& kp : kernel_.params) {
-      if (kp.is_constexpr) continue;
-      if (kp.type.is_ptr()) {
-        const auto pt = std::get<ir::PtrType>(kp.type.value);
-        const bool is_out = kp.name == plan_.out_name;
-        os_ << "    device " << (is_out ? "" : "const ") << msl_scalar(pt.pointee) << "* " << kp.name;
-      } else {
-        os_ << "    constant " << msl_scalar(std::get<ScalarDType>(kp.type.value)) << "& " << kp.name;
-      }
-      os_ << " [[buffer(" << slot++ << ")]],\n";
-    }
+    emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
     os_ << "    uint3 m1_tid [[thread_position_in_threadgroup]]) {\n";
   }
@@ -797,19 +726,7 @@ CompiledMSL try_emit_pool_kernel(const ir::Kernel& kernel, const ir::TargetSpec&
   res.launch_spec.threadgroup_mem_bytes = 0;
   res.launch_spec.vec_width = plan->reg_sw ? 4 : (plan->vec_direct ? static_cast<uint32_t>(plan->dims[2].k) : 1);
   res.launch_spec.fast_math = false;
-  uint32_t slot = 0;
-  for (uint32_t i = 0; i < kernel.params.size(); ++i) {
-    const ir::KernelParam& kp = kernel.params[i];
-    if (kp.is_constexpr) continue;
-    ParamSlot ps;
-    ps.param_index = i;
-    ps.buffer_index = slot++;
-    ps.name = kp.name;
-    ps.is_pointer = kp.type.is_ptr();
-    ps.writable = ps.is_pointer && (kp.writable || kp.name == plan->out_name);
-    ps.dtype = ps.is_pointer ? std::get<ir::PtrType>(kp.type.value).pointee : std::get<ScalarDType>(kp.type.value);
-    res.launch_spec.param_slots.push_back(std::move(ps));
-  }
+  res.launch_spec.param_slots = build_single_out_param_slots(kernel, plan->out_name);
   return res;
 }
 

@@ -1,8 +1,6 @@
 #include "ir/verifier.hpp"
 
-#include <array>
 #include <cstdint>
-#include <numeric>
 #include <sstream>
 #include <unordered_set>
 

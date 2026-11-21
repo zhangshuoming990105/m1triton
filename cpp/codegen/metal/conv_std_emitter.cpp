@@ -1,5 +1,7 @@
 #include "codegen/metal/conv_std_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -21,24 +23,6 @@ using ir::ScalarDType;
 using ir::ValueId;
 
 constexpr uint32_t kMaxFragsPerSimdgroup = 16;
-
-std::string msl_scalar(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "float";
-}
 
 std::string msl_packed_vec4(const std::string& elem) { return elem == "half" ? "packed_half4" : "packed_float4"; }
 std::string msl_vec4(const std::string& elem) { return elem == "half" ? "half4" : "float4"; }
@@ -85,34 +69,6 @@ struct ConvPlan {
   uint32_t wino_eld = 36;
 };
 
-std::optional<uint32_t> param_index_of(const Kernel& kernel, ValueId vid) {
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op != ir::kInvalidId || v.def_block != kernel.entry_block) return std::nullopt;
-  if (v.arg_idx >= kernel.params.size()) return std::nullopt;
-  return v.arg_idx;
-}
-
-std::optional<std::string> scalar_expr(const Kernel& kernel, ValueId vid) {
-  if (auto pidx = param_index_of(kernel, vid)) {
-    const ir::KernelParam& kp = kernel.params[*pidx];
-    if (kp.type.is_ptr()) return std::nullopt;
-    if (kp.is_constexpr) return std::to_string(kp.constexpr_val) + "L";
-    return "((long)" + kp.name + ")";
-  }
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op == ir::kInvalidId) return std::nullopt;
-  const Op& def = kernel.op(v.def_op);
-  if (def.kind == OpKind::Constant) {
-    const auto* ca = std::get_if<ir::ConstAttr>(&def.attr);
-    if (ca == nullptr) return std::nullopt;
-    if (const auto* i = std::get_if<int64_t>(&ca->val)) return std::to_string(*i) + "L";
-    if (const auto* u = std::get_if<uint64_t>(&ca->val)) return std::to_string(*u) + "L";
-    return std::nullopt;
-  }
-  if (def.kind == OpKind::Cast && def.operands.size() == 1) return scalar_expr(kernel, def.operands[0]);
-  return std::nullopt;
-}
-
 std::optional<int64_t> scalar_const(const Kernel& kernel, ValueId vid) {
   if (auto pidx = param_index_of(kernel, vid)) {
     const ir::KernelParam& kp = kernel.params[*pidx];
@@ -131,13 +87,6 @@ std::optional<int64_t> scalar_const(const Kernel& kernel, ValueId vid) {
   return std::nullopt;
 }
 
-std::optional<int64_t> constexpr_param(const Kernel& kernel, const char* name) {
-  for (const auto& kp : kernel.params) {
-    if (kp.is_constexpr && kp.name == name && kp.constexpr_val > 0) return kp.constexpr_val;
-  }
-  return std::nullopt;
-}
-
 bool valid_tile(uint32_t v) { return v == 16 || v == 32 || v == 64 || v == 128; }
 bool valid_bk(uint32_t v) { return v == 8 || v == 16 || v == 32; }
 
@@ -147,7 +96,7 @@ std::optional<std::string> float_ptr(const Kernel& kernel, ValueId vid, std::str
   const ScalarDType dt = std::get<ir::PtrType>(kernel.params[*idx].type.value).pointee;
   if (dt != ScalarDType::F32 && dt != ScalarDType::F16) return std::nullopt;
   name = kernel.params[*idx].name;
-  return msl_scalar(dt);
+  return msl_scalar_type(dt);
 }
 
 std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& target, std::string& err) {
@@ -206,7 +155,7 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
 
   std::vector<std::string> exprs;
   for (size_t i = ptr_count; i < ops.size(); ++i) {
-    auto e = scalar_expr(kernel, ops[i]);
+    auto e = scalar_long_expr(kernel, ops[i], false);
     if (!e) {
       err = "implicit_gemm_conv shape operands must be scalar kernel parameters or constants";
       return std::nullopt;
@@ -235,7 +184,7 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
   }
   plan.pointwise = unit;
 
-  if (auto wv = constexpr_param(kernel, "WINOGRAD"); wv && (*wv == 10 || *wv == 11 || *wv == 12)) {
+  if (auto wv = positive_constexpr_param(kernel, "WINOGRAD"); wv && (*wv == 10 || *wv == 11 || *wv == 12)) {
     if (nd != 2 || plan.attr.groups != 1 || plan.dims[1].k != 3 || plan.dims[2].k != 3 ||
         plan.dims[1].s != 1 || plan.dims[2].s != 1 || plan.dims[1].d != 1 || plan.dims[2].d != 1 ||
         plan.x_elem != "float" || plan.w_elem != "float" || plan.out_elem != "float") {
@@ -252,10 +201,10 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
       plan.num_sgs = 2;
       plan.smem_floats = 0;
     } else {
-      plan.bm = static_cast<uint32_t>(constexpr_param(kernel, "BLOCK_M").value_or(128));
-      plan.bn = static_cast<uint32_t>(constexpr_param(kernel, "BLOCK_N").value_or(64));
-      plan.bk = static_cast<uint32_t>(constexpr_param(kernel, "BLOCK_K").value_or(32));
-      plan.num_sgs = static_cast<uint32_t>(constexpr_param(kernel, "NUM_SG").value_or(8));
+      plan.bm = static_cast<uint32_t>(positive_constexpr_param(kernel, "BLOCK_M").value_or(128));
+      plan.bn = static_cast<uint32_t>(positive_constexpr_param(kernel, "BLOCK_N").value_or(64));
+      plan.bk = static_cast<uint32_t>(positive_constexpr_param(kernel, "BLOCK_K").value_or(32));
+      plan.num_sgs = static_cast<uint32_t>(positive_constexpr_param(kernel, "NUM_SG").value_or(8));
       if (plan.num_sgs == 8) {
         if (plan.bm >= plan.bn && plan.bm >= 32) {
           plan.sg_m = 4;
@@ -293,7 +242,7 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
     return plan;
   }
 
-  if (auto wv = constexpr_param(kernel, "WINOGRAD"); wv && *wv == 1) {
+  if (auto wv = positive_constexpr_param(kernel, "WINOGRAD"); wv && *wv == 1) {
     if (nd != 2 || plan.attr.groups != 1 || plan.dims[1].k != 3 || plan.dims[2].k != 3 ||
         plan.dims[1].s != 1 || plan.dims[2].s != 1 || plan.dims[1].d != 1 || plan.dims[2].d != 1 ||
         plan.x_elem != "float" || plan.w_elem != "float" || plan.out_elem != "float") {
@@ -302,12 +251,12 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
     }
     plan.winograd_mode = 1;
     constexpr uint32_t n_alpha = 16u;
-    plan.bm = static_cast<uint32_t>(constexpr_param(kernel, "BLOCK_M").value_or(32));
-    plan.bn = static_cast<uint32_t>(constexpr_param(kernel, "BLOCK_N").value_or(32));
-    plan.bk = static_cast<uint32_t>(constexpr_param(kernel, "BLOCK_K").value_or(16));
-    plan.wino_th = static_cast<uint32_t>(constexpr_param(kernel, "TILE_TH").value_or(2));
-    plan.wino_tw = static_cast<uint32_t>(constexpr_param(kernel, "TILE_TW").value_or(16));
-    plan.num_sgs = static_cast<uint32_t>(constexpr_param(kernel, "NUM_SG").value_or(16));
+    plan.bm = static_cast<uint32_t>(positive_constexpr_param(kernel, "BLOCK_M").value_or(32));
+    plan.bn = static_cast<uint32_t>(positive_constexpr_param(kernel, "BLOCK_N").value_or(32));
+    plan.bk = static_cast<uint32_t>(positive_constexpr_param(kernel, "BLOCK_K").value_or(16));
+    plan.wino_th = static_cast<uint32_t>(positive_constexpr_param(kernel, "TILE_TH").value_or(2));
+    plan.wino_tw = static_cast<uint32_t>(positive_constexpr_param(kernel, "TILE_TW").value_or(16));
+    plan.num_sgs = static_cast<uint32_t>(positive_constexpr_param(kernel, "NUM_SG").value_or(16));
     plan.num_threads = plan.num_sgs * 32u;
     if (plan.bm == 0 || plan.bn == 0 || plan.bk == 0 || (plan.bm % 8u) != 0 || (plan.bn % 8u) != 0 ||
         (plan.bk % 8u) != 0 || plan.wino_th * plan.wino_tw != plan.bn || (n_alpha % plan.num_sgs) != 0) {
@@ -320,7 +269,7 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
       err = "implicit_gemm_conv WINOGRAD exceeds register accumulator limit";
       return std::nullopt;
     }
-    const bool pad_smem = constexpr_param(kernel, "WINO_PAD").value_or(1) > 0;
+    const bool pad_smem = positive_constexpr_param(kernel, "WINO_PAD").value_or(1) > 0;
     const uint32_t pad_add = (plan.bn % 8u == 0u) ? 4u : 0u;
     plan.wino_vld =
         (pad_smem && n_alpha * plan.bk * (plan.bn + pad_add) * 4u <= target.max_threadgroup_memory_bytes)
@@ -343,10 +292,10 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
   plan.bn = ca->bn;
   plan.bk = ca->bk;
   plan.num_sgs = ca->num_simdgroups == 8 ? 8u : 4u;
-  if (auto v = constexpr_param(kernel, "BLOCK_M")) plan.bm = static_cast<uint32_t>(*v);
-  if (auto v = constexpr_param(kernel, "BLOCK_N")) plan.bn = static_cast<uint32_t>(*v);
-  if (auto v = constexpr_param(kernel, "BLOCK_K")) plan.bk = static_cast<uint32_t>(*v);
-  if (auto v = constexpr_param(kernel, "NUM_SG")) plan.num_sgs = (*v >= 8) ? 8u : 4u;
+  if (auto v = positive_constexpr_param(kernel, "BLOCK_M")) plan.bm = static_cast<uint32_t>(*v);
+  if (auto v = positive_constexpr_param(kernel, "BLOCK_N")) plan.bn = static_cast<uint32_t>(*v);
+  if (auto v = positive_constexpr_param(kernel, "BLOCK_K")) plan.bk = static_cast<uint32_t>(*v);
+  if (auto v = positive_constexpr_param(kernel, "NUM_SG")) plan.num_sgs = (*v >= 8) ? 8u : 4u;
   if (plan.bm == 16 && plan.bn == 16) plan.num_sgs = 4;
 
   if (plan.num_sgs == 8) {
@@ -1045,19 +994,7 @@ class ConvStdWriter {
 
   void emit_signature() {
     os_ << "#include <metal_stdlib>\nusing namespace metal;\n\n";
-    os_ << "kernel void " << kernel_.name << "(\n";
-    uint32_t slot = 0;
-    for (const auto& kp : kernel_.params) {
-      if (kp.is_constexpr) continue;
-      if (kp.type.is_ptr()) {
-        const auto pt = std::get<ir::PtrType>(kp.type.value);
-        const bool is_out = kp.name == plan_.out_name;
-        os_ << "    device " << (is_out ? "" : "const ") << msl_scalar(pt.pointee) << "* " << kp.name;
-      } else {
-        os_ << "    constant " << msl_scalar(std::get<ScalarDType>(kp.type.value)) << "& " << kp.name;
-      }
-      os_ << " [[buffer(" << slot++ << ")]],\n";
-    }
+    emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
     os_ << "    uint m1_tid [[thread_index_in_threadgroup]],\n";
     os_ << "    uint m1_sg [[simdgroup_index_in_threadgroup]]) {\n";
@@ -1714,19 +1651,7 @@ CompiledMSL try_emit_conv_std_kernel(const ir::Kernel& kernel, const ir::TargetS
   res.launch_spec.threadgroup_mem_bytes = 0;
   res.launch_spec.vec_width = 4;
   res.launch_spec.fast_math = false;
-  uint32_t slot = 0;
-  for (uint32_t i = 0; i < kernel.params.size(); ++i) {
-    const ir::KernelParam& kp = kernel.params[i];
-    if (kp.is_constexpr) continue;
-    ParamSlot ps;
-    ps.param_index = i;
-    ps.buffer_index = slot++;
-    ps.name = kp.name;
-    ps.is_pointer = kp.type.is_ptr();
-    ps.writable = ps.is_pointer && (kp.writable || kp.name == plan->out_name);
-    ps.dtype = ps.is_pointer ? std::get<ir::PtrType>(kp.type.value).pointee : std::get<ScalarDType>(kp.type.value);
-    res.launch_spec.param_slots.push_back(std::move(ps));
-  }
+  res.launch_spec.param_slots = build_single_out_param_slots(kernel, plan->out_name);
   return res;
 }
 
