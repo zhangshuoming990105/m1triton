@@ -264,7 +264,7 @@ def _parse_tail_kind(kind: str) -> _C.ir.TailKind:
     ir = _C.ir
     key = kind.strip().lower().replace("-", "_")
     mapping = {
-        "none": ir.TailKind.None,
+        "none": getattr(ir.TailKind, "None"),
         "row_sum": ir.TailKind.RowSum,
         "row_mean": ir.TailKind.RowMean,
         "row_max": ir.TailKind.RowMax,
@@ -388,6 +388,7 @@ class _ASTIRLowerer(ast.NodeVisitor):
         self.builder = _C.ir.IRBuilder(self.kernel)
 
         self.env: dict[str, Any] = {}
+        self.param_vals: dict[str, _SSAVal] = {}
         self._seed_globals()
         self._register_params(param_specs)
         for hint in initial_hints:
@@ -439,7 +440,9 @@ class _ASTIRLowerer(ast.NodeVisitor):
                     divisibility=int(ps.divisibility),
                     writable=False,
                 )
-                self.env[ps.name] = _SSAVal(vid=vid, ptr_params=frozenset({param_idx}))
+                val = _SSAVal(vid=vid, ptr_params=frozenset({param_idx}))
+                self.env[ps.name] = val
+                self.param_vals[ps.name] = val
             else:
                 ty = ir.Type.scalar(to_ir_scalar_dtype(ps.dtype))
                 vid = self.builder.add_param(
@@ -450,7 +453,9 @@ class _ASTIRLowerer(ast.NodeVisitor):
                     divisibility=int(ps.divisibility),
                     writable=False,
                 )
-                self.env[ps.name] = _SSAVal(vid=vid)
+                val = _SSAVal(vid=vid)
+                self.env[ps.name] = val
+                self.param_vals[ps.name] = val
 
     def lower(self) -> _C.ir.Module:
         for stmt in self.func_def.body:
