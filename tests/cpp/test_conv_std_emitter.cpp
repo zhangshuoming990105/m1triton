@@ -513,6 +513,177 @@ void test_full_pipeline_routes_conv_std() {
   assert(res.launch_spec.tg_x == 128);
 }
 
+void test_emit_epilogue_dag_std_and_winograd() {
+  const auto target = ir::TargetSpec::apple_m1_max();
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("conv2d_epilogue_dag");
+    ConvSpec spec;
+    spec.ndim = 2;
+    spec.k = {3, 3};
+    spec.s = {1, 1};
+    spec.p = {1, 1};
+    spec.d = {1, 1};
+    spec.has_bias = false;
+    build_conv_kernel(k, spec);
+    ir::IRBuilder b(k);
+    b.add_param("ep_bias", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    b.add_param("ep_scale", ir::Type::scalar(ir::ScalarDType::F32));
+    b.add_param("res_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    const int32_t bias_idx = static_cast<int32_t>(k.params.size() - 3);
+    const int32_t scale_idx = static_cast<int32_t>(k.params.size() - 2);
+    const int32_t res_idx = static_cast<int32_t>(k.params.size() - 1);
+    ir::EpilogueDAGAttr dag;
+    dag.steps = {
+        {ir::EpilogueOpKind::GELU, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::Mish, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, bias_idx},
+        {ir::EpilogueOpKind::MulScalar, 0.0f, 0.0f, scale_idx},
+        {ir::EpilogueOpKind::AddResidual, 0.0f, 0.0f, res_idx},
+    };
+    k.hints.epilogue_dag = dag;
+
+    auto pm = passes::PassManager::build_m1_pipeline();
+    passes::PassContext ctx{target};
+    assert(pm.run(k, ctx).ok);
+    codegen::metal::CompiledMSL res;
+    const std::string msl = emit(k, &res);
+    assert_contains(msl, "inline T m1_erf(T x)");
+    assert_contains(msl, "inline T m1_tanh(T x)");
+    assert_contains(msl, "device const float* ep_bias");
+    assert_contains(msl, "constant float& ep_scale");
+    assert_contains(msl, "device const float* res_ptr");
+    assert_contains(msl, "ep_bias[m1_cg]");
+    assert_contains(msl, "float(ep_scale)");
+    assert_contains(msl, "res_ptr[(m1_base_idx + (long)m1_e)]");
+    assert_not_contains(msl, "simdgroup_store(m1_acc[0][0], m1_od");
+    assert(res.launch_spec.param_slots.size() == 13);
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("conv2d_wino2x3_epi_tail");
+    ConvSpec spec;
+    spec.ndim = 2;
+    spec.k = {3, 3};
+    spec.s = {1, 1};
+    spec.p = {0, 0};
+    spec.d = {1, 1};
+    spec.has_bias = true;
+    build_conv_kernel(k, spec);
+    ir::IRBuilder b(k);
+    const auto i32 = ir::Type::scalar(ir::ScalarDType::I32);
+    b.add_param("WINOGRAD", i32, true, 1);
+    b.add_param("BLOCK_M", i32, true, 32);
+    b.add_param("BLOCK_N", i32, true, 32);
+    b.add_param("BLOCK_K", i32, true, 16);
+    b.add_param("TILE_TH", i32, true, 2);
+    b.add_param("TILE_TW", i32, true, 16);
+    b.add_param("NUM_SG", i32, true, 8);
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{{ir::EpilogueOpKind::GELU, 0.0f, 0.0f, -1}}};
+    k.hints.fused_tail = ir::FusedTailAttr{ir::TailKind::SpatialGlobalAvgPool, 1, 1, 1.0f, true};
+
+    auto pm = passes::PassManager::build_m1_pipeline();
+    passes::PassContext ctx{target};
+    assert(pm.run(k, ctx).ok);
+    const std::string msl = emit(k);
+    assert_contains(msl, "inline T m1_erf(T x)");
+    assert_contains(msl, "uint3 m1_num_tgs [[threadgroups_per_grid]]");
+    assert_contains(msl, "(float)m1_Pout");
+    assert_contains(msl, "(long)m1_num_tgs.x + (long)m1_tgid.x");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("conv2d_wino4x3_out_epi");
+    ir::IRBuilder b(k);
+    const auto ptr_ty = ir::Type::ptr(ir::ScalarDType::F32);
+    const auto i32 = ir::Type::scalar(ir::ScalarDType::I32);
+    std::vector<ir::ValueId> ops{
+        b.add_param("m_ptr", ptr_ty),
+        b.add_param("u_ptr", ptr_ty),
+        b.add_param("out_ptr", ptr_ty, false, 0, 16, true),
+        b.add_param("b_ptr", ptr_ty),
+    };
+    b.add_param("row_start", i32);
+    b.add_param("chunk_rows", i32);
+    b.add_param("p_ld", i32);
+    ops.push_back(b.add_param("N", i32, true, 4));
+    ops.push_back(b.add_param("C_in", i32, true, 64));
+    ops.push_back(b.add_param("C_out", i32, true, 128));
+    ops.push_back(b.add_param("H_in", i32, true, 64));
+    ops.push_back(b.add_param("W_in", i32, true, 64));
+    ops.push_back(b.add_param("H_out", i32, true, 62));
+    ops.push_back(b.add_param("W_out", i32, true, 62));
+    b.add_param("WINOGRAD", i32, true, 12);
+    ir::ConvAttr attr;
+    attr.ndim = 2;
+    attr.kernel_size = {3, 3};
+    attr.stride = {1, 1};
+    attr.padding = {0, 0};
+    attr.dilation = {1, 1};
+    attr.groups = 1;
+    attr.has_bias = true;
+    b.emit_implicit_gemm_conv(ops, attr);
+    b.emit_return();
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{{ir::EpilogueOpKind::Mish, 0.0f, 0.0f, -1}}};
+
+    auto pm = passes::PassManager::build_m1_pipeline();
+    passes::PassContext ctx{target};
+    assert(pm.run(k, ctx).ok);
+    const std::string msl = emit(k);
+    assert_contains(msl, "inline T m1_tanh(T x)");
+    assert_contains(msl, "m1_tanh(m1_sp)");
+  }
+}
+
+void test_emit_fused_tail_std_and_rejection() {
+  const auto target = ir::TargetSpec::apple_m1_max();
+  for (ir::TailKind tk : {ir::TailKind::SpatialGlobalAvgPool, ir::TailKind::SpatialGlobalSum,
+                          ir::TailKind::SpatialGlobalMax}) {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("conv3d_fused_tail");
+    ConvSpec spec;
+    spec.ndim = 3;
+    spec.k = {3, 3, 3};
+    spec.s = {1, 1, 1};
+    spec.p = {0, 0, 0};
+    spec.d = {1, 1, 1};
+    spec.has_bias = true;
+    build_conv_kernel(k, spec);
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{{ir::EpilogueOpKind::ReLU, 0.0f, 0.0f, -1}}};
+    k.hints.fused_tail = ir::FusedTailAttr{tk, 1, 1, 0.5f, true};
+
+    auto pm = passes::PassManager::build_m1_pipeline();
+    passes::PassContext ctx{target};
+    assert(pm.run(k, ctx).ok);
+    const std::string msl = emit(k);
+    assert_contains(msl, "uint3 m1_num_tgs [[threadgroups_per_grid]]");
+    assert_contains(msl, "threadgroup float m1_tacc[");
+    assert_contains(msl, "const int m1_n_tg = (int)m1_tgid.z / m1_G;");
+    if (tk == ir::TailKind::SpatialGlobalMax) {
+      assert_contains(msl, "-INFINITY");
+    } else if (tk == ir::TailKind::SpatialGlobalAvgPool) {
+      assert_contains(msl, "/ (float)m1_P64");
+    }
+  }
+
+  ir::Module bad_mod;
+  ir::Kernel& bad_k = bad_mod.add_kernel("conv2d_bad_tail");
+  ConvSpec spec;
+  spec.ndim = 2;
+  spec.k = {3, 3};
+  spec.s = {1, 1};
+  spec.p = {0, 0};
+  spec.d = {1, 1};
+  lower(bad_k, build_conv_kernel(bad_k, spec));
+  bad_k.hints.fused_tail = ir::FusedTailAttr{ir::TailKind::RowSum, 1, 1, 1.0f, true};
+  bool matched = false;
+  auto res = codegen::metal::try_emit_conv_std_kernel(bad_k, target, &matched);
+  assert(matched && !res.ok);
+  assert(res.error.find("fused_tail") != std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -529,6 +700,8 @@ int main() {
   test_emit_rejects_unsupported_tile();
   test_transposed_and_depthwise_unmatched();
   test_full_pipeline_routes_conv_std();
+  test_emit_epilogue_dag_std_and_winograd();
+  test_emit_fused_tail_std_and_rejection();
   std::cout << "test_conv_std_emitter: PASS\n";
   return 0;
 }
