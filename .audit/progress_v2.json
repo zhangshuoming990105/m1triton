@@ -4,7 +4,7 @@
   "releaseLine": "v2.0",
   "baselineTag": "v1.0-kernelbench-l1",
   "createdAt": "2026-11-22T05:36:00Z",
-  "updatedAt": "2026-11-22T07:45:50.792969Z",
+  "updatedAt": "2026-11-22T08:52:00Z",
   "milestones": [
     {
       "id": "V2-M0",
@@ -41,26 +41,26 @@
     {
       "id": "V2-M4",
       "title": "General Triton IR/codegen upgrade & L3 Part 1 (L3-01..L3-05: FlashAttn2 fwd/bwd, PagedAttn, SW/ALiBi, RMSNorm+RoPE+KV) + hygiene",
-      "status": "in_progress",
-      "evidence": "",
-      "note": "",
-      "updatedAt": "2026-11-22T07:45:50.792969Z"
+      "status": "verified",
+      "evidence": "Extended FlashAttnAttr (Fwd/BwdDKDV/BwdDQ/PagedDecode/GQA/SW/ALiBi/Softcap/LSE) + flash_attn_emitter + L3-01..L3-05 + Example 04 all verified; slop-critic (pro) audit PASS_WITH_NOTES & all findings fixed (d2f71fa); merge 92745a8",
+      "note": "SplitMSgmm L_q%16 guard, L3-02 multi-shape bwd & wait=True MPS safety verified",
+      "updatedAt": "2026-11-22T08:52:00Z"
     },
     {
       "id": "V2-M5",
       "title": "L3 Part 2 (L3-06..L3-10: LayerNorm bwd atomics, Chunked Linear CE, Mamba SSM, MoE Grouped GEMM, W4A16) -> 10/10 L3",
-      "status": "in_progress",
-      "evidence": "",
-      "note": "",
-      "updatedAt": "2026-11-22T07:45:50.792969Z"
+      "status": "verified",
+      "evidence": "Metal 3.0 atomic_float runtime + GroupedGemm/QuantDot IR & l3_gemm_emitter + L3-06..L3-10 + Example 05; 10/10 L3 preflight PASS (10/10 beats MPS, 4.3269x geomean, .audit/eval_l3_preflight.json) + ci_local.sh ALL GREEN (17/17 CTest, 118/118 pytest); merge 92745a8",
+      "note": "Note: L3-02 wait=True fix added ~0.4ms sync overhead to optimize in V2-M6",
+      "updatedAt": "2026-11-22T08:52:00Z"
     },
     {
       "id": "V2-M6",
       "title": "FusionOccupancyCostModelPass, MetalGraph/ICB tuning & research-lab performance sprint (L2 >=2.0x geomean, >=85 beats)",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": "",
       "note": "",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "updatedAt": "2026-11-22T08:52:00Z"
     },
     {
       "id": "V2-M7",
@@ -79,18 +79,18 @@
     "artifact": ".audit/eval_l2_preflight.json"
   },
   "scoreboardL3": {
-    "passed": 0,
+    "passed": 10,
     "total": 10,
-    "beatsBaseline": 0,
-    "geomeanSpeedup": 0.0,
-    "artifact": ""
+    "beatsBaseline": 10,
+    "geomeanSpeedup": 4.3269,
+    "artifact": ".audit/eval_l3_preflight.json"
   },
   "milestonesSinceHygiene": 0,
   "lastCheckpoint": {
-    "ts": "2026-11-22T07:45:50.792969Z",
-    "commit": "659e74c",
-    "summary": "V2-M1..M3 verified & merged: Fusion IR/passes, 100/100 KB L2 (100/100 beats MPS, 2.9878x geomean), torch.compile(backend='m1triton'), slop-critic (pro) 13/13 fixes + docs synced, CI ALL GREEN (16/16 CTest, 118/118 pytest)",
-    "next": "Execute V2-M4 & V2-M5: general Triton IR/codegen upgrades & all 10 Level 3 complex Triton kernels (L3-01..L3-10)",
+    "ts": "2026-11-22T08:52:00Z",
+    "commit": "92745a8",
+    "summary": "V2-M4..M5 verified & merged: Shared L3 IR (FlashAttn2/Paged/SW/ALiBi/Softcap/Bwd, GroupedGemm, QuantDot), Metal 3.0 atomic_float, 10/10 L3 kernels (4.3269x geomean), Examples 04 & 05, slop-critic (pro) fixes, CI ALL GREEN (17/17 CTest, 118/118 pytest)",
+    "next": "Execute V2-M6: FusionOccupancyCostModelPass, MetalGraph/ICB tuning, and research-lab perf sprint on slowest L2 chains & L3-02",
     "hygieneClean": true
   },
   "checkpoints": [
@@ -106,6 +106,13 @@
       "commit": "659e74c",
       "summary": "V2-M1..M3 verified & merged: Fusion IR/passes, 100/100 KB L2 (100/100 beats MPS, 2.9878x geomean), torch.compile(backend='m1triton'), slop-critic (pro) 13/13 fixes + docs synced, CI ALL GREEN (16/16 CTest, 118/118 pytest)",
       "next": "Execute V2-M4 & V2-M5: general Triton IR/codegen upgrades & all 10 Level 3 complex Triton kernels (L3-01..L3-10)",
+      "hygieneClean": true
+    },
+    {
+      "ts": "2026-11-22T08:52:00Z",
+      "commit": "92745a8",
+      "summary": "V2-M4..M5 verified & merged: Shared L3 IR, Metal 3.0 atomic_float, 10/10 L3 kernels (4.3269x geomean), Examples 04 & 05, slop-critic (pro) fixes, CI ALL GREEN (17/17 CTest, 118/118 pytest)",
+      "next": "Execute V2-M6: FusionOccupancyCostModelPass, MetalGraph/ICB tuning, and research-lab perf sprint on slowest L2 chains & L3-02",
       "hygieneClean": true
     }
   ]
