@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <variant>
@@ -21,6 +22,7 @@ using ir::OpKind;
 using ir::ValueId;
 
 enum class VecMode { Aligned, Peel, Packed };
+enum class ChMode { Col, ColWithT0, Channel, Row };
 
 struct Operand {
   std::string expr;
@@ -35,6 +37,16 @@ struct Aux {
   std::string base;
 };
 
+const ir::EpilogueDAGAttr* active_epilogue_dag(const Kernel& kernel, const Op* op) {
+  if (op != nullptr && op->hints.epilogue_dag.has_value() && !op->hints.epilogue_dag->steps.empty()) {
+    return &*op->hints.epilogue_dag;
+  }
+  if (kernel.hints.epilogue_dag.has_value() && !kernel.hints.epilogue_dag->steps.empty()) {
+    return &*kernel.hints.epilogue_dag;
+  }
+  return nullptr;
+}
+
 struct Emitter {
   explicit Emitter(const Kernel& k) : kernel(k) {}
 
@@ -42,10 +54,18 @@ struct Emitter {
   uint32_t tg = 256;
   std::vector<Operand> ops;
   std::vector<ParamSlot> slots;
+  const ir::EpilogueDAGAttr* epilogue_dag = nullptr;
+  HelperFlags helpers;
   std::ostringstream body;
   std::string err;
 
   uint32_t nsg() const { return tg / 32u; }
+
+  std::string epilogue_param_name(uint32_t idx) const {
+    const ir::KernelParam& kp = kernel.params[idx];
+    if (kp.is_constexpr) return msl_int_literal(kp.constexpr_val);
+    return msl_prefixed_param_name(kp, idx);
+  }
 };
 
 bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& err) {
@@ -126,6 +146,16 @@ bool build_slots(Emitter& e, ValueId out_ptr) {
       return false;
     }
     e.slots.push_back(std::move(slot));
+  }
+  if (e.epilogue_dag != nullptr) {
+    std::set<uint32_t> read_params;
+    collect_epilogue_dag_param_indices(*e.epilogue_dag, read_params);
+    for (uint32_t idx : read_params) {
+      if (idx >= k.params.size()) {
+        e.err = "epilogue_dag references out-of-range kernel parameter";
+        return false;
+      }
+    }
   }
   return true;
 }
@@ -222,9 +252,40 @@ void emit_reduce_loop(Emitter& e, VecMode mode, const std::string& xptr, const s
      << "  }\n";
 }
 
+void emit_scalar_epilogue(Emitter& e, const std::string& val_var, const std::string& ch_expr,
+                          const std::string& elem_idx_expr, const std::string& indent) {
+  emit_epilogue_dag_msl(
+      e.body, e.kernel, *e.epilogue_dag, val_var, ch_expr, elem_idx_expr,
+      [&](uint32_t idx) { return e.epilogue_param_name(idx); }, e.helpers, indent);
+}
+
+void emit_vec4_epilogue_store(Emitter& e, const char* vt, const std::string& lhs_expr, const std::string& val_expr,
+                              const std::string& base_idx_expr, const std::string& ch_expr,
+                              const std::string& indent) {
+  auto& os = e.body;
+  if (e.epilogue_dag == nullptr) {
+    os << indent << lhs_expr << " = " << vt << "(" << val_expr << ");\n";
+    return;
+  }
+  os << indent << "{\n"
+     << indent << "  float4 m1_ep_v4 = " << val_expr << ";\n"
+     << indent << "  const long m1_ep_base = " << base_idx_expr << ";\n"
+     << indent << "  #pragma unroll\n"
+     << indent << "  for (uint m1_ep_lane = 0u; m1_ep_lane < 4u; ++m1_ep_lane) {\n"
+     << indent << "    float m1_ep_v = m1_ep_v4[m1_ep_lane];\n"
+     << indent << "    const long m1_ep_idx = m1_ep_base + long(m1_ep_lane);\n"
+     << indent << "    (void)m1_ep_idx;\n";
+  emit_scalar_epilogue(e, "m1_ep_v", ch_expr, "m1_ep_idx", indent + "    ");
+  os << indent << "    m1_ep_v4[m1_ep_lane] = m1_ep_v;\n"
+     << indent << "  }\n"
+     << indent << "  " << lhs_expr << " = " << vt << "(m1_ep_v4);\n"
+     << indent << "}\n";
+}
+
 void emit_map_loop(Emitter& e, VecMode mode, const std::string& xptr, const std::string& optr,
                    const std::string& base, const std::string& len, const std::string& vexpr,
-                   const std::string& sexpr, bool reverse, const std::vector<Aux>& aux = {}) {
+                   const std::string& sexpr, bool reverse, const std::vector<Aux>& aux = {},
+                   ChMode ch_mode = ChMode::Col) {
   const char* vt = vec_type(mode);
   auto& os = e.body;
   os << "  {\n"
@@ -245,8 +306,29 @@ void emit_map_loop(Emitter& e, VecMode mode, const std::string& xptr, const std:
   }
   os << "      const float4 v = float4(m1_xv[m1_i]);\n";
   for (const Aux& a : aux) os << "      const float4 " << a.name << " = float4(m1_" << a.name << "v[m1_i]);\n";
-  os << "      m1_ov[m1_i] = " << vt << "(" << vexpr << ");\n"
-     << "    }\n"
+  std::string vec_ch_expr;
+  std::string scalar_ch_expr;
+  switch (ch_mode) {
+    case ChMode::Col:
+      vec_ch_expr = "long(m1_hd) + long(m1_i) * 4L + long(m1_ep_lane)";
+      scalar_ch_expr = "long(m1_j)";
+      break;
+    case ChMode::ColWithT0:
+      vec_ch_expr = "long(m1_t0) + long(m1_hd) + long(m1_i) * 4L + long(m1_ep_lane)";
+      scalar_ch_expr = "long(m1_t0) + long(m1_j)";
+      break;
+    case ChMode::Channel:
+      vec_ch_expr = "long(m1_c)";
+      scalar_ch_expr = "long(m1_c)";
+      break;
+    case ChMode::Row:
+      vec_ch_expr = "long(m1_tgp.x)";
+      scalar_ch_expr = "long(m1_tgp.x)";
+      break;
+  }
+  emit_vec4_epilogue_store(e, vt, "m1_ov[m1_i]", vexpr, base + " + long(m1_hd) + long(m1_i) * 4L", vec_ch_expr,
+                           "      ");
+  os << "    }\n"
      << "    const uint m1_rem = m1_len - (m1_nv << 2);\n"
      << "    for (uint m1_r = m1_tid; m1_r < m1_rem; m1_r += " << e.tg << "u) {\n"
      << "      const uint m1_j = m1_r < m1_hd ? m1_r : m1_r + (m1_nv << 2);\n"
@@ -254,8 +336,16 @@ void emit_map_loop(Emitter& e, VecMode mode, const std::string& xptr, const std:
   for (const Aux& a : aux) {
     os << "      const float " << a.name << "s = " << a.ptr << "[" << a.base << " + long(m1_j)];\n";
   }
-  os << "      " << optr << "[" << base << " + long(m1_j)] = " << sexpr << ";\n"
-     << "    }\n"
+  if (e.epilogue_dag == nullptr) {
+    os << "      " << optr << "[" << base << " + long(m1_j)] = " << sexpr << ";\n";
+  } else {
+    os << "      float m1_ep_v = " << sexpr << ";\n"
+       << "      const long m1_ep_idx = " << base << " + long(m1_j);\n"
+       << "      (void)m1_ep_idx;\n";
+    emit_scalar_epilogue(e, "m1_ep_v", scalar_ch_expr, "m1_ep_idx", "      ");
+    os << "      " << optr << "[m1_ep_idx] = m1_ep_v;\n";
+  }
+  os << "    }\n"
      << "  }\n";
 }
 
@@ -338,9 +428,10 @@ bool emit_softmax(Emitter& e, const ir::OnlineSoftmaxAttr& a) {
      << "  const float m1_inv = 1.0f / m1_rd;\n"
      << "  const float m1_lse = m1_rm + log(m1_rd);\n";
   if (a.log_softmax) {
-    emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "v - m1_lse", "s - m1_lse", true);
+    emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "v - m1_lse", "s - m1_lse", true, {}, ChMode::Col);
   } else {
-    emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "exp(v - m1_rm) * m1_inv", "exp(s - m1_rm) * m1_inv", true);
+    emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "exp(v - m1_rm) * m1_inv", "exp(s - m1_rm) * m1_inv", true, {},
+                  ChMode::Col);
   }
   return true;
 }
@@ -359,7 +450,8 @@ bool emit_row_norm(Emitter& e, const ir::WelfordNormAttr& a) {
     os << "  const m1_wf m1_w = " << tg_wf(e) << ";\n"
        << "  const float m1_inv = 1.0f / sqrt(m1_w.m2 / m1_w.n + " << msl_exact_float_literal(a.eps) << ");\n"
        << "  const float m1_sh = -m1_w.mean * m1_inv;\n";
-    emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "fma(v, m1_inv, m1_sh)", "fma(s, m1_inv, m1_sh)", true);
+    emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "fma(v, m1_inv, m1_sh)", "fma(s, m1_inv, m1_sh)", true, {},
+                  ChMode::Row);
     return true;
   }
   const bool l1 = a.kind == NormKind::L1Norm;
@@ -370,7 +462,7 @@ bool emit_row_norm(Emitter& e, const ir::WelfordNormAttr& a) {
                    l1 ? "m1_acc += abs(s);" : "m1_acc = fma(s, s, m1_acc);");
   os << "  const float m1_tot = m1_sum_tg(m1_acc, m1_sh, m1_lane, m1_sg, " << e.nsg() << "u);\n"
      << "  const float m1_scale = " << (l1 ? "float(m1_L) / m1_tot" : "1.0f / sqrt(m1_tot)") << ";\n";
-  emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "v * m1_scale", "s * m1_scale", true);
+  emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "v * m1_scale", "s * m1_scale", true, {}, ChMode::Col);
   return true;
 }
 
@@ -448,23 +540,31 @@ bool emit_frobenius(Emitter& e, const ir::WelfordNormAttr& a) {
      << "    const long m1_b = m1_t0 + long(m1_tid);\n"
      << "    if (m1_t0 + m1_tile <= m1_nv) {\n"
      << "      const float4 v0 = float4(m1_xv[m1_b]);\n"
-     << "      const float4 v1 = float4(m1_xv[m1_b + " << e.tg << "L]);\n"
-     << "      m1_ov[m1_b] = " << vt << "(v0 * m1_inv);\n"
-     << "      m1_ov[m1_b + " << e.tg << "L] = " << vt << "(v1 * m1_inv);\n"
-     << "    } else {\n"
+     << "      const float4 v1 = float4(m1_xv[m1_b + " << e.tg << "L]);\n";
+  emit_vec4_epilogue_store(e, vt, "m1_ov[m1_b]", "v0 * m1_inv", "m1_b * 4L", "m1_ep_idx", "      ");
+  emit_vec4_epilogue_store(e, vt, "m1_ov[m1_b + " + std::to_string(e.tg) + "L]", "v1 * m1_inv",
+                           "(m1_b + " + std::to_string(e.tg) + "L) * 4L", "m1_ep_idx", "      ");
+  os << "    } else {\n"
      << "      const long m1_end = min(m1_t0 + m1_tile, m1_nv);\n"
      << "      for (long m1_i = m1_b; m1_i < m1_end; m1_i += " << e.tg << "L) {\n"
-     << "        const float4 v = float4(m1_xv[m1_i]);\n"
-     << "        m1_ov[m1_i] = " << vt << "(v * m1_inv);\n"
-     << "      }\n"
+     << "        const float4 v = float4(m1_xv[m1_i]);\n";
+  emit_vec4_epilogue_store(e, vt, "m1_ov[m1_i]", "v * m1_inv", "m1_i * 4L", "m1_ep_idx", "        ");
+  os << "      }\n"
      << "    }\n"
      << "  }\n"
      << "  if (m1_tgp.x == 0u) {\n"
      << "    const long m1_tail = m1_nv << 2;\n"
      << "    const long m1_rem = m1_total - m1_tail;\n"
-     << "    for (long m1_r = long(m1_tid); m1_r < m1_rem; m1_r += " << e.tg << "L) {\n"
-     << "      " << o << "[m1_tail + m1_r] = " << x << "[m1_tail + m1_r] * m1_inv;\n"
-     << "    }\n"
+     << "    for (long m1_r = long(m1_tid); m1_r < m1_rem; m1_r += " << e.tg << "L) {\n";
+  if (e.epilogue_dag == nullptr) {
+    os << "      " << o << "[m1_tail + m1_r] = " << x << "[m1_tail + m1_r] * m1_inv;\n";
+  } else {
+    os << "      const long m1_ep_idx = m1_tail + m1_r;\n"
+       << "      float m1_ep_v = " << x << "[m1_ep_idx] * m1_inv;\n";
+    emit_scalar_epilogue(e, "m1_ep_v", "m1_ep_idx", "m1_ep_idx", "      ");
+    os << "      " << o << "[m1_ep_idx] = m1_ep_v;\n";
+  }
+  os << "    }\n"
      << "  }\n";
   return true;
 }
@@ -558,7 +658,7 @@ bool emit_stats_stage2(Emitter& e, const ir::WelfordNormAttr& a) {
       vexpr = "(" + vexpr + ") + b";
       sexpr = "(" + sexpr + ") + bs";
     }
-    emit_map_loop(e, mode, x, o, "m1_base", "min(m1_tl, m1_L - m1_t0)", vexpr, sexpr, true, aux);
+    emit_map_loop(e, mode, x, o, "m1_base", "min(m1_tl, m1_L - m1_t0)", vexpr, sexpr, true, aux, ChMode::ColWithT0);
     return true;
   }
   const VecMode mode = pick_mode(e, {0, 1}, konst_mult(e.ops[ip + 3], 4));
@@ -581,7 +681,7 @@ bool emit_stats_stage2(Emitter& e, const ir::WelfordNormAttr& a) {
      << "  const uint m1_t0 = min(m1_tgp.x * m1_tl, m1_L);\n"
      << "  const long m1_base = long(m1_row) * long(m1_L) + long(m1_t0);\n";
   emit_map_loop(e, mode, x, o, "m1_base", "min(m1_tl, m1_L - m1_t0)", "fma(v, m1_scale, m1_shift)",
-                "fma(s, m1_scale, m1_shift)", true);
+                "fma(s, m1_scale, m1_shift)", true, {}, ChMode::Channel);
   return true;
 }
 
@@ -641,17 +741,26 @@ bool emit_rms(Emitter& e, const ir::WelfordNormAttr& a) {
   if (sram) {
     const char* vt = vec_type(pick_mode(e, {0, 1}, true));
     const int64_t c = *c_op.konst;
-    os << "  for (uint m1_i = m1_tid; m1_i < " << c * 16 << "u; m1_i += " << e.tg << "u) {\n"
-       << "    ((device " << vt << "*)(" << o << " + m1_nb + long(m1_i >> 4) * long(m1_HW)))[m1_i & 15u] = " << vt
-       << "(m1_tile[m1_i] * m1_scl4[m1_i & 15u]);\n"
-       << "  }\n";
+    os << "  for (uint m1_i = m1_tid; m1_i < " << c * 16 << "u; m1_i += " << e.tg << "u) {\n";
+    const std::string lhs = "((device " + std::string(vt) + "*)(" + o +
+                            " + m1_nb + long(m1_i >> 4) * long(m1_HW)))[m1_i & 15u]";
+    emit_vec4_epilogue_store(e, vt, lhs, "m1_tile[m1_i] * m1_scl4[m1_i & 15u]",
+                             "m1_nb + long(m1_i >> 4) * long(m1_HW) + long((m1_i & 15u) << 2)", "long(m1_i >> 4)",
+                             "    ");
+    os << "  }\n";
   } else {
     os << "  if (m1_ok) {\n"
        << "    const float m1_sc = m1_scl[m1_pos];\n"
        << "    for (uint m1_c = m1_cc; m1_c < m1_C; m1_c += " << chunks << "u) {\n"
-       << "      const long m1_off = m1_nb + long(m1_c) * long(m1_HW) + long(m1_pos);\n"
-       << "      " << o << "[m1_off] = " << x << "[m1_off] * m1_sc;\n"
-       << "    }\n"
+       << "      const long m1_off = m1_nb + long(m1_c) * long(m1_HW) + long(m1_pos);\n";
+    if (e.epilogue_dag == nullptr) {
+      os << "      " << o << "[m1_off] = " << x << "[m1_off] * m1_sc;\n";
+    } else {
+      os << "      float m1_ep_v = " << x << "[m1_off] * m1_sc;\n";
+      emit_scalar_epilogue(e, "m1_ep_v", "long(m1_c)", "m1_off", "      ");
+      os << "      " << o << "[m1_off] = m1_ep_v;\n";
+    }
+    os << "    }\n"
        << "  }\n";
   }
   return true;
@@ -708,6 +817,7 @@ CompiledMSL try_emit_norm_softmax_kernel(const ir::Kernel& kernel, const ir::Tar
   }
 
   Emitter e{kernel};
+  e.epilogue_dag = active_epilogue_dag(kernel, fused);
   uint32_t tg = 256;
   if (const auto* sa = std::get_if<ir::OnlineSoftmaxAttr>(&fused->attr)) tg = sa->tg_threads;
   if (const auto* wa = std::get_if<ir::WelfordNormAttr>(&fused->attr)) tg = wa->tg_threads;
@@ -735,9 +845,13 @@ CompiledMSL try_emit_norm_softmax_kernel(const ir::Kernel& kernel, const ir::Tar
   }
   if (!ok) return CompiledMSL{false, "", {}, e.err};
 
+  std::ostringstream helper_os;
+  emit_helper_functions(helper_os, e.helpers);
+
   CompiledMSL res;
   res.ok = true;
-  res.msl_source = std::string(kPreamble) + emit_prefixed_kernel_sig(e.kernel, e.slots) + e.body.str() + "}\n";
+  res.msl_source =
+      std::string(kPreamble) + helper_os.str() + emit_prefixed_kernel_sig(e.kernel, e.slots) + e.body.str() + "}\n";
   res.launch_spec.entry_name = kernel.name;
   res.launch_spec.tg_x = e.tg;
   res.launch_spec.tg_y = 1;

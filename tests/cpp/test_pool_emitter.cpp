@@ -267,6 +267,86 @@ void test_full_pipeline_routes_pool() {
   assert_contains(res.msl_source, "const long m1_id = m1_id0 + m1_kd * 3;");
 }
 
+void test_emit_epilogue_dag_all_paths() {
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("maxpool2d_regsw_epilogue");
+    PoolSpec spec{ir::PoolKind::Max, 2, {4, 4}, {1, 1}, {1, 1}, {1, 1}};
+    spec.block_w = 128;
+    spec.block_h = 32;
+    auto pool = build_pool_kernel(k, spec);
+    ir::IRBuilder b(k);
+    b.add_param("VEC_W", ir::Type::scalar(ir::ScalarDType::I32), true, 4);
+    b.add_param("scale", ir::Type::scalar(ir::ScalarDType::F32));
+    b.add_param("res_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    const int32_t scale_idx = static_cast<int32_t>(k.params.size()) - 2;
+    const int32_t res_idx = static_cast<int32_t>(k.params.size()) - 1;
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::HardTanh, -1.0f, 1.0f, -1},
+        {ir::EpilogueOpKind::MulScalar, 0.0f, 0.0f, scale_idx},
+        {ir::EpilogueOpKind::AddResidual, 0.0f, 0.0f, res_idx},
+    }};
+    lower(k, pool);
+    codegen::metal::CompiledMSL res;
+    const std::string msl = emit(k, &res);
+    assert_contains(msl, "static inline float4 m1_max4");
+    assert_contains(msl, "constant float& scale");
+    assert_contains(msl, "device const float* res_ptr");
+    assert_contains(msl, "const long m1_ep_c = m1_nc % (((long)C));");
+    assert_contains(msl, "m1_ep_v = m1_ep_v * float(scale);");
+    assert_contains(msl, "m1_ep_v = m1_ep_v + res_ptr[m1_ep_idx];");
+    assert(res.launch_spec.param_slots.size() == 10);
+    assert(!res.launch_spec.param_slots[8].is_pointer);
+    assert(res.launch_spec.param_slots[9].is_pointer && !res.launch_spec.param_slots[9].writable);
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("avgpool3d_gelu");
+    PoolSpec spec{ir::PoolKind::Avg, 3, {2, 2, 2}, {2, 2, 2}, {0, 0, 0}, {1, 1, 1}};
+    auto pool = build_pool_kernel(k, spec);
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{{ir::EpilogueOpKind::GELU, 0.0f, 0.0f, -1}}};
+    lower(k, pool);
+    const std::string msl = emit(k);
+    assert_contains(msl, "inline T m1_erf(");
+    assert_contains(msl, "m1_erf(m1_ep_v * 0.7071067811865476f)");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("maxpool1d_bias_mish");
+    PoolSpec spec{ir::PoolKind::Max, 1, {4}, {1}, {1}, {1}};
+    auto pool = build_pool_kernel(k, spec);
+    ir::IRBuilder b(k);
+    b.add_param("bias_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    const int32_t bias_idx = static_cast<int32_t>(k.params.size()) - 1;
+    k.op(pool).hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, bias_idx},
+        {ir::EpilogueOpKind::Mish, 0.0f, 0.0f, -1},
+    }};
+    lower(k, pool);
+    const std::string msl = emit(k);
+    assert_contains(msl, "inline T m1_tanh(");
+    assert_contains(msl, "bias_ptr[m1_ep_c]");
+    assert_contains(msl, "m1_tanh(m1_sp)");
+  }
+
+  {
+    ir::Module m1;
+    ir::Kernel& k1 = m1.add_kernel("pool2d_fast");
+    PoolSpec spec{ir::PoolKind::Max, 2, {3, 3}, {2, 2}, {1, 1}, {1, 1}};
+    auto p1 = build_pool_kernel(k1, spec);
+    lower(k1, p1);
+
+    ir::Module m2;
+    ir::Kernel& k2 = m2.add_kernel("pool2d_fast");
+    auto p2 = build_pool_kernel(k2, spec);
+    k2.hints.epilogue_dag = ir::EpilogueDAGAttr{};
+    lower(k2, p2);
+    assert(emit(k1) == emit(k2));
+  }
+}
+
 void test_non_pool_kernel_unmatched() {
   ir::Module mod;
   ir::Kernel& k = mod.add_kernel("noop");
@@ -293,6 +373,7 @@ int main() {
   test_emit_3d_direct_64bit();
   test_emit_avg_exclude_pad_divisor();
   test_full_pipeline_routes_pool();
+  test_emit_epilogue_dag_all_paths();
   test_non_pool_kernel_unmatched();
   std::cout << "test_pool_emitter: PASS\n";
   return 0;

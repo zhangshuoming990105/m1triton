@@ -290,6 +290,139 @@ void test_two_stage_norm(ir::NormKind kind, const std::vector<int64_t>& dims1, c
   for (size_t i : {0u, 2u, 3u, 4u}) assert(!r2.launch_spec.param_slots[i].writable);
 }
 
+void test_epilogue_dag_emission_and_fast_path() {
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("softmax_epilogue");
+    ir::IRBuilder b(k);
+    auto x = ptr_param(b, "x_ptr");
+    auto o = ptr_param(b, "out_ptr", true);
+    b.add_param("bias_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    b.add_param("scale", ir::Type::scalar(ir::ScalarDType::F32));
+    ir::OnlineSoftmaxAttr sa;
+    sa.axis = 1;
+    b.emit_online_softmax(x, o, dim(b, "NUM_ROWS", 64), dim(b, "ROW_LEN", 259), sa);
+    b.emit_return();
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, 2},
+        {ir::EpilogueOpKind::MulScalar, 0.0f, 0.0f, 3},
+        {ir::EpilogueOpKind::Sigmoid, 0.0f, 0.0f, -1},
+    }};
+    auto res = optimize_and_emit(k);
+    assert(res.launch_spec.param_slots.size() == 4);
+    assert(res.launch_spec.param_slots[1].writable);
+    assert(!res.launch_spec.param_slots[2].writable);
+    assert(!res.launch_spec.param_slots[3].is_pointer);
+    assert_contains(res.msl_source, "device const float* m1p_bias_ptr [[buffer(2)]]");
+    assert_contains(res.msl_source, "constant float& m1p_scale [[buffer(3)]]");
+    assert_contains(res.msl_source, "m1p_bias_ptr[long(m1_hd) + long(m1_i) * 4L + long(m1_ep_lane)]");
+    assert_contains(res.msl_source, "m1p_bias_ptr[long(m1_j)]");
+    assert_contains(res.msl_source, "float(m1p_scale)");
+    assert_contains(res.msl_source, "1.0f / (1.0f + exp(-m1_ep_v))");
+    assert_not_contains(res.msl_source, "inline T m1_tanh(");
+    assert_not_contains(res.msl_source, "inline T m1_erf(");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gn_epilogue");
+    ir::IRBuilder b(k);
+    auto x = ptr_param(b, "x_ptr");
+    auto o = ptr_param(b, "out_ptr", true);
+    auto w = ptr_param(b, "w_ptr");
+    auto bi = ptr_param(b, "b_ptr");
+    auto part = ptr_param(b, "partial_ptr");
+    b.add_param("res_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    auto a = norm_attr(ir::NormKind::GroupNorm, 2, true);
+    a.num_groups = 4;
+    b.emit_welford_norm({x, o, w, bi, part, dim(b, "N", 4), dim(b, "C", 16), dim(b, "HW", 256), dim(b, "CH", 1)}, a);
+    b.emit_return();
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::Tanh, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::HardSwish, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::AddResidual, 0.0f, 0.0f, 5},
+    }};
+    auto res = optimize_and_emit(k);
+    assert(res.launch_spec.param_slots.size() == 6);
+    assert(!res.launch_spec.param_slots[5].writable);
+    assert_contains(res.msl_source, "inline T m1_tanh(");
+    assert_contains(res.msl_source, "device const float* m1p_res_ptr [[buffer(5)]]");
+    assert_contains(res.msl_source, "m1_ep_v = m1_tanh(m1_ep_v);");
+    assert_contains(res.msl_source, "m1_ep_v = m1_ep_v + m1p_res_ptr[m1_ep_idx];");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("ln_epilogue");
+    ir::IRBuilder b(k);
+    auto x = ptr_param(b, "x_ptr");
+    auto o = ptr_param(b, "out_ptr", true);
+    auto w = ptr_param(b, "w_ptr");
+    auto bi = ptr_param(b, "b_ptr");
+    auto part = ptr_param(b, "partial_ptr");
+    b.add_param("extra_bias", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    auto a = norm_attr(ir::NormKind::LayerNorm, 2, true);
+    b.emit_welford_norm({x, o, w, bi, part, dim(b, "N", 8), dim(b, "L", 512), dim(b, "CH", 1)}, a);
+    b.emit_return();
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, 5},
+        {ir::EpilogueOpKind::GELU, 0.0f, 0.0f, -1},
+    }};
+    auto res = optimize_and_emit(k);
+    assert_contains(res.msl_source, "inline T m1_erf(");
+    assert_contains(res.msl_source, "m1p_extra_bias[long(m1_t0) + long(m1_hd) + long(m1_i) * 4L + long(m1_ep_lane)]");
+    assert_contains(res.msl_source, "m1p_extra_bias[long(m1_t0) + long(m1_j)]");
+  }
+
+  for (int64_t channels : {64, 96}) {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("rms_epilogue");
+    ir::IRBuilder b(k);
+    auto x = ptr_param(b, "x_ptr");
+    auto o = ptr_param(b, "out_ptr", true);
+    b.add_param("bias_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    b.add_param("res_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    auto a = norm_attr(ir::NormKind::RMSNorm);
+    b.emit_welford_norm({x, o, dim(b, "N", 2), dim(b, "C", channels), dim(b, "HW", 256)}, a);
+    b.emit_return();
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, 2},
+        {ir::EpilogueOpKind::Tanh, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::AddResidual, 0.0f, 0.0f, 3},
+    }};
+    auto res = optimize_and_emit(k);
+    assert_contains(res.msl_source, "inline T m1_tanh(");
+    if (channels == 64) {
+      assert_contains(res.msl_source, "m1p_bias_ptr[long(m1_i >> 4)]");
+      assert_contains(res.msl_source, "m1p_res_ptr[m1_ep_idx]");
+    } else {
+      assert_contains(res.msl_source, "m1p_bias_ptr[long(m1_c)]");
+      assert_contains(res.msl_source, "m1p_res_ptr[m1_off]");
+    }
+  }
+
+  {
+    ir::Module mod1;
+    ir::Kernel& k1 = mod1.add_kernel("sm_fast");
+    ir::IRBuilder b1(k1);
+    b1.emit_online_softmax(ptr_param(b1, "x_ptr"), ptr_param(b1, "out_ptr", true), dim(b1, "R", 8), dim(b1, "L", 256),
+                           ir::OnlineSoftmaxAttr{});
+    b1.emit_return();
+
+    ir::Module mod2;
+    ir::Kernel& k2 = mod2.add_kernel("sm_fast");
+    ir::IRBuilder b2(k2);
+    b2.emit_online_softmax(ptr_param(b2, "x_ptr"), ptr_param(b2, "out_ptr", true), dim(b2, "R", 8), dim(b2, "L", 256),
+                           ir::OnlineSoftmaxAttr{});
+    b2.emit_return();
+    k2.hints.epilogue_dag = ir::EpilogueDAGAttr{};
+
+    auto r1 = optimize_and_emit(k1);
+    auto r2 = optimize_and_emit(k2);
+    assert(r1.msl_source == r2.msl_source);
+  }
+}
+
 void test_rejects_bad_operands_and_non_norm() {
   ir::Module mod;
   ir::Kernel& k = mod.add_kernel("bad_bn");
@@ -331,6 +464,7 @@ int main() {
                       "const uint m1_first = ((m1_row / m1_C) * 8u + m1_c / (m1_C / 8u)) * m1_CH;");
   test_two_stage_norm(ir::NormKind::LayerNorm, {16, 4194304, 64}, {16, 4194304, 64},
                       "const long m1_S = long(4194304);", "(((v - m1_mu) * m1_inv) * w) + b");
+  test_epilogue_dag_emission_and_fast_path();
   test_rejects_bad_operands_and_non_norm();
   std::cout << "test_norm_softmax_emitter: PASS\n";
   return 0;
