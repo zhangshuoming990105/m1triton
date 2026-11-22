@@ -65,15 +65,17 @@ def _mamba_ssm_scan_n16_kernel(
 
     d_offs = pid_d * BLOCK_D + tl.arange(0, BLOCK_D)
     d_mask = d_offs < D
-    d_idx = d_offs * stride_u_d
+    d_offs64 = d_offs.to(tl.int64)
+    pid_b64 = pid_b.to(tl.int64)
+    d_idx = d_offs64 * stride_u_d
 
-    b_u_off = pid_b * stride_u_b
+    b_u_off = pid_b64 * stride_u_b
     u_base = u_ptr + b_u_off + d_idx
     dt_base = dt_ptr + b_u_off + d_idx
     y_base = y_ptr + b_u_off + d_idx
-    bc_b_off = pid_b * stride_bc_b
+    bc_b_off = pid_b64 * stride_bc_b
 
-    a_base = a_ptr + d_offs * 16
+    a_base = a_ptr + d_offs64 * 16
     if EVEN_D:
         d_skip = tl.load(d_skip_ptr + d_idx)
         dt_b = tl.load(dt_bias_ptr + d_idx)

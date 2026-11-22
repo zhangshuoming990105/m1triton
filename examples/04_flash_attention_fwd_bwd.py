@@ -177,7 +177,7 @@ class M1FlashAttention2(torch.autograd.Function):
             BLOCK_M=32,
             BLOCK_N=32,
             NUM_SG=2,
-            wait=not need_bwd,
+            wait=True,
             sync_mps=True,
         )
         ctx.save_for_backward(q_c, k_c, v_c, out, lse)

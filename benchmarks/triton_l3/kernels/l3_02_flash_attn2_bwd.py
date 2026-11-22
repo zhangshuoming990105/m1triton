@@ -173,6 +173,9 @@ def flash_attn2_bwd_dq_kernel(
     )
 
 
+_TUNED_BWD_KEYS: set[tuple[int, int, int, int, bool]] = set()
+
+
 class _FlashAttention2Function(torch.autograd.Function):
     @staticmethod
     def forward(ctx, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, is_causal: bool):
@@ -202,7 +205,7 @@ class _FlashAttention2Function(torch.autograd.Function):
             d,
             SCALE=scale,
             CAUSAL=bool(is_causal),
-            wait=not need_bwd,
+            wait=True,
             sync_mps=True,
         )
 
@@ -236,10 +239,12 @@ class _FlashAttention2Function(torch.autograd.Function):
         dq_args = (q_c, k_c, v_c, do_c, lse, delta, dq, bh, l_q, l_kv, d)
         bwd_kw = {"SCALE": scale, "CAUSAL": is_causal}
 
-        if flash_attn2_bwd_dkdv_kernel.best_config is None or flash_attn2_bwd_dq_kernel.best_config is None:
+        bwd_key = (bh, l_q, l_kv, d, bool(is_causal))
+        if bwd_key not in _TUNED_BWD_KEYS:
             flash_attn2_delta_kernel[grid_delta](do_c, out, delta, d, BLOCK_D=block_d, wait=True, sync_mps=True)
             flash_attn2_bwd_dkdv_kernel._select_config(grid_dkdv, dkdv_args, dict(bwd_kw))
             flash_attn2_bwd_dq_kernel._select_config(grid_dq, dq_args, dict(bwd_kw))
+            _TUNED_BWD_KEYS.add(bwd_key)
 
         with rt.command_batch(wait=True, sync_mps=True):
             flash_attn2_delta_kernel[grid_delta](do_c, out, delta, d, BLOCK_D=block_d, wait=False, sync_mps=False)

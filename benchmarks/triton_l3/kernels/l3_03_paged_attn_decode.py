@@ -130,7 +130,7 @@ def candidate_forward(
 
     chosen_cfg = paged_attn_decode_stage1_kernel._select_config(grid_s1, s1_args, dict(s1_kw))
     num_splits = int(chosen_cfg.kwargs["NUM_SPLITS"])
-    block_d = 64 if d <= 64 else 128
+    block_d = m1triton.next_power_of_2(max(d, 32))
 
     with rt.command_batch(wait=True, sync_mps=True):
         paged_attn_decode_stage1_kernel[grid_s1](*s1_args, **s1_kw, wait=False, sync_mps=False)

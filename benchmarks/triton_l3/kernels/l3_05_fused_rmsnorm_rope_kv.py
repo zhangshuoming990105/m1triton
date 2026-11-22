@@ -174,6 +174,8 @@ def candidate_forward(
     cos_c = _contig(cos)
     sin_c = _contig(sin)
     slots_c = _contig(slot_mapping)
+    if not k_cache.is_contiguous() or not v_cache.is_contiguous():
+        raise ValueError("In-place k_cache and v_cache must be contiguous tensors")
 
     n_tok, h_q, d = int(q_c.shape[0]), int(q_c.shape[1]), int(q_c.shape[2])
     h_kv = int(k_c.shape[1])

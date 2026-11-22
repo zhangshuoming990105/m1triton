@@ -1524,7 +1524,9 @@ class FlashAttnWriter {
       return;
     }
 
-    os_ << "  if (m1_D == 64L && m1_Lq > 0L && (m1_Lq & 7L) == 0L && m1_Lkv > 0L && (m1_Lkv & 7L) == 0L) {\n";
+    const uint32_t lq_mask = m_tiles * 8u - 1u;
+    os_ << "  if (m1_D == 64L && m1_Lq > 0L && (m1_Lq & " << lq_mask
+        << "L) == 0L && m1_Lkv > 0L && (m1_Lkv & 7L) == 0L) {\n";
     emit_split_m_d_spec(64u, tile_n_64, "    ");
     os_ << "    return;\n";
     os_ << "  }\n";
