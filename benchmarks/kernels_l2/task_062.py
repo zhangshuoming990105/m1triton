@@ -60,7 +60,7 @@ class ModelNew(nn.Module):
         n = int(self.weight.shape[0])
         hidden = torch.empty((m, n), dtype=x_c.dtype, device=x_c.device)
         out = torch.empty((m, n), dtype=x_c.dtype, device=x_c.device)
-        with C.m1_runtime.command_batch(wait=False, sync_mps=True):
+        with C.m1_runtime.command_batch(wait=True, sync_mps=True):
             C.fused_linear_epilogue(x_c, self.weight, self.bias, out=hidden, sync_mps=False)
             C.groupnorm_2d_fused(
                 hidden,

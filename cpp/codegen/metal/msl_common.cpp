@@ -198,6 +198,8 @@ std::string msl_int_literal(int64_t v) {
 
 std::string msl_exact_float_literal(double v) {
   const float f = static_cast<float>(v);
+  if (std::isnan(f)) return "NAN";
+  if (std::isinf(f)) return (f < 0.0f) ? "(-INFINITY)" : "INFINITY";
   char buf[64];
   for (int prec = 6; prec <= 9; ++prec) {
     std::snprintf(buf, sizeof(buf), "%.*e", prec, static_cast<double>(f));
@@ -286,8 +288,24 @@ std::string msl_binary_expr(BinaryOp op, const std::string& lhs_in, const std::s
       if (is_float_dtype(op_dt)) return "metal::fmod(" + a + ", " + b + ")";
       return "(" + a + " % " + b + ")";
     case BinaryOp::Max:
+      if (is_float_dtype(op_dt)) {
+        if (vec4) {
+          return "metal::select(metal::select(metal::max(" + a + ", " + b + "), " + b + ", metal::isnan(" + b +
+                 ")), " + a + ", metal::isnan(" + a + "))";
+        }
+        return "(metal::isnan(" + a + ") ? " + a + " : (metal::isnan(" + b + ") ? " + b + " : ((" + a + " > " + b +
+               ") ? " + a + " : " + b + ")))";
+      }
       return "metal::max(" + a + ", " + b + ")";
     case BinaryOp::Min:
+      if (is_float_dtype(op_dt)) {
+        if (vec4) {
+          return "metal::select(metal::select(metal::min(" + a + ", " + b + "), " + b + ", metal::isnan(" + b +
+                 ")), " + a + ", metal::isnan(" + a + "))";
+        }
+        return "(metal::isnan(" + a + ") ? " + a + " : (metal::isnan(" + b + ") ? " + b + " : ((" + a + " < " + b +
+               ") ? " + a + " : " + b + ")))";
+      }
       return "metal::min(" + a + ", " + b + ")";
     case BinaryOp::Pow:
       if (is_float_dtype(op_dt)) return "metal::pow(" + a + ", " + b + ")";
@@ -827,15 +845,27 @@ void emit_epilogue_dag_msl(std::ostringstream& os, const Kernel&, const ir::Epil
         os << indent << v << " = " << v << " / " << p0 << ";\n";
         break;
       case ir::EpilogueOpKind::MinConst:
-        os << indent << v << " = (" << v << " > " << p0 << ") ? " << p0 << " : " << v << ";\n";
+        if (std::isnan(st.param0)) {
+          os << indent << v << " = NAN;\n";
+        } else {
+          os << indent << v << " = (" << v << " > " << p0 << ") ? " << p0 << " : " << v << ";\n";
+        }
         break;
       case ir::EpilogueOpKind::MaxConst:
-        os << indent << v << " = (" << v << " < " << p0 << ") ? " << p0 << " : " << v << ";\n";
+        if (std::isnan(st.param0)) {
+          os << indent << v << " = NAN;\n";
+        } else {
+          os << indent << v << " = (" << v << " < " << p0 << ") ? " << p0 << " : " << v << ";\n";
+        }
         break;
       case ir::EpilogueOpKind::Clamp:
       case ir::EpilogueOpKind::HardTanh:
-        os << indent << v << " = (" << v << " < " << p0 << ") ? " << p0 << " : ((" << v << " > " << p1 << ") ? "
-           << p1 << " : " << v << ");\n";
+        if (std::isnan(st.param0) || std::isnan(st.param1)) {
+          os << indent << v << " = NAN;\n";
+        } else {
+          os << indent << v << " = (" << v << " < " << p0 << ") ? " << p0 << " : ((" << v << " > " << p1 << ") ? "
+             << p1 << " : " << v << ");\n";
+        }
         break;
       case ir::EpilogueOpKind::AddBias: {
         const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
@@ -859,14 +889,14 @@ void emit_epilogue_dag_msl(std::ostringstream& os, const Kernel&, const ir::Epil
       }
       case ir::EpilogueOpKind::MinBias: {
         const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
-        os << indent << "{ float m1_eb = " << pn << "[" << ch_expr << "]; " << v << " = (" << v
-           << " > m1_eb) ? m1_eb : " << v << "; }\n";
+        os << indent << "{ float m1_eb = " << pn << "[" << ch_expr << "]; " << v << " = isnan(" << v << ") ? " << v
+           << " : (isnan(m1_eb) ? m1_eb : ((" << v << " > m1_eb) ? m1_eb : " << v << ")); }\n";
         break;
       }
       case ir::EpilogueOpKind::MaxBias: {
         const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
-        os << indent << "{ float m1_eb = " << pn << "[" << ch_expr << "]; " << v << " = (" << v
-           << " < m1_eb) ? m1_eb : " << v << "; }\n";
+        os << indent << "{ float m1_eb = " << pn << "[" << ch_expr << "]; " << v << " = isnan(" << v << ") ? " << v
+           << " : (isnan(m1_eb) ? m1_eb : ((" << v << " < m1_eb) ? m1_eb : " << v << ")); }\n";
         break;
       }
       case ir::EpilogueOpKind::AddScalar: {
@@ -950,8 +980,8 @@ void emit_epilogue_dag_msl(std::ostringstream& os, const Kernel&, const ir::Epil
            << " = " << v << " * m1_tanh(m1_sp); }\n";
         break;
       case ir::EpilogueOpKind::HardSwish:
-        os << indent << v << " = " << v << " * ((" << v << " <= -3.0f) ? 0.0f : ((" << v << " >= 3.0f) ? 1.0f : (("
-           << v << " + 3.0f) * 0.1666666716337204f)));\n";
+        os << indent << v << " = (" << v << " <= -3.0f) ? 0.0f : ((" << v << " >= 3.0f) ? " << v << " : (" << v
+           << " * (" << v << " + 3.0f) * 0.1666666716337204f));\n";
         break;
       case ir::EpilogueOpKind::HardSigmoid:
         os << indent << v << " = (" << v << " <= -3.0f) ? 0.0f : ((" << v << " >= 3.0f) ? 1.0f : ((" << v
@@ -967,7 +997,7 @@ void emit_epilogue_dag_msl(std::ostringstream& os, const Kernel&, const ir::Epil
         break;
       case ir::EpilogueOpKind::Softplus: {
         const float beta = (st.param0 == 0.0f) ? 1.0f : st.param0;
-        const float thr = (st.param1 == 0.0f) ? 20.0f : st.param1;
+        const float thr = (st.param0 == 0.0f && st.param1 == 0.0f) ? 20.0f : st.param1;
         const std::string bs = msl_exact_float_literal(beta);
         const std::string ts = msl_exact_float_literal(thr);
         os << indent << v << " = (" << v << " * " << bs << " > " << ts << ") ? " << v << " : (log(1.0f + exp(" << v

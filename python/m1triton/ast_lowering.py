@@ -1688,7 +1688,11 @@ class _ASTIRLowerer(ast.NodeVisitor):
                     step_hints.append(raw)
                     continue
                 if isinstance(raw, str):
-                    step_hints.append(tlx.EpilogueStepHint(op=raw))
+                    op_key = raw.strip().lower().replace("-", "_")
+                    if op_key == "softplus":
+                        step_hints.append(tlx.EpilogueStepHint(op=raw, param0=1.0, param1=20.0))
+                    else:
+                        step_hints.append(tlx.EpilogueStepHint(op=raw))
                     continue
                 if not isinstance(raw, (tuple, list)) or len(raw) == 0:
                     raise TypeError(f"Invalid tlx.epilogue step: {raw!r}")
@@ -1700,6 +1704,8 @@ class _ASTIRLowerer(ast.NodeVisitor):
                     "add_scalar", "sub_scalar", "mul_scalar", "div_scalar",
                     "add_residual", "sub_residual", "mul_residual",
                 }:
+                    if len(raw) < 2:
+                        raise ValueError(f"tlx.epilogue {op_name} requires a kernel parameter operand")
                     ref = _unwrap_const(raw[1])
                     if isinstance(ref, _SSAVal):
                         if ref.vid not in param_idx_by_vid:
@@ -1712,7 +1718,12 @@ class _ASTIRLowerer(ast.NodeVisitor):
                     else:
                         aidx = int(ref)
                 elif op_key in {"save_reg", "add_saved", "sub_saved", "mul_saved"}:
+                    if len(raw) < 2:
+                        raise ValueError(f"tlx.epilogue {op_name} requires a register slot index")
                     aidx = int(_unwrap_const(raw[1]))
+                elif op_key == "softplus":
+                    p0 = float(_unwrap_const(raw[1])) if len(raw) >= 2 and _unwrap_const(raw[1]) is not None else 1.0
+                    p1 = float(_unwrap_const(raw[2])) if len(raw) >= 3 and _unwrap_const(raw[2]) is not None else 20.0
                 else:
                     if len(raw) >= 2 and _unwrap_const(raw[1]) is not None:
                         p0 = float(_unwrap_const(raw[1]))

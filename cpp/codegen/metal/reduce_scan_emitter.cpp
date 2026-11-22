@@ -210,10 +210,12 @@ struct ReduceKernelAnalysis {
   bool has_scan = false;
   bool has_tile_reshape_or_permute = false;
   bool has_multiple_1d_sizes = false;
+  bool uses_multi_dim_pid = false;
   int64_t block_size_1d = 0;
   std::pair<int64_t, int64_t> primary_2d_shape = {0, 0};
   std::optional<LayoutAttr> hint_layout;
   const ir::EpilogueDAGAttr* epilogue_dag = nullptr;
+  std::optional<int64_t> epilogue_bias_mod;
 };
 
 bool analyze_reduce_kernel(const Kernel& kernel, ReduceKernelAnalysis& out, std::string& err) {
@@ -452,6 +454,10 @@ bool analyze_reduce_kernel(const Kernel& kernel, ReduceKernelAnalysis& out, std:
       const Op& op = kernel.op(oid);
       if (op.erased) continue;
 
+      if (op.kind == OpKind::ProgramId && std::holds_alternative<AxisAttr>(op.attr) &&
+          std::get<AxisAttr>(op.attr).axis > 0u) {
+        out.uses_multi_dim_pid = true;
+      }
       if ((op.kind == OpKind::Store || op.kind == OpKind::AtomicAdd) && !op.operands.empty()) {
         if (auto it = out.ptr_origins.find(op.operands[0]); it != out.ptr_origins.end()) {
           out.written_params.insert(it->second.begin(), it->second.end());
@@ -550,6 +556,26 @@ bool analyze_reduce_kernel(const Kernel& kernel, ReduceKernelAnalysis& out, std:
     out.epilogue_dag = &*kernel.hints.epilogue_dag;
   }
   if (out.epilogue_dag != nullptr) {
+    out.epilogue_bias_mod = positive_constexpr_param(kernel, "EPILOGUE_BIAS_MOD");
+    bool has_bias_step = false;
+    for (const auto& st : out.epilogue_dag->steps) {
+      switch (st.op) {
+        case ir::EpilogueOpKind::AddBias:
+        case ir::EpilogueOpKind::SubBias:
+        case ir::EpilogueOpKind::MulBias:
+        case ir::EpilogueOpKind::DivBias:
+        case ir::EpilogueOpKind::MinBias:
+        case ir::EpilogueOpKind::MaxBias:
+          has_bias_step = true;
+          break;
+        default:
+          break;
+      }
+    }
+    if (has_bias_step && out.uses_multi_dim_pid && !out.epilogue_bias_mod.has_value()) {
+      err = "epilogue_dag *_bias on multi-dimensional reduction requires EPILOGUE_BIAS_MOD constexpr";
+      return false;
+    }
     std::set<uint32_t> read_params;
     collect_epilogue_dag_param_indices(*out.epilogue_dag, read_params);
     for (uint32_t idx : read_params) {
@@ -608,8 +634,11 @@ void emit_scalar_store_with_epilogue(const Kernel& kernel, const ReduceKernelAna
   out << indent_str(bind) << "float m1_ep_v = float(" << val_expr << ");\n";
   out << indent_str(bind) << "const long m1_ep_idx = " << idx_expr << ";\n";
   out << indent_str(bind) << "(void)m1_ep_idx;\n";
+  const std::string ch_expr = analysis.epilogue_bias_mod.has_value()
+                                  ? ("(m1_ep_idx % " + std::to_string(*analysis.epilogue_bias_mod) + "L)")
+                                  : "m1_ep_idx";
   emit_epilogue_dag_msl(
-      out, kernel, *analysis.epilogue_dag, "m1_ep_v", "m1_ep_idx", "m1_ep_idx",
+      out, kernel, *analysis.epilogue_dag, "m1_ep_v", ch_expr, "m1_ep_idx",
       [&](uint32_t idx) { return epilogue_param_name(kernel, analysis, idx); }, helpers, indent_str(bind));
   out << indent_str(bind) << "*(" << ptr_expr << ") = " << msl_cast_expr("m1_ep_v", ScalarDType::F32, pdt, false)
       << ";\n";
@@ -643,8 +672,11 @@ void emit_vec4_store_with_epilogue(const Kernel& kernel, const ReduceKernelAnaly
   out << indent_str(bind + 1) << "float m1_ep_v = m1_ep_v4[m1_ep_lane];\n";
   out << indent_str(bind + 1) << "const long m1_ep_idx = m1_ep_base + long(m1_ep_lane);\n";
   out << indent_str(bind + 1) << "(void)m1_ep_idx;\n";
+  const std::string ch_expr = analysis.epilogue_bias_mod.has_value()
+                                  ? ("(m1_ep_idx % " + std::to_string(*analysis.epilogue_bias_mod) + "L)")
+                                  : "m1_ep_idx";
   emit_epilogue_dag_msl(
-      out, kernel, *analysis.epilogue_dag, "m1_ep_v", "m1_ep_idx", "m1_ep_idx",
+      out, kernel, *analysis.epilogue_dag, "m1_ep_v", ch_expr, "m1_ep_idx",
       [&](uint32_t idx) { return epilogue_param_name(kernel, analysis, idx); }, helpers, indent_str(bind + 1));
   out << indent_str(bind + 1) << "m1_ep_v4[m1_ep_lane] = m1_ep_v;\n";
   out << indent_str(bind) << "}\n";

@@ -43,7 +43,7 @@ class ModelNew(nn.Module):
         lin_out = torch.empty((m, n), dtype=x_c.dtype, device=x_c.device)
         norm_buf = torch.empty((m, n), dtype=x_c.dtype, device=x_c.device)
         out = torch.empty((m, n), dtype=x_c.dtype, device=x_c.device)
-        with C.m1_runtime.command_batch(wait=False, sync_mps=True):
+        with C.m1_runtime.command_batch(wait=True, sync_mps=True):
             C.fused_linear_epilogue(x_c, self.weight, self.bias, out=lin_out, sync_mps=False)
             C.row_instancenorm_add_mul(
                 lin_out, y_c, eps=self.eps, norm_buf=norm_buf, out=out, sync_mps=False

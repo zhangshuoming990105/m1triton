@@ -603,3 +603,58 @@ def test_extreme_values_and_nan_safety():
     assert torch.isnan(got_pool[0, 0, 0, 0])
     assert not torch.isnan(got_pool[0, 1]).any()
     assert not torch.isnan(got_pool[0, 0, 1:, :]).any()
+
+
+@m1triton.jit
+def _epilogue_hardswish_minmax_kernel(x_ptr, bias_ptr, out_ptr, N, BLOCK: tl.constexpr):
+    tlx.epilogue([("min_bias", bias_ptr), ("hardswish",)])
+    pid = tl.program_id(0)
+    offs = pid * BLOCK + tl.arange(0, BLOCK)
+    mask = offs < N
+    vals = tl.load(x_ptr + offs, mask=mask, other=0.0)
+    res = tl.sum(vals, axis=0)
+    tl.store(out_ptr + pid.to(tl.int64), res)
+
+
+@m1triton.jit
+def _epilogue_nan_const_kernel(x_ptr, out_ptr, N, BLOCK: tl.constexpr):
+    tlx.epilogue([("min_const", float("nan"))])
+    pid = tl.program_id(0)
+    offs = pid * BLOCK + tl.arange(0, BLOCK)
+    mask = offs < N
+    vals = tl.load(x_ptr + offs, mask=mask, other=0.0)
+    res = tl.sum(vals, axis=0)
+    tl.store(out_ptr + pid.to(tl.int64), res)
+
+
+def test_epilogue_dag_hardswish_inf_and_nan_propagation():
+    # HardSwish(-inf) must be 0.0 (not NaN), HardSwish(+inf) == +inf, and NaN in bias must propagate.
+    x = torch.tensor(
+        [[-float("inf"), 0.0, 0.0, 0.0], [float("inf"), 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [2.0, 0.0, 0.0, 0.0]],
+        device="mps",
+        dtype=torch.float32,
+    ).contiguous()
+    bias = torch.tensor([10.0, float("inf"), float("nan"), 1.5], device="mps", dtype=torch.float32)
+    out = torch.empty((4,), device="mps", dtype=torch.float32)
+    torch.mps.synchronize()
+    _epilogue_hardswish_minmax_kernel[(4,)](x, bias, out, 16, BLOCK=4, wait=True)
+    got = out.cpu()
+    assert got[0].item() == 0.0 and not torch.isnan(got[0])
+    assert torch.isinf(got[1]) and got[1].item() > 0.0
+    assert torch.isnan(got[2])
+    torch.testing.assert_close(got[3:4], F.hardswish(torch.tensor([1.5])), rtol=1e-4, atol=1e-4)
+
+    # NaN constant literal in epilogue must compile as valid MSL `NAN` and produce NaN.
+    x2 = torch.ones((4,), device="mps", dtype=torch.float32)
+    out2 = torch.empty((1,), device="mps", dtype=torch.float32)
+    torch.mps.synchronize()
+    _epilogue_nan_const_kernel[(1,)](x2, out2, 4, BLOCK=4, wait=True)
+    assert torch.isnan(out2.cpu()[0])
+
+    # tlx.epilogue helper validates param operand & preserves Softplus(1.0, 0.0) threshold=0.
+    sp = tlx.epilogue([("softplus", 1.0, 0.0)])
+    assert sp.steps[0].param0 == 1.0 and sp.steps[0].param1 == 0.0
+    with pytest.raises(ValueError):
+        tlx.epilogue([("add_bias",)])
+    with pytest.raises(TypeError):
+        tlx.epilogue([("add_bias", "not_an_int")])

@@ -117,7 +117,12 @@ def pool_nd(
 
 
 def _contig(x: torch.Tensor) -> torch.Tensor:
-    return x if x.is_contiguous() else x.contiguous()
+    if x.is_contiguous():
+        return x
+    out = x.contiguous()
+    if out.device.type == "mps":
+        torch.mps.synchronize()
+    return out
 
 
 @m1triton.jit

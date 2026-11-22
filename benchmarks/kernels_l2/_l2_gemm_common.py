@@ -13,7 +13,18 @@ import m1triton.tlx as tlx
 
 
 def _contig(x: torch.Tensor) -> torch.Tensor:
-    return x if x.is_contiguous() else x.contiguous()
+    if x.is_contiguous():
+        return x
+    out = x.contiguous()
+    if out.device.type == "mps":
+        torch.mps.synchronize()
+    return out
+
+
+def _resolve_wait(wait: bool | None) -> bool:
+    if wait is not None:
+        return bool(wait)
+    return not m1_runtime.in_batch()
 
 
 def _next_pow2(n: int) -> int:
@@ -232,7 +243,7 @@ def fused_linear_epilogue(
     out: torch.Tensor | None = None,
     fast_math: bool | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> tuple[torch.Tensor, int]:
     """Compile & launch 1 fused SGMM kernel with arbitrary EpilogueDAG and optional FusedTail.
 
@@ -326,7 +337,7 @@ def fused_linear_epilogue(
         TAIL_SCALE=tail_scale,
         fast_math=use_fast_math,
         sync_mps=sync_mps,
-        wait=wait,
+        wait=_resolve_wait(wait),
     )
     return out, grid_n
 
@@ -411,7 +422,7 @@ def bn_fold_affine_gpu(
     out_scale: torch.Tensor | None = None,
     out_shift: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute live inference BatchNorm1d affine `(scale, shift)` on GPU (zero host caching)."""
     rm = _contig(running_mean)
@@ -466,7 +477,7 @@ def bn_fold_affine_gpu(
         HAS_DIV=has_div,
         BLOCK=block,
         sync_mps=sync_mps,
-        wait=wait,
+        wait=_resolve_wait(wait),
     )
     return out_scale, out_shift
 
@@ -505,7 +516,7 @@ def finalize_row_sum(
     post_op: int = 0,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     p_c = _contig(partials)
     m, p = int(p_c.shape[0]), int(p_c.shape[1])
@@ -523,7 +534,7 @@ def finalize_row_sum(
         APPLY_SCALE=apply_scale,
         POST_OP=int(post_op),
         sync_mps=sync_mps,
-        wait=wait,
+        wait=_resolve_wait(wait),
     )
     return out
 
@@ -578,7 +589,7 @@ def finalize_row_lse(
     post_op: int = 0,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     p_c = _contig(partials)
     m, p = int(p_c.shape[0]), int(p_c.shape[1])
@@ -593,7 +604,7 @@ def finalize_row_lse(
         BLOCK_P=block_p,
         POST_OP=int(post_op),
         sync_mps=sync_mps,
-        wait=wait,
+        wait=_resolve_wait(wait),
     )
     return out
 
@@ -637,7 +648,7 @@ def finalize_row_max(
     post_op: int = 0,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     p_c = _contig(partials)
     m, p = int(p_c.shape[0]), int(p_c.shape[1])
@@ -654,7 +665,7 @@ def finalize_row_max(
         PRE_OP=int(pre_op),
         POST_OP=int(post_op),
         sync_mps=sync_mps,
-        wait=wait,
+        wait=_resolve_wait(wait),
     )
     return out
 
@@ -683,7 +694,7 @@ def row_mean_sub_gelu(
     x: torch.Tensor,
     *,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     x_c = _contig(x)
     m, n = int(x_c.shape[0]), int(x_c.shape[1])
@@ -691,7 +702,7 @@ def row_mean_sub_gelu(
     out = torch.empty_like(x_c)
     block_n = 1024
     broadcast_row_sub_gelu_kernel[(m1triton.cdiv(n, block_n), m)](
-        x_c, means, out, n, BLOCK_N=block_n, sync_mps=False, wait=wait
+        x_c, means, out, n, BLOCK_N=block_n, sync_mps=False, wait=_resolve_wait(wait)
     )
     return out
 
@@ -713,14 +724,14 @@ def softmax_rows(
     log_softmax: bool = False,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     x_c = _contig(x)
     rows, row_len = int(x_c.shape[0]), int(x_c.shape[-1])
     if out is None:
         out = torch.empty_like(x_c)
     online_softmax_rows_kernel[(rows, 1, 1)](
-        x_c, out, rows, row_len, bool(log_softmax), sync_mps=sync_mps, wait=wait
+        x_c, out, rows, row_len, bool(log_softmax), sync_mps=sync_mps, wait=_resolve_wait(wait)
     )
     return out
 
@@ -865,7 +876,7 @@ def groupnorm_2d_fused(
     extra: torch.Tensor | None = None,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     """Single-dispatch 2D `(N, C)` GroupNorm with optional fused post-activation (fallback via Welford for GS>1024)."""
     x_c = _contig(x)
@@ -897,7 +908,7 @@ def groupnorm_2d_fused(
             POST_OP=int(post_op),
             BLOCK_GS=block_gs,
             sync_mps=sync_mps,
-            wait=wait,
+            wait=_resolve_wait(wait),
         )
     else:
         normed = torch.empty_like(x_c)
@@ -921,7 +932,7 @@ def groupnorm_2d_fused(
                 POST_OP=int(post_op),
                 BLOCK=block,
                 sync_mps=False,
-                wait=wait,
+                wait=_resolve_wait(wait),
             )
         else:
             out = normed
@@ -973,7 +984,7 @@ def groupnorm_2d_row_min(
     eps: float = 1e-5,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     """Single-dispatch 2D `(N, C)` GroupNorm fused with `min(dim=1, keepdim=True)`."""
     x_c = _contig(x)
@@ -998,7 +1009,7 @@ def groupnorm_2d_row_min(
         HAS_AFFINE=has_affine,
         BLOCK_GS=block_gs,
         sync_mps=sync_mps,
-        wait=wait,
+        wait=_resolve_wait(wait),
     )
     return out
 
@@ -1027,7 +1038,7 @@ def row_instancenorm_add_mul(
     norm_buf: torch.Tensor | None = None,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     """Vectorized Welford per-row InstanceNorm followed by `(norm_x + y) * y`."""
     x_c = _contig(x)
@@ -1043,7 +1054,7 @@ def row_instancenorm_add_mul(
     total = m * n
     block = 1024
     add_mul_y_vec4_kernel[(m1triton.cdiv(total, block),)](
-        norm_buf, y_c, out, total, BLOCK=block, sync_mps=False, wait=wait
+        norm_buf, y_c, out, total, BLOCK=block, sync_mps=False, wait=_resolve_wait(wait)
     )
     return out
 
@@ -1073,7 +1084,7 @@ def broadcast_row_add_2d(
     *,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     """Compute `row_vec (M, 1) + x (M, N) -> (M, N)` in 1 vectorized kernel."""
     r_c = _contig(row_vec)
@@ -1083,7 +1094,7 @@ def broadcast_row_add_2d(
         out = torch.empty_like(x_c)
     block_n = 1024
     broadcast_row_add_2d_kernel[(m1triton.cdiv(n, block_n), m)](
-        r_c, x_c, out, n, BLOCK_N=block_n, sync_mps=sync_mps, wait=wait
+        r_c, x_c, out, n, BLOCK_N=block_n, sync_mps=sync_mps, wait=_resolve_wait(wait)
     )
     return out
 
@@ -1113,7 +1124,7 @@ def broadcast_outer_add_4d(
     *,
     out: torch.Tensor | None = None,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     """Compute `row_min (M, 1) + bias (1, C, 1, 1) -> (1, C, M, 1)` in 1 vectorized kernel."""
     r_c = _contig(row_min)
@@ -1124,7 +1135,7 @@ def broadcast_outer_add_4d(
         out = torch.empty((1, c, m, 1), dtype=r_c.dtype, device=r_c.device)
     block_m = 1024
     broadcast_outer_add_kernel[(m1triton.cdiv(m, block_m), c)](
-        r_c, b_c, out, m, BLOCK_M=block_m, sync_mps=sync_mps, wait=wait
+        r_c, b_c, out, m, BLOCK_M=block_m, sync_mps=sync_mps, wait=_resolve_wait(wait)
     )
     return out
 
@@ -1187,7 +1198,7 @@ def pool1d_2d_fallback(
     kind: str,
     kernel_size: int,
     sync_mps: bool = True,
-    wait: bool = False,
+    wait: bool | None = None,
 ) -> torch.Tensor:
     x_c = _contig(x)
     m, w_in = int(x_c.shape[0]), int(x_c.shape[1])
@@ -1207,7 +1218,7 @@ def pool1d_2d_fallback(
         S_W=k,
         BLOCK_W=block_w,
         sync_mps=sync_mps,
-        wait=wait,
+        wait=_resolve_wait(wait),
     )
     return out
 

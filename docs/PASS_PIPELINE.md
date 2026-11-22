@@ -8,7 +8,9 @@ All passes in `cpp/passes/` are pure C++20 IR-to-IR transforms parameterized onl
 2. **`CSEPass`** (`cpp/passes/cse.cpp`): Scoped value numbering over pure ops without eliminating across memory operations or barriers.
 3. **`LICMPass`** (`cpp/passes/licm.cpp`): Fixed-point hoisting of loop-invariant pure ops out of `ForLoop` regions.
 4. **`EpilogueFusionPass`** (`cpp/passes/epilogue_fusion.cpp`): Folds activation idioms (`pow(x, 2/3) -> mul`, `1/(1+exp(-x)) -> sigmoid`, `select(x > c, x, c) -> max`) and promotes aligned 1D unit-stride elementwise `Load`/`Store` ops to `vec_width=4` when base pointer divisibility and offsets prove 16-byte alignment.
-5. **`StructureAwareDeadTilePruningPass`** (`cpp/passes/structure_pruning.cpp`): Propagates `StructureAttr` (`upper_triangular`, `lower_triangular`, `diagonal`, `symmetric`, `causal_mask`) to prune zero `k`-tiles and dead output tiles (preserving general `Symmetric(A) @ Symmetric(B)` non-symmetry).
+5. **`AlgebraicNormFoldingPass`** (`cpp/passes/algebraic_norm_fold.cpp`): Simplifies consecutive constant scaling/bias/clamp epilogue steps (`MulConst(a) -> MulConst(b)`, `AddConst(a) -> AddConst(b)`, `DivConst(c) -> MulConst(1/c)`, identity step elimination) and prepares algebraically folded affine chains cleanly in pure C++20 IR.
+6. **`EpilogueDAGFusionPass`** (`cpp/passes/epilogue_dag_fusion.cpp`): Propagates explicit `EpilogueDAGAttr` / `FusedTailAttr` hints onto producer ops (`Dot`, `ImplicitGemmConv`, `OnlineSoftmax`, `WelfordReduce`, `Pool`, `Reduce`) and automatically fuses straight-line post-`Dot` Triton SSA elementwise chains (`bias`, `residual`, constants, activations) into register-level `EpilogueDAGAttr` sequences.
+7. **`StructureAwareDeadTilePruningPass`** (`cpp/passes/structure_pruning.cpp`): Propagates `StructureAttr` (`upper_triangular`, `lower_triangular`, `diagonal`, `symmetric`, `causal_mask`) to prune zero `k`-tiles and dead output tiles (preserving general `Symmetric(A) @ Symmetric(B)` non-symmetry).
 6. **`OnlineSoftmaxWelfordPass`** (`cpp/passes/online_softmax_welford.cpp`): Configures Apple M1 Max threadgroup occupancy (`tg_threads=256`, `vec_width=4`) for `OnlineSoftmax` and `WelfordReduce` ops, enabling 1-read `[64, 64]` threadgroup SRAM caching (`16 KB <= 32 KB`) for `RMSNorm`.
 7. **`PoolLoweringPass`** (`cpp/passes/pool_lowering.cpp`): Assigns 1D/2D/3D pooling threadgroup geometry and enables SRAM halo staging when the input halo tile fits within half of M1 Max threadgroup memory (`<= 16 KB`).
 8. **`ConvLoweringPass`** (`cpp/passes/conv_lowering.cpp`): Validates 1D/2D/3D `ConvAttr` geometry, marks output pointers writable, and schedules standard (`64x64x16` / `128x64x32` pipelined SGMM), Winograd `F(2x2, 3x3)` & chunked `F(4x4, 3x3)`, 1x1 pointwise, active-phase `FUSE_SW` transposed, and barrier-free `packed_float4` register-sliding-window depthwise convolutions within M1 Max's `32 KB` SRAM limit.
@@ -22,8 +24,8 @@ All passes in `cpp/passes/` are pure C++20 IR-to-IR transforms parameterized onl
 
 ## CLI Inspection Utility (`m1triton-opt`)
 
-Run passes standalone on textual SSA IR (`--pipeline=m1|m2`, `--pass=<name>`, `--dump-ir`, `--emit-msl`):
+Run passes standalone on textual SSA IR (`--pipeline=m1|m2`, `--pass=<name>`, `--dump-ir`, `--dump-ir-before-all`, `--dump-ir-after-all`, `--stats`, `--emit-msl`):
 
 ```bash
-./build/m1triton-opt --pipeline=m2 --emit-msl input.m1ir
+./build/m1triton-opt --pipeline=m2 --dump-ir-after-all --stats --emit-msl input.m1ir
 ```

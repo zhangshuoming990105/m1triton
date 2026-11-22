@@ -46,7 +46,7 @@ class ModelNew(nn.Module):
         if 64 % kp == 0 or 128 % kp == 0:
             pooled = torch.empty((m, n // kp), dtype=x_c.dtype, device=x_c.device)
             out = torch.empty((m,), dtype=x_c.dtype, device=x_c.device)
-            with C.m1_runtime.command_batch(wait=False, sync_mps=True):
+            with C.m1_runtime.command_batch(wait=True, sync_mps=True):
                 C.fused_linear_epilogue(
                     x_c,
                     self.weight,

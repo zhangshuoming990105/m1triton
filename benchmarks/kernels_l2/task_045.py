@@ -46,7 +46,7 @@ class ModelNew(nn.Module):
         h = torch.empty((m, h_dim), dtype=x_c.dtype, device=x_c.device)
         partials = torch.empty((m, grid_n2, 2), dtype=x_c.dtype, device=x_c.device)
         out = torch.empty((m,), dtype=x_c.dtype, device=x_c.device)
-        with C.m1_runtime.command_batch(wait=False, sync_mps=True):
+        with C.m1_runtime.command_batch(wait=True, sync_mps=True):
             C.fused_linear_epilogue(
                 x_c,
                 self.w1,

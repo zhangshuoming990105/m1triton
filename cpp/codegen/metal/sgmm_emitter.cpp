@@ -1239,11 +1239,33 @@ bool tail_uses_lse_helper(const SgmmPlan& plan) {
   return plan.fused_tail.has_value() && plan.fused_tail->kind == ir::TailKind::RowLogSumExp;
 }
 
+bool tail_uses_nanminmax_helper(const SgmmPlan& plan) {
+  if (!plan.fused_tail.has_value()) return false;
+  switch (plan.fused_tail->kind) {
+    case ir::TailKind::RowMax:
+    case ir::TailKind::RowMin:
+    case ir::TailKind::RowLogSumExp:
+    case ir::TailKind::Pool1DMax:
+      return true;
+    default:
+      return false;
+  }
+}
+
+void emit_nanminmax_helpers(std::ostringstream& os) {
+  os << "static inline float m1_nanmax(float a, float b) {\n"
+     << "  return isnan(a) ? a : (isnan(b) ? b : ((a > b) ? a : b));\n"
+     << "}\n"
+     << "static inline float m1_nanmin(float a, float b) {\n"
+     << "  return isnan(a) ? a : (isnan(b) ? b : ((a < b) ? a : b));\n"
+     << "}\n\n";
+}
+
 void emit_lse_merge_helper(std::ostringstream& os) {
   os << "static inline float2 m1_lse_merge(float2 a, float2 b) {\n"
      << "  if (b.y == 0.0f) return a;\n"
      << "  if (a.y == 0.0f) return b;\n"
-     << "  float m = max(a.x, b.x);\n"
+     << "  float m = m1_nanmax(a.x, b.x);\n"
      << "  return float2(m, a.y * exp(a.x - m) + b.y * exp(b.x - m));\n"
      << "}\n\n";
 }
@@ -2413,14 +2435,14 @@ void emit_mma2_fast_loop_body(std::ostringstream& os, const SgmmPlan& plan, cons
 }
 
 std::string make_elem_idx_expr(const SgmmPlan& plan, const std::string& gr, const std::string& gc, bool is_tail) {
+  std::string base = (plan.c_batch_off == "0") ? "" : ("long(" + plan.c_batch_off + ") + ");
   if (is_tail) {
     std::string n_full = plan.n_bound.has_value()
                              ? "long(m1_N)"
                              : ("long(m1_grid_dim." + axis_component(plan.pid_n_axis) + " * " +
                                 std::to_string(plan.sched.bn) + "u)");
-    return "long(" + gr + ") * " + n_full + " + long(" + gc + ")";
+    return base + "long(" + gr + ") * " + n_full + " + long(" + gc + ")";
   }
-  std::string base = (plan.c_batch_off == "0") ? "" : ("long(" + plan.c_batch_off + ") + ");
   std::string row_part = (plan.stride_cm_const == 1)
                              ? ("long(" + gr + ")")
                              : ("long(" + gr + ") * long(" + plan.stride_cm_expr + ")");
@@ -2554,7 +2576,7 @@ void emit_mma2_fused_tail(std::ostringstream& os, const Kernel& kernel, const Sg
                         ind + "          ");
             os << ind << "        }\n";
           }
-          os << ind << "        float m1_pv = " << (is_max ? "max(m1_vx, m1_vy)" : "(m1_vx + m1_vy)") << ";\n";
+          os << ind << "        float m1_pv = " << (is_max ? "m1_nanmax(m1_vx, m1_vy)" : "(m1_vx + m1_vy)") << ";\n";
           if (apply_scale) os << ind << "        m1_pv = m1_pv * " << scale_lit << ";\n";
           os << ind << "        (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_gc >> 1u) * " << scn_l
              << "] = m1_pv;\n"
@@ -2592,10 +2614,10 @@ void emit_mma2_fused_tail(std::ostringstream& os, const Kernel& kernel, const Sg
                         ind + "        ");
             os << ind << "      }\n";
           }
-          os << ind << "      m1_p2 = " << (is_max ? "max(m1_vx, m1_vy)" : "(m1_vx + m1_vy)") << ";\n"
+          os << ind << "      m1_p2 = " << (is_max ? "m1_nanmax(m1_vx, m1_vy)" : "(m1_vx + m1_vy)") << ";\n"
              << ind << "    }\n"
              << ind << "    float m1_o1 = simd_shuffle_xor(m1_p2, 1);\n"
-             << ind << "    float m1_p4 = " << (is_max ? "max(m1_p2, m1_o1)" : "(m1_p2 + m1_o1)") << ";\n"
+             << ind << "    float m1_p4 = " << (is_max ? "m1_nanmax(m1_p2, m1_o1)" : "(m1_p2 + m1_o1)") << ";\n"
              << ind << "    if (((m1_lane & 1u) == 0u) && " << cond << ") {\n";
           if (apply_scale) os << ind << "      m1_p4 = m1_p4 * " << scale_lit << ";\n";
           os << ind << "      (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_w0 >> 2u) * " << scn_l
@@ -2637,7 +2659,7 @@ void emit_mma2_fused_tail(std::ostringstream& os, const Kernel& kernel, const Sg
             os << ind << "        }\n";
           }
           if (is_max) {
-            os << ind << "        m1_acc = max(m1_acc, max(m1_vx, m1_vy));\n";
+            os << ind << "        m1_acc = m1_nanmax(m1_acc, m1_nanmax(m1_vx, m1_vy));\n";
           } else {
             os << ind << "        m1_acc += (m1_vx + m1_vy);\n";
           }
@@ -2645,9 +2667,9 @@ void emit_mma2_fused_tail(std::ostringstream& os, const Kernel& kernel, const Sg
         }
         os << ind << "    }\n"
            << ind << "    float m1_o1 = simd_shuffle_xor(m1_acc, 1);\n"
-           << ind << "    m1_acc = " << (is_max ? "max(m1_acc, m1_o1)" : "(m1_acc + m1_o1)") << ";\n"
+           << ind << "    m1_acc = " << (is_max ? "m1_nanmax(m1_acc, m1_o1)" : "(m1_acc + m1_o1)") << ";\n"
            << ind << "    float m1_o8 = simd_shuffle_xor(m1_acc, 8);\n"
-           << ind << "    m1_acc = " << (is_max ? "max(m1_acc, m1_o8)" : "(m1_acc + m1_o8)") << ";\n"
+           << ind << "    m1_acc = " << (is_max ? "m1_nanmax(m1_acc, m1_o8)" : "(m1_acc + m1_o8)") << ";\n"
            << ind << "    if (((m1_lane & 9u) == 0u) && " << cond << ") {\n";
         if (apply_scale) os << ind << "      m1_acc = m1_acc * " << scale_lit << ";\n";
         os << ind << "      (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_w0 / " << kp << "u) * "
@@ -2729,8 +2751,8 @@ void emit_mma2_fused_tail(std::ostringstream& os, const Kernel& kernel, const Sg
   const bool is_mean = (tail.kind == ir::TailKind::RowMean);
   const std::string init_v = is_max ? "-INFINITY" : (is_min ? "INFINITY" : "0.0f");
   auto combine_expr = [&](const std::string& a, const std::string& b) -> std::string {
-    if (is_max) return "max(" + a + ", " + b + ")";
-    if (is_min) return "min(" + a + ", " + b + ")";
+    if (is_max) return "m1_nanmax(" + a + ", " + b + ")";
+    if (is_min) return "m1_nanmin(" + a + ", " + b + ")";
     return "(" + a + " + " + b + ")";
   };
   const std::string n_total_f =
@@ -2856,7 +2878,7 @@ void emit_sram_fused_tail(std::ostringstream& os, const Kernel& kernel, const Sg
        << ind << "        uint m1_gc = m1_w0 + m1_pk;\n"
        << ind << "        float m1_ev = float(m1_epi[m1_lr * " << s.bn << "u + m1_w * " << kp << "u + m1_pk]);\n";
     emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "        ");
-    os << ind << "        m1_acc_p = " << (is_max ? "max(m1_acc_p, m1_ev)" : "(m1_acc_p + m1_ev)") << ";\n"
+    os << ind << "        m1_acc_p = " << (is_max ? "m1_nanmax(m1_acc_p, m1_ev)" : "(m1_acc_p + m1_ev)") << ";\n"
        << ind << "      }\n";
     if (scale != 1.0) os << ind << "      m1_acc_p = m1_acc_p * " << scale_lit << ";\n";
     os << ind << "      m1_C[long(m1_gr) * m1_scm + long(m1_w0 / " << kp << "u) * m1_scn] = " << c_t
@@ -2902,7 +2924,7 @@ void emit_sram_fused_tail(std::ostringstream& os, const Kernel& kernel, const Sg
        << ind << "          float m1_ev = float(m1_epi[m1_lr * " << s.bn << "u + m1_lc]);\n";
     emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "          ");
     os << ind << "          m1_racc = "
-       << (is_max ? "max(m1_racc, m1_ev)" : (is_min ? "min(m1_racc, m1_ev)" : "(m1_racc + m1_ev)")) << ";\n"
+       << (is_max ? "m1_nanmax(m1_racc, m1_ev)" : (is_min ? "m1_nanmin(m1_racc, m1_ev)" : "(m1_racc + m1_ev)")) << ";\n"
        << ind << "        }\n"
        << ind << "      }\n";
     if (is_mean) {
@@ -2935,6 +2957,9 @@ std::string emit_mma2_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
      << "#include <metal_simdgroup_matrix>\n"
      << "using namespace metal;\n\n";
   emit_helper_functions(os, helpers);
+  if (tail_uses_nanminmax_helper(plan)) {
+    emit_nanminmax_helpers(os);
+  }
   if (tail_uses_lse_helper(plan)) {
     emit_lse_merge_helper(os);
   }
@@ -3195,6 +3220,9 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
      << "#include <metal_simdgroup_matrix>\n"
      << "using namespace metal;\n\n";
   emit_helper_functions(os, helpers);
+  if (tail_uses_nanminmax_helper(plan)) {
+    emit_nanminmax_helpers(os);
+  }
   if (tail_uses_lse_helper(plan)) {
     emit_lse_merge_helper(os);
   }

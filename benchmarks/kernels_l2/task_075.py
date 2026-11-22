@@ -62,7 +62,7 @@ class ModelNew(nn.Module):
         hidden = torch.empty((m, n), dtype=x_c.dtype, device=x_c.device)
         row_min = torch.empty((m, 1), dtype=x_c.dtype, device=x_c.device)
         out = torch.empty((1, c_bias, m, 1), dtype=x_c.dtype, device=x_c.device)
-        with C.m1_runtime.command_batch(wait=False, sync_mps=True):
+        with C.m1_runtime.command_batch(wait=True, sync_mps=True):
             C.fused_linear_epilogue(x_c, self.weight, self.linear_bias, out=hidden, sync_mps=False)
             C.groupnorm_2d_row_min(
                 hidden,

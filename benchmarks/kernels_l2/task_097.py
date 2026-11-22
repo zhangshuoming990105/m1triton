@@ -68,7 +68,7 @@ class ModelNew(nn.Module):
         eff_scale = torch.empty((n,), dtype=x_c.dtype, device=x_c.device)
         eff_shift = torch.empty((n,), dtype=x_c.dtype, device=x_c.device)
         out = torch.empty((m, n), dtype=x_c.dtype, device=x_c.device)
-        with C.m1_runtime.command_batch(wait=False, sync_mps=True):
+        with C.m1_runtime.command_batch(wait=True, sync_mps=True):
             C.bn_fold_affine_gpu(
                 self.bn_running_mean,
                 self.bn_running_var,

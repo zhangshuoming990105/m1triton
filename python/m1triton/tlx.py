@@ -161,18 +161,42 @@ def persistent_grid(
 
 def epilogue(steps: Any) -> EpilogueDAGHint:
     """Attach a composable epilogue DAG (`[("relu",), ("add_const", 1.0), ("mul_bias", ptr), ...]`)."""
+    param_ref_ops = {
+        "add_bias", "sub_bias", "mul_bias", "div_bias", "min_bias", "max_bias",
+        "add_scalar", "sub_scalar", "mul_scalar", "div_scalar",
+        "add_residual", "sub_residual", "mul_residual",
+        "save_reg", "add_saved", "sub_saved", "mul_saved",
+    }
     parsed: list[EpilogueStepHint] = []
     for raw in steps:
         if isinstance(raw, EpilogueStepHint):
             parsed.append(raw)
         elif isinstance(raw, str):
-            parsed.append(EpilogueStepHint(op=raw))
+            op_key = raw.strip().lower().replace("-", "_")
+            if op_key == "softplus":
+                parsed.append(EpilogueStepHint(op=raw, param0=1.0, param1=20.0))
+            else:
+                parsed.append(EpilogueStepHint(op=raw))
         elif isinstance(raw, (tuple, list)) and len(raw) >= 1:
             op = str(raw[0])
-            p0 = float(raw[1]) if len(raw) >= 2 and raw[1] is not None else 0.0
-            p1 = float(raw[2]) if len(raw) >= 3 and raw[2] is not None else 0.0
-            aidx = int(raw[3]) if len(raw) >= 4 and raw[3] is not None else -1
-            parsed.append(EpilogueStepHint(op=op, param0=p0, param1=p1, arg_idx=aidx))
+            op_key = op.strip().lower().replace("-", "_")
+            if op_key in param_ref_ops:
+                if len(raw) < 2:
+                    raise ValueError(f"tlx.epilogue {op!r} requires a parameter/slot operand")
+                if not isinstance(raw[1], int):
+                    raise TypeError(
+                        f"tlx.epilogue {op!r} outside @jit body requires integer param/slot index, got {raw[1]!r}"
+                    )
+                parsed.append(EpilogueStepHint(op=op, param0=0.0, param1=0.0, arg_idx=int(raw[1])))
+            elif op_key == "softplus":
+                p0 = float(raw[1]) if len(raw) >= 2 and raw[1] is not None else 1.0
+                p1 = float(raw[2]) if len(raw) >= 3 and raw[2] is not None else 20.0
+                parsed.append(EpilogueStepHint(op=op, param0=p0, param1=p1, arg_idx=-1))
+            else:
+                p0 = float(raw[1]) if len(raw) >= 2 and raw[1] is not None else 0.0
+                p1 = float(raw[2]) if len(raw) >= 3 and raw[2] is not None else 0.0
+                aidx = int(raw[3]) if len(raw) >= 4 and raw[3] is not None else -1
+                parsed.append(EpilogueStepHint(op=op, param0=p0, param1=p1, arg_idx=aidx))
         else:
             raise TypeError(f"Unsupported epilogue step spec: {raw!r}")
     return EpilogueDAGHint(steps=tuple(parsed))

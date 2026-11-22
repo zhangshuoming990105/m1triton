@@ -434,6 +434,19 @@ class ConvTransposeWriter {
       collect_epilogue_dag_helpers(*plan_.epilogue_dag, helpers);
       emit_helper_functions(os_, helpers);
     }
+    if (tail_is_max()) {
+      os_ << "static inline float m1_nanmax(float a, float b) {\n"
+          << "  return isnan(a) ? a : (isnan(b) ? b : ((a > b) ? a : b));\n"
+          << "}\n"
+          << "static inline float m1_simd_nanmax(float v) {\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 16));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 8));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 4));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 2));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 1));\n"
+          << "  return v;\n"
+          << "}\n\n";
+    }
     emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
     if (plan_.fused_tail) {
@@ -469,11 +482,11 @@ class ConvTransposeWriter {
   std::string tail_init() const { return tail_is_max() ? "(-INFINITY)" : "0.0f"; }
 
   std::string tail_combine(const std::string& a, const std::string& b) const {
-    return tail_is_max() ? ("fmax(" + a + ", " + b + ")") : ("(" + a + " + " + b + ")");
+    return tail_is_max() ? ("m1_nanmax(" + a + ", " + b + ")") : ("(" + a + " + " + b + ")");
   }
 
   std::string tail_simd_reduce(const std::string& v) const {
-    return tail_is_max() ? ("simd_max(" + v + ")") : ("simd_sum(" + v + ")");
+    return tail_is_max() ? ("m1_simd_nanmax(" + v + ")") : ("simd_sum(" + v + ")");
   }
 
   void emit_tail_finalize(const std::string& var, const std::string& ind) {

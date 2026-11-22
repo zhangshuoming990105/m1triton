@@ -44,7 +44,7 @@ class ModelNew(nn.Module):
             grid_n = (n + bn - 1) // bn
             partials = torch.empty((m, grid_n), dtype=x_c.dtype, device=x_c.device)
             out = torch.empty((m, 1), dtype=x_c.dtype, device=x_c.device)
-            with C.m1_runtime.command_batch(wait=False, sync_mps=True):
+            with C.m1_runtime.command_batch(wait=True, sync_mps=True):
                 C.fused_linear_epilogue(
                     x_c,
                     self.weight,
@@ -52,13 +52,16 @@ class ModelNew(nn.Module):
                     tail={"kind": "row_max"},
                     out=partials,
                     sync_mps=False,
+                    wait=False,
                 )
                 C.finalize_row_max(partials, keepdim=True, post_op=1, out=out, sync_mps=False)
             return out
-        lin, _ = C.fused_linear_epilogue(x_c, self.weight, self.bias)
         col_max = torch.empty((1, n), dtype=x_c.dtype, device=x_c.device)
         block_n = 256
-        C.axis_max_dim0_kernel[((n + block_n - 1) // block_n,)](
-            lin, col_max, m, n, BLOCK_N=block_n, sync_mps=False
-        )
-        return C.row_mean_sub_gelu(col_max, sync_mps=False)
+        with C.m1_runtime.command_batch(wait=True, sync_mps=True):
+            lin, _ = C.fused_linear_epilogue(x_c, self.weight, self.bias, sync_mps=False, wait=False)
+            C.axis_max_dim0_kernel[((n + block_n - 1) // block_n,)](
+                lin, col_max, m, n, BLOCK_N=block_n, sync_mps=False, wait=False
+            )
+            out = C.row_mean_sub_gelu(col_max, sync_mps=False, wait=False)
+        return out
