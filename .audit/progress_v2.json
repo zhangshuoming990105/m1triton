@@ -4,7 +4,7 @@
   "releaseLine": "v2.0",
   "baselineTag": "v1.0-kernelbench-l1",
   "createdAt": "2026-11-22T05:36:00Z",
-  "updatedAt": "2026-11-22T09:38:00Z",
+  "updatedAt": "2026-11-22T11:26:30Z",
   "milestones": [
     {
       "id": "V2-M0",
@@ -65,33 +65,34 @@
     {
       "id": "V2-M7",
       "title": "Full-repo unslop, fresh-venv install verification, final slop-critic audit, official frozen L2+L3 eval & v2.0 tag",
-      "status": "in_progress",
-      "evidence": "",
-      "note": "",
-      "updatedAt": "2026-11-22T09:38:00Z"
+      "status": "verified",
+      "evidence": "Final slop-critic (pro) 9/9 findings fixed & verified (MTL_DEBUG_LAYER=1 clean, sdist includes CMakeLists/cpp/tools), m1_fmax_nan/m1_fmin_nan linear codegen fix (eliminated 37MB exponential expansion in task 8), autotune pre-compile DVFS fix (L3-02 1.05x), official frozen L2 100/100 PASS (100/100 beats MPS, 3.0130x geomean, median dpf=2, .audit/eval_final_l2_100.json), official frozen L3 10/10 PASS (10/10 beats MPS, 3.9235x geomean, .audit/eval_final_l3_10.json), fresh-venv pip install -e . + m1triton doctor (371.11 GB/s) + all 5 examples verified without PYTHONPATH, ci_local.sh ALL GREEN (17/17 CTest, 120/120 pytest, 4 frozen evals locked), docs synced & tagged v2.0-kernelbench-l2-l3; merge 004da76",
+      "note": "GOAL.md v2.0 mission complete",
+      "updatedAt": "2026-11-22T11:26:30Z"
     }
   ],
   "scoreboardL2": {
     "passed": 100,
     "total": 100,
     "beatsBaseline": 100,
-    "geomeanSpeedup": 2.9878,
-    "artifact": ".audit/eval_l2_preflight.json"
+    "geomeanSpeedup": 3.0130,
+    "medianDispatchesPerForward": 2,
+    "artifact": ".audit/eval_final_l2_100.json"
   },
   "scoreboardL3": {
     "passed": 10,
     "total": 10,
     "beatsBaseline": 10,
-    "geomeanSpeedup": 4.3269,
-    "artifact": ".audit/eval_l3_preflight.json"
+    "geomeanSpeedup": 3.9235,
+    "artifact": ".audit/eval_final_l3_10.json"
   },
-  "milestonesSinceHygiene": 1,
+  "milestonesSinceHygiene": 0,
   "lastCheckpoint": {
-    "ts": "2026-11-22T09:38:00Z",
-    "commit": "d64e9a9",
-    "summary": "V2-M6 verified & merged: FusionOccupancyCostModelPass, concurrent command_batch(), MetalGraph ICB eval (1.471x), fast JIT/Autotune dispatch, L3-02 beats MPS (10/10 L3 beats MPS 4.1064x), L2 Winograd sprint (#19 dpf 154->4, 5-task geomean 1.158x->1.290x), ci_local.sh ALL GREEN",
-    "next": "Execute V2-M7: final slop-critic (pro) + unslop, fresh-venv install test, official frozen L2 (100/100) & L3 (10/10) release evals, docs & v2.0-kernelbench-l2-l3 tag",
-    "hygieneClean": false
+    "ts": "2026-11-22T11:26:30Z",
+    "commit": "004da76",
+    "summary": "V2-M7 verified & merged: all 9 slop-critic (pro) findings fixed, official frozen L2 100/100 (100/100 beats MPS, 3.0130x geomean) & L3 10/10 (10/10 beats MPS, 3.9235x geomean), fresh-venv install + 5 examples verified, ci_local.sh ALL GREEN (17/17 CTest, 120/120 pytest), docs synced, tagged v2.0-kernelbench-l2-l3",
+    "next": "GOAL_COMPLETE",
+    "hygieneClean": true
   },
   "checkpoints": [
     {
@@ -121,6 +122,13 @@
       "summary": "V2-M6 verified & merged: FusionOccupancyCostModelPass, concurrent command_batch(), MetalGraph ICB eval (1.471x), fast JIT/Autotune dispatch, L3-02 beats MPS (10/10 L3 beats MPS 4.1064x), L2 Winograd sprint (#19 dpf 154->4, 5-task geomean 1.158x->1.290x), ci_local.sh ALL GREEN",
       "next": "Execute V2-M7: final slop-critic (pro) + unslop, fresh-venv install test, official frozen L2 (100/100) & L3 (10/10) release evals, docs & v2.0-kernelbench-l2-l3 tag",
       "hygieneClean": false
+    },
+    {
+      "ts": "2026-11-22T11:26:30Z",
+      "commit": "004da76",
+      "summary": "V2-M7 verified & merged: all 9 slop-critic (pro) findings fixed, m1_fmax_nan linear codegen, autotune pre-compile, official frozen L2 100/100 (100/100 beats MPS, 3.0130x geomean) & L3 10/10 (10/10 beats MPS, 3.9235x geomean), fresh-venv install + 5 examples verified, ci_local.sh ALL GREEN (17/17 CTest, 120/120 pytest), tagged v2.0-kernelbench-l2-l3",
+      "next": "GOAL_COMPLETE",
+      "hygieneClean": true
     }
   ]
 }
