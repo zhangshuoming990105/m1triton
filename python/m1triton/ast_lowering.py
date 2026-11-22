@@ -1943,10 +1943,117 @@ class _ASTIRLowerer(ast.NodeVisitor):
             for pidx in ssa_ops[3].ptr_params:
                 self.kernel.set_param_writable(pidx, True)
             attr = ir.FlashAttnAttr()
+            attr.mode = ir.FlashAttnMode.Fwd
             attr.scale = float(_unwrap_const(kwargs.get("scale", 1.0)))
             attr.causal = bool(_unwrap_const(kwargs.get("causal", False)))
             attr.causal_offset = int(_unwrap_const(kwargs.get("causal_offset", 0)))
+            attr.window_size = int(_unwrap_const(kwargs.get("window_size", -1)))
+            attr.softcap = float(_unwrap_const(kwargs.get("softcap", 0.0)))
+            attr.kv_group_size = int(_unwrap_const(kwargs.get("kv_group_size", 1)))
+            lse_ptr = kwargs.get("lse_ptr")
+            if lse_ptr is not None:
+                lse_ssa = self._materialize_ssa(lse_ptr)
+                for pidx in lse_ssa.ptr_params:
+                    self.kernel.set_param_writable(pidx, True)
+                attr.return_lse = True
+                ssa_ops.append(lse_ssa)
+            alibi_ptr = kwargs.get("alibi_ptr")
+            if alibi_ptr is not None:
+                attr.has_alibi = True
+                ssa_ops.append(self._materialize_ssa(alibi_ptr))
+            if attr.kv_group_size > 1:
+                num_q_heads = kwargs.get("num_q_heads")
+                if num_q_heads is None:
+                    raise ValueError("tlx.flash_attention_tile requires num_q_heads when kv_group_size > 1")
+                ssa_ops.append(self._materialize_ssa(num_q_heads))
             self.builder.emit_flash_attention([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "flash_attention_bwd_dkdv":
+            if len(args) < 12:
+                raise ValueError(
+                    "tlx.flash_attention_bwd_dkdv requires (Q, K, V, dO, L, Delta, dK, dV, BH, Lq, Lkv, D)"
+                )
+            ssa_ops = [self._materialize_ssa(v) for v in args[:12]]
+            for w_idx in (6, 7):
+                for pidx in ssa_ops[w_idx].ptr_params:
+                    self.kernel.set_param_writable(pidx, True)
+            attr = ir.FlashAttnAttr()
+            attr.mode = ir.FlashAttnMode.BwdDKDV
+            attr.scale = float(_unwrap_const(kwargs.get("scale", 1.0)))
+            attr.causal = bool(_unwrap_const(kwargs.get("causal", False)))
+            attr.causal_offset = int(_unwrap_const(kwargs.get("causal_offset", 0)))
+            attr.window_size = int(_unwrap_const(kwargs.get("window_size", -1)))
+            attr.softcap = float(_unwrap_const(kwargs.get("softcap", 0.0)))
+            self.builder.emit_flash_attention([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "flash_attention_bwd_dq":
+            if len(args) < 11:
+                raise ValueError(
+                    "tlx.flash_attention_bwd_dq requires (Q, K, V, dO, L, Delta, dQ, BH, Lq, Lkv, D)"
+                )
+            ssa_ops = [self._materialize_ssa(v) for v in args[:11]]
+            for pidx in ssa_ops[6].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            attr = ir.FlashAttnAttr()
+            attr.mode = ir.FlashAttnMode.BwdDQ
+            attr.scale = float(_unwrap_const(kwargs.get("scale", 1.0)))
+            attr.causal = bool(_unwrap_const(kwargs.get("causal", False)))
+            attr.causal_offset = int(_unwrap_const(kwargs.get("causal_offset", 0)))
+            attr.window_size = int(_unwrap_const(kwargs.get("window_size", -1)))
+            attr.softcap = float(_unwrap_const(kwargs.get("softcap", 0.0)))
+            self.builder.emit_flash_attention([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "paged_attention_decode":
+            if len(args) < 12:
+                raise ValueError(
+                    "tlx.paged_attention_decode requires (Q, K_cache, V_cache, BlockTables, ContextLens, PartialO, PartialLSE, B, H_q, H_kv, MaxBlocks, D)"
+                )
+            ssa_ops = [self._materialize_ssa(v) for v in args[:12]]
+            for w_idx in (5, 6):
+                for pidx in ssa_ops[w_idx].ptr_params:
+                    self.kernel.set_param_writable(pidx, True)
+            attr = ir.FlashAttnAttr()
+            attr.mode = ir.FlashAttnMode.PagedDecode
+            attr.scale = float(_unwrap_const(kwargs.get("scale", 1.0)))
+            attr.softcap = float(_unwrap_const(kwargs.get("softcap", 0.0)))
+            self.builder.emit_flash_attention([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "grouped_gemm":
+            if len(args) < 7:
+                raise ValueError("tlx.grouped_gemm requires (A, W, Offsets, Out, E, N, K)")
+            ssa_ops = [self._materialize_ssa(v) for v in args[:7]]
+            for pidx in ssa_ops[3].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            attr = ir.GroupedGemmAttr()
+            attr.bm = int(_unwrap_const(kwargs.get("bm", 64)))
+            attr.bn = int(_unwrap_const(kwargs.get("bn", 64)))
+            attr.bk = int(_unwrap_const(kwargs.get("bk", 16)))
+            attr.num_simdgroups = int(_unwrap_const(kwargs.get("num_simdgroups", 4)))
+            attr.transpose_b = bool(_unwrap_const(kwargs.get("transpose_b", True)))
+            attr.persistent = bool(_unwrap_const(kwargs.get("persistent", True)))
+            attr.max_tgs_per_core = int(_unwrap_const(kwargs.get("max_tgs_per_core", 2)))
+            self.builder.emit_grouped_gemm([v.vid for v in ssa_ops], attr, self.kernel.hints)
+            return None
+
+        if name == "quant_dot":
+            if len(args) < 8:
+                raise ValueError("tlx.quant_dot requires (A, QWeight, Scales, Zeros, Out, M, N, K)")
+            ssa_ops = [self._materialize_ssa(v) for v in args[:8]]
+            for pidx in ssa_ops[4].ptr_params:
+                self.kernel.set_param_writable(pidx, True)
+            attr = ir.QuantDotAttr()
+            attr.bits = int(_unwrap_const(kwargs.get("bits", 4)))
+            attr.group_size = int(_unwrap_const(kwargs.get("group_size", 128)))
+            attr.bm = int(_unwrap_const(kwargs.get("bm", 64)))
+            attr.bn = int(_unwrap_const(kwargs.get("bn", 64)))
+            attr.bk = int(_unwrap_const(kwargs.get("bk", 32)))
+            attr.num_simdgroups = int(_unwrap_const(kwargs.get("num_simdgroups", 4)))
+            attr.symmetric = bool(_unwrap_const(kwargs.get("symmetric", False)))
+            self.builder.emit_quant_dot([v.vid for v in ssa_ops], attr, self.kernel.hints)
             return None
 
         if name == "simd_scan":

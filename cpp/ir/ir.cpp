@@ -182,6 +182,10 @@ std::string_view op_kind_name(OpKind kind) {
       return "simd_reduce";
     case OpKind::SimdScan:
       return "simd_scan";
+    case OpKind::GroupedGemm:
+      return "grouped_gemm";
+    case OpKind::QuantDot:
+      return "quant_dot";
   }
   return "const";
 }
@@ -203,6 +207,8 @@ bool is_pure_op(OpKind kind) {
     case OpKind::Pool:
     case OpKind::FusedLoss:
     case OpKind::SimdScan:
+    case OpKind::GroupedGemm:
+    case OpKind::QuantDot:
     case OpKind::ThreadgroupAlloc:
     case OpKind::ThreadgroupStage:
     case OpKind::Barrier:

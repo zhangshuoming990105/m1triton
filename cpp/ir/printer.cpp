@@ -456,6 +456,21 @@ class KernelPrinter {
       os_ << "scale=" << format_double(fa->scale) << ", causal=" << (fa->causal ? "true" : "false")
           << ", causal_offset=" << fa->causal_offset << ", bm=" << fa->bm << ", bn=" << fa->bn << ", bd=" << fa->bd
           << ", simds=" << fa->num_simdgroups;
+      if (fa->mode != FlashAttnMode::Fwd) os_ << ", mode=" << flash_attn_mode_name(fa->mode);
+      if (fa->window_size >= 0) os_ << ", window_size=" << fa->window_size;
+      if (fa->softcap > 0.0f) os_ << ", softcap=" << format_double(fa->softcap);
+      if (fa->has_alibi) os_ << ", has_alibi=true";
+      if (fa->return_lse) os_ << ", return_lse=true";
+      if (fa->kv_group_size != 1) os_ << ", kv_group_size=" << fa->kv_group_size;
+    } else if (const auto* gg = std::get_if<GroupedGemmAttr>(&node.attr)) {
+      os_ << "bm=" << gg->bm << ", bn=" << gg->bn << ", bk=" << gg->bk << ", simds=" << gg->num_simdgroups
+          << ", transpose_b=" << (gg->transpose_b ? "true" : "false")
+          << ", persistent=" << (gg->persistent ? "true" : "false")
+          << ", max_tgs_per_core=" << gg->max_tgs_per_core;
+    } else if (const auto* qd = std::get_if<QuantDotAttr>(&node.attr)) {
+      os_ << "bits=" << qd->bits << ", group_size=" << qd->group_size << ", bm=" << qd->bm << ", bn=" << qd->bn
+          << ", bk=" << qd->bk << ", simds=" << qd->num_simdgroups
+          << ", symmetric=" << (qd->symmetric ? "true" : "false");
     } else if (const auto* la = std::get_if<LossAttr>(&node.attr)) {
       os_ << "kind=" << loss_kind_name(la->kind) << ", margin=" << format_double(la->margin)
           << ", beta=" << format_double(la->beta) << ", eps=" << format_double(la->eps) << ", stage=" << la->stage

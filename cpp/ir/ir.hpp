@@ -51,6 +51,8 @@ enum class OpKind : uint16_t {
   SimdgroupMatmul,
   SimdReduce,
   SimdScan,
+  GroupedGemm,
+  QuantDot,
 };
 
 struct Value {

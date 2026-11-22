@@ -65,14 +65,57 @@ PassResult FlashAttentionLoweringPass::run(ir::Kernel& kernel, const PassContext
       res.diagnostic = "flash_attention_tile op missing FlashAttnAttr";
       return res;
     }
-    if (op.operands.size() != 8 || !op.results.empty()) {
-      res.ok = false;
-      res.diagnostic = "flash_attention_tile expects 8 operands (q, k, v, out, BH, L_q, L_kv, D) and 0 results";
-      return res;
-    }
     if (!std::isfinite(fa->scale)) {
       res.ok = false;
       res.diagnostic = "flash_attention_tile requires a finite scale";
+      return res;
+    }
+
+    auto mark_writable = [&](ir::ValueId vid) {
+      if (const auto pidx = param_index_of(kernel, vid)) {
+        if (!kernel.params[*pidx].writable) {
+          kernel.params[*pidx].writable = true;
+          res.changed = true;
+        }
+      }
+    };
+
+    if (fa->mode != ir::FlashAttnMode::Fwd) {
+      if (fa->mode == ir::FlashAttnMode::BwdDKDV) {
+        if (op.operands.size() != 12u || !op.results.empty()) {
+          res.ok = false;
+          res.diagnostic = "flash_attention_tile bwd_dkdv expects 12 operands and 0 results";
+          return res;
+        }
+        mark_writable(op.operands[6]);
+        mark_writable(op.operands[7]);
+      } else if (fa->mode == ir::FlashAttnMode::BwdDQ) {
+        if (op.operands.size() != 11u || !op.results.empty()) {
+          res.ok = false;
+          res.diagnostic = "flash_attention_tile bwd_dq expects 11 operands and 0 results";
+          return res;
+        }
+        mark_writable(op.operands[6]);
+      } else if (fa->mode == ir::FlashAttnMode::PagedDecode) {
+        if (op.operands.size() != 12u || !op.results.empty()) {
+          res.ok = false;
+          res.diagnostic = "flash_attention_tile paged_decode expects 12 operands and 0 results";
+          return res;
+        }
+        mark_writable(op.operands[5]);
+        mark_writable(op.operands[6]);
+      }
+      if (const auto v = find_constexpr_param(kernel, "BLOCK_M")) fa->bm = static_cast<uint32_t>(*v);
+      if (const auto v = find_constexpr_param(kernel, "BLOCK_N")) fa->bn = static_cast<uint32_t>(*v);
+      if (const auto v = find_constexpr_param(kernel, "NUM_SG")) fa->num_simdgroups = static_cast<uint32_t>(*v);
+      continue;
+    }
+
+    const size_t expected_fwd =
+        8u + (fa->return_lse ? 1u : 0u) + (fa->has_alibi ? 1u : 0u) + (fa->kv_group_size > 1 ? 1u : 0u);
+    if (op.operands.size() != expected_fwd || !op.results.empty()) {
+      res.ok = false;
+      res.diagnostic = "flash_attention_tile fwd expects " + std::to_string(expected_fwd) + " operands and 0 results";
       return res;
     }
 
@@ -99,11 +142,9 @@ PassResult FlashAttentionLoweringPass::run(ir::Kernel& kernel, const PassContext
       }
     }
 
-    if (const auto out_pidx = param_index_of(kernel, op.operands[3])) {
-      if (!kernel.params[*out_pidx].writable) {
-        kernel.params[*out_pidx].writable = true;
-        res.changed = true;
-      }
+    mark_writable(op.operands[3]);
+    if (fa->return_lse) {
+      mark_writable(op.operands[8]);
     }
 
     const ir::FlashAttnAttr before = *fa;

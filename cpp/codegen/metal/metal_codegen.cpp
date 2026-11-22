@@ -4,6 +4,7 @@
 #include "codegen/metal/conv_std_emitter.hpp"
 #include "codegen/metal/conv_transpose_emitter.hpp"
 #include "codegen/metal/flash_attn_emitter.hpp"
+#include "codegen/metal/l3_gemm_emitter.hpp"
 #include "codegen/metal/loss_emitter.hpp"
 #include "codegen/metal/msl_common.hpp"
 #include "codegen/metal/norm_softmax_emitter.hpp"
@@ -98,6 +99,7 @@ struct KernelAnalysis {
   bool has_conv_dw = false;
   bool has_loss = false;
   bool has_flash_attn = false;
+  bool has_l3_gemm = false;
   bool has_tile_cf = false;
   bool has_tile_reshape_or_permute = false;
   int64_t block_size_1d = 0;
@@ -386,8 +388,39 @@ bool analyze_kernel(const Kernel& kernel, KernelAnalysis& out, std::string& err)
       }
       if (op.kind == OpKind::FlashAttentionTile) {
         out.has_flash_attn = true;
+        if (std::holds_alternative<ir::FlashAttnAttr>(op.attr)) {
+          const auto& fa = std::get<ir::FlashAttnAttr>(op.attr);
+          auto mark_w = [&](size_t idx) {
+            if (idx < op.operands.size()) {
+              auto it = out.ptr_origins.find(op.operands[idx]);
+              if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+            }
+          };
+          if (fa.mode == ir::FlashAttnMode::Fwd) {
+            mark_w(3);
+            if (fa.return_lse) mark_w(8);
+          } else if (fa.mode == ir::FlashAttnMode::BwdDKDV) {
+            mark_w(6);
+            mark_w(7);
+          } else if (fa.mode == ir::FlashAttnMode::BwdDQ) {
+            mark_w(6);
+          } else if (fa.mode == ir::FlashAttnMode::PagedDecode) {
+            mark_w(5);
+            mark_w(6);
+          }
+        }
+      }
+      if (op.kind == OpKind::GroupedGemm) {
+        out.has_l3_gemm = true;
         if (op.operands.size() >= 4) {
           auto it = out.ptr_origins.find(op.operands[3]);
+          if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
+        }
+      }
+      if (op.kind == OpKind::QuantDot) {
+        out.has_l3_gemm = true;
+        if (op.operands.size() >= 5) {
+          auto it = out.ptr_origins.find(op.operands[4]);
           if (it != out.ptr_origins.end()) out.written_params.insert(it->second.begin(), it->second.end());
         }
       }
@@ -2707,6 +2740,14 @@ CompiledMSL MetalCodegen::emit(const ir::Kernel& kernel, const ir::TargetSpec& t
     auto fa_res = try_emit_flash_attn_kernel(kernel, target, &matched);
     if (matched) {
       return fa_res;
+    }
+  }
+
+  if (analysis.has_l3_gemm) {
+    bool matched = false;
+    auto l3_res = try_emit_l3_gemm_kernel(kernel, target, &matched);
+    if (matched) {
+      return l3_res;
     }
   }
 
