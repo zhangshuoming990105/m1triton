@@ -1,5 +1,7 @@
 #include "codegen/metal/conv_transpose_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -20,7 +22,6 @@ using ir::Kernel;
 using ir::Op;
 using ir::OpKind;
 using ir::ScalarDType;
-using ir::ValueId;
 
 constexpr const char* kBlockMParam = "BLOCK_M";
 constexpr const char* kBlockNParam = "BLOCK_N";
@@ -30,24 +31,6 @@ constexpr const char* kWBlk8Param = "W_BLK8";
 constexpr const char* kHaloParam = "HALO";
 constexpr const char* kFuseSwParam = "FUSE_SW";
 constexpr std::array<const char*, 3> kTileParams = {"TILE_D", "TILE_H", "TILE_W"};
-
-std::string msl_scalar(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "float";
-}
 
 struct ConvDim {
   std::string in = "1L";
@@ -108,49 +91,13 @@ struct ConvTransposePlan {
   int32_t fuse_shift_min_w = 0;
   uint32_t fuse_epi_rows = 8;
   std::vector<ActiveWPhase> active_w;
-  std::vector<int32_t> aw_to_idx;
 };
-
-std::optional<uint32_t> param_index_of(const Kernel& kernel, ValueId vid) {
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op != ir::kInvalidId || v.def_block != kernel.entry_block) return std::nullopt;
-  if (v.arg_idx >= kernel.params.size()) return std::nullopt;
-  return v.arg_idx;
-}
-
-std::optional<std::string> scalar_expr(const Kernel& kernel, ValueId vid) {
-  if (auto pidx = param_index_of(kernel, vid)) {
-    const ir::KernelParam& kp = kernel.params[*pidx];
-    if (kp.type.is_ptr()) return std::nullopt;
-    if (kp.is_constexpr) return std::to_string(kp.constexpr_val) + "L";
-    return "((long)" + kp.name + ")";
-  }
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op == ir::kInvalidId) return std::nullopt;
-  const Op& def = kernel.op(v.def_op);
-  if (def.kind == OpKind::Constant) {
-    const auto* ca = std::get_if<ir::ConstAttr>(&def.attr);
-    if (ca == nullptr) return std::nullopt;
-    if (const auto* i = std::get_if<int64_t>(&ca->val)) return std::to_string(*i) + "L";
-    if (const auto* u = std::get_if<uint64_t>(&ca->val)) return std::to_string(*u) + "L";
-    return std::nullopt;
-  }
-  if (def.kind == OpKind::Cast && def.operands.size() == 1) return scalar_expr(kernel, def.operands[0]);
-  return std::nullopt;
-}
 
 std::optional<int64_t> literal_value(const std::string& expr) {
   if (expr.size() < 2 || expr.back() != 'L') return std::nullopt;
   const std::string digits = expr.substr(0, expr.size() - 1);
   if (digits.find_first_not_of("0123456789") != std::string::npos) return std::nullopt;
   return std::strtoll(digits.c_str(), nullptr, 10);
-}
-
-int64_t constexpr_param(const Kernel& kernel, const char* name, int64_t fallback) {
-  for (const auto& kp : kernel.params) {
-    if (kp.is_constexpr && kp.name == name && kp.constexpr_val > 0) return kp.constexpr_val;
-  }
-  return fallback;
 }
 
 std::optional<ScalarDType> float_ptr_dtype(const Kernel& kernel, uint32_t pidx) {
@@ -211,7 +158,7 @@ bool configure_halo(const Kernel& kernel, ConvTransposePlan& plan, std::string& 
     ConvDim& dim = plan.dims[i];
     const bool active = i >= 3 - plan.nd;
     const int64_t fallback = i == 2 ? plan.bn : 1;
-    dim.tile = active ? static_cast<uint32_t>(constexpr_param(kernel, kTileParams[i], fallback)) : 1u;
+    dim.tile = active ? static_cast<uint32_t>(positive_constexpr_param(kernel, kTileParams[i], fallback)) : 1u;
     dim.ext = dim.tile + static_cast<uint32_t>((dim.nmax - 1) * dim.delta);
     cols *= dim.tile;
     plan.hplane *= dim.ext;
@@ -232,7 +179,6 @@ bool configure_fuse_sw(ConvTransposePlan& plan, const ir::TargetSpec& target, st
     err = "conv-transpose FUSE_SW=1 requires HALO=1, f32 output, and stride_w > 1";
     return false;
   }
-  plan.aw_to_idx.assign(static_cast<size_t>(wdim.s), -1);
   bool have_shift = false;
   int32_t shift_min = 0;
   int32_t shift_max = 0;
@@ -255,7 +201,6 @@ bool configure_fuse_sw(ConvTransposePlan& plan, const ir::TargetSpec& target, st
       }
     }
     if (!ph.taps.empty()) {
-      plan.aw_to_idx[static_cast<size_t>(aw)] = static_cast<int32_t>(plan.active_w.size());
       plan.active_w.push_back(std::move(ph));
     }
   }
@@ -338,14 +283,14 @@ std::optional<ConvTransposePlan> build_plan(const Kernel& kernel, const ir::Targ
   plan.x_name = kernel.params[*ptr_idx[0]].name;
   plan.w_name = kernel.params[*ptr_idx[1]].name;
   plan.out_name = kernel.params[*ptr_idx[2]].name;
-  plan.x_elem = msl_scalar(*float_ptr_dtype(kernel, *ptr_idx[0]));
-  plan.w_elem = msl_scalar(*float_ptr_dtype(kernel, *ptr_idx[1]));
-  plan.out_elem = msl_scalar(*float_ptr_dtype(kernel, *ptr_idx[2]));
+  plan.x_elem = msl_scalar_type(*float_ptr_dtype(kernel, *ptr_idx[0]));
+  plan.w_elem = msl_scalar_type(*float_ptr_dtype(kernel, *ptr_idx[1]));
+  plan.out_elem = msl_scalar_type(*float_ptr_dtype(kernel, *ptr_idx[2]));
   if (ca.has_bias) plan.bias_name = kernel.params[*ptr_idx[3]].name;
 
   std::vector<std::string> exprs;
   for (size_t i = 3 + bias_slots; i < ops.size(); ++i) {
-    auto e = scalar_expr(kernel, ops[i]);
+    auto e = scalar_long_expr(kernel, ops[i], false);
     if (!e) {
       err = "conv-transpose shape operands must be scalar kernel parameters or constants";
       return std::nullopt;
@@ -373,11 +318,11 @@ std::optional<ConvTransposePlan> build_plan(const Kernel& kernel, const ir::Targ
     dim.nmax = (dim.k + dim.step - 1) / dim.step;
   }
 
-  plan.bm = static_cast<uint32_t>(constexpr_param(kernel, kBlockMParam, ca.bm > 0 ? ca.bm : 64));
-  plan.bn = static_cast<uint32_t>(constexpr_param(kernel, kBlockNParam, ca.bn > 0 ? ca.bn : 64));
-  plan.bk = static_cast<uint32_t>(constexpr_param(kernel, kBlockKParam, ca.bk > 0 ? ca.bk : 16));
+  plan.bm = static_cast<uint32_t>(positive_constexpr_param(kernel, kBlockMParam, ca.bm > 0 ? ca.bm : 64));
+  plan.bn = static_cast<uint32_t>(positive_constexpr_param(kernel, kBlockNParam, ca.bn > 0 ? ca.bn : 64));
+  plan.bk = static_cast<uint32_t>(positive_constexpr_param(kernel, kBlockKParam, ca.bk > 0 ? ca.bk : 16));
   plan.num_sg = static_cast<uint32_t>(
-      constexpr_param(kernel, kNumSgParam, ca.num_simdgroups > 0 ? ca.num_simdgroups : 4));
+      positive_constexpr_param(kernel, kNumSgParam, ca.num_simdgroups > 0 ? ca.num_simdgroups : 4));
   if (!choose_tile_layout(plan)) {
     err = "conv-transpose tile must use multiples of 8 with BLOCK_N dividing the threadgroup size";
     return std::nullopt;
@@ -398,7 +343,7 @@ std::optional<ConvTransposePlan> build_plan(const Kernel& kernel, const ir::Targ
     plan.co_exact = (*cout / plan.groups) % plan.bm == 0;
   }
 
-  const bool req_blk8 = constexpr_param(kernel, kWBlk8Param, 0) > 0;
+  const bool req_blk8 = positive_constexpr_param(kernel, kWBlk8Param, 0) > 0;
   if (req_blk8) {
     if (plan.w_elem != "float" || !plan.ci_exact || !plan.co_exact) {
       err = "conv-transpose W_BLK8=1 requires f32 weights and channels divisible by BLOCK_K/BLOCK_M";
@@ -407,9 +352,9 @@ std::optional<ConvTransposePlan> build_plan(const Kernel& kernel, const ir::Targ
     plan.w_blk8 = true;
   }
 
-  if (constexpr_param(kernel, kHaloParam, 0) > 0) {
+  if (positive_constexpr_param(kernel, kHaloParam, 0) > 0) {
     if (!configure_halo(kernel, plan, err)) return std::nullopt;
-    if (constexpr_param(kernel, kFuseSwParam, 0) > 0) {
+    if (positive_constexpr_param(kernel, kFuseSwParam, 0) > 0) {
       if (!configure_fuse_sw(plan, target, err)) return std::nullopt;
     }
   } else {
@@ -451,19 +396,7 @@ class ConvTransposeWriter {
 
   void emit_signature() {
     os_ << "#include <metal_stdlib>\n#include <metal_simdgroup_matrix>\nusing namespace metal;\n\n";
-    os_ << "kernel void " << kernel_.name << "(\n";
-    uint32_t slot = 0;
-    for (const auto& kp : kernel_.params) {
-      if (kp.is_constexpr) continue;
-      if (kp.type.is_ptr()) {
-        const auto pt = std::get<ir::PtrType>(kp.type.value);
-        const bool is_out = kp.name == plan_.out_name;
-        os_ << "    device " << (is_out ? "" : "const ") << msl_scalar(pt.pointee) << "* " << kp.name;
-      } else {
-        os_ << "    constant " << msl_scalar(std::get<ScalarDType>(kp.type.value)) << "& " << kp.name;
-      }
-      os_ << " [[buffer(" << slot++ << ")]],\n";
-    }
+    emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
     os_ << "    uint m1_lid [[thread_index_in_threadgroup]],\n";
     os_ << "    uint m1_sgid [[simdgroup_index_in_threadgroup]]) {\n";
@@ -1076,19 +1009,7 @@ CompiledMSL try_emit_conv_transpose_kernel(const ir::Kernel& kernel, const ir::T
   res.launch_spec.threadgroup_mem_bytes = 0;
   res.launch_spec.vec_width = 1;
   res.launch_spec.fast_math = false;
-  uint32_t slot = 0;
-  for (uint32_t i = 0; i < kernel.params.size(); ++i) {
-    const ir::KernelParam& kp = kernel.params[i];
-    if (kp.is_constexpr) continue;
-    ParamSlot ps;
-    ps.param_index = i;
-    ps.buffer_index = slot++;
-    ps.name = kp.name;
-    ps.is_pointer = kp.type.is_ptr();
-    ps.writable = ps.is_pointer && (kp.writable || kp.name == plan->out_name);
-    ps.dtype = ps.is_pointer ? std::get<ir::PtrType>(kp.type.value).pointee : std::get<ScalarDType>(kp.type.value);
-    res.launch_spec.param_slots.push_back(std::move(ps));
-  }
+  res.launch_spec.param_slots = build_single_out_param_slots(kernel, plan->out_name);
   return res;
 }
 

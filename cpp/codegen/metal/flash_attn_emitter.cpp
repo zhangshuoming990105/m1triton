@@ -1,9 +1,10 @@
 #include "codegen/metal/flash_attn_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <iomanip>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -18,65 +19,6 @@ using ir::Kernel;
 using ir::Op;
 using ir::OpKind;
 using ir::ScalarDType;
-using ir::ValueId;
-
-std::string msl_scalar(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "float";
-}
-
-std::string format_float_literal(float v) {
-  std::ostringstream ss;
-  ss << std::setprecision(9) << v;
-  std::string s = ss.str();
-  if (s.find('.') == std::string::npos && s.find('e') == std::string::npos && s.find('E') == std::string::npos) {
-    s += ".0";
-  }
-  s += "f";
-  return s;
-}
-
-std::optional<uint32_t> param_index_of(const Kernel& kernel, ValueId vid) {
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op != ir::kInvalidId || v.def_block != kernel.entry_block) return std::nullopt;
-  if (v.arg_idx >= kernel.params.size()) return std::nullopt;
-  return v.arg_idx;
-}
-
-std::optional<std::string> scalar_expr(const Kernel& kernel, ValueId vid) {
-  if (auto pidx = param_index_of(kernel, vid)) {
-    const ir::KernelParam& kp = kernel.params[*pidx];
-    if (kp.type.is_ptr()) return std::nullopt;
-    if (kp.is_constexpr) return std::to_string(kp.constexpr_val) + "L";
-    return "((long)" + kp.name + ")";
-  }
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op == ir::kInvalidId) return std::nullopt;
-  const Op& def = kernel.op(v.def_op);
-  if (def.kind == OpKind::Constant) {
-    const auto* ca = std::get_if<ir::ConstAttr>(&def.attr);
-    if (ca == nullptr) return std::nullopt;
-    if (const auto* i = std::get_if<int64_t>(&ca->val)) return std::to_string(*i) + "L";
-    if (const auto* u = std::get_if<uint64_t>(&ca->val)) return std::to_string(*u) + "L";
-    if (const auto* b = std::get_if<bool>(&ca->val)) return *b ? "1L" : "0L";
-    return std::nullopt;
-  }
-  if (def.kind == OpKind::Cast && def.operands.size() == 1) return scalar_expr(kernel, def.operands[0]);
-  return std::nullopt;
-}
 
 enum class FlashAttnMode {
   TwoWaveSgmm,
@@ -170,7 +112,7 @@ std::optional<FlashAttnPlan> build_plan(const Kernel& kernel, const ir::TargetSp
     }
     if (i == 0) {
       plan.elem_dt = pt;
-      plan.elem_type = msl_scalar(pt);
+      plan.elem_type = msl_scalar_type(pt);
     } else if (pt != plan.elem_dt) {
       err = "flash_attention_tile requires matching Q/K/V/O pointer dtypes";
       return std::nullopt;
@@ -180,7 +122,7 @@ std::optional<FlashAttnPlan> build_plan(const Kernel& kernel, const ir::TargetSp
 
   std::string* shape_exprs[4] = {&plan.bh_expr, &plan.lq_expr, &plan.lkv_expr, &plan.d_expr};
   for (size_t i = 0; i < 4; ++i) {
-    auto e = scalar_expr(kernel, ops[4 + i]);
+    auto e = scalar_long_expr(kernel, ops[4 + i]);
     if (!e) {
       err = "flash_attention_tile shape operands must be scalar parameters or integer constants";
       return std::nullopt;
@@ -280,19 +222,7 @@ class FlashAttnWriter {
 
   void emit_signature() {
     os_ << "[[max_total_threads_per_threadgroup(" << plan_.tg_threads << ")]]\n";
-    os_ << "kernel void " << kernel_.name << "(\n";
-    uint32_t slot = 0;
-    for (const auto& kp : kernel_.params) {
-      if (kp.is_constexpr) continue;
-      if (kp.type.is_ptr()) {
-        const auto pt = std::get<ir::PtrType>(kp.type.value);
-        const bool is_out = kp.name == plan_.out_name;
-        os_ << "    device " << (is_out ? "" : "const ") << msl_scalar(pt.pointee) << "* " << kp.name;
-      } else {
-        os_ << "    constant " << msl_scalar(std::get<ScalarDType>(kp.type.value)) << "& " << kp.name;
-      }
-      os_ << " [[buffer(" << slot++ << ")]],\n";
-    }
+    emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
     os_ << "    uint m1_tid [[thread_index_in_threadgroup]],\n";
     os_ << "    uint m1_sg [[simdgroup_index_in_threadgroup]],\n";
@@ -1002,20 +932,7 @@ CompiledMSL try_emit_flash_attn_kernel(const ir::Kernel& kernel, const ir::Targe
   res.launch_spec.threadgroup_mem_bytes = 0;
   res.launch_spec.vec_width = 2;
   res.launch_spec.fast_math = true;
-
-  uint32_t slot = 0;
-  for (uint32_t i = 0; i < kernel.params.size(); ++i) {
-    const ir::KernelParam& kp = kernel.params[i];
-    if (kp.is_constexpr) continue;
-    ParamSlot ps;
-    ps.param_index = i;
-    ps.buffer_index = slot++;
-    ps.name = kp.name;
-    ps.is_pointer = kp.type.is_ptr();
-    ps.writable = ps.is_pointer && (kp.writable || kp.name == plan->out_name);
-    ps.dtype = ps.is_pointer ? std::get<ir::PtrType>(kp.type.value).pointee : std::get<ScalarDType>(kp.type.value);
-    res.launch_spec.param_slots.push_back(std::move(ps));
-  }
+  res.launch_spec.param_slots = build_single_out_param_slots(kernel, plan->out_name);
   return res;
 }
 

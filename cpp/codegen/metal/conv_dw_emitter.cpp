@@ -1,5 +1,7 @@
 #include "codegen/metal/conv_dw_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <optional>
@@ -17,7 +19,6 @@ using ir::Kernel;
 using ir::Op;
 using ir::OpKind;
 using ir::ScalarDType;
-using ir::ValueId;
 
 constexpr const char* kBlockWParam = "BLOCK_W";
 constexpr const char* kBlockHParam = "BLOCK_H";
@@ -30,24 +31,6 @@ constexpr uint32_t kDefaultThreadsY = 8;
 constexpr int64_t kHaloBudgetBytes = 16 * 1024;
 constexpr int64_t kMaxKernelTaps = 256;
 constexpr int32_t kMaxRegSwKernel = 15;
-
-std::string msl_scalar(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "float";
-}
 
 struct ConvDim {
   int32_t k = 1;
@@ -83,48 +66,6 @@ struct ConvPlan {
   int64_t halo_w = 0;
   int64_t halo_h = 0;
 };
-
-std::optional<uint32_t> param_index_of(const Kernel& kernel, ValueId vid) {
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op != ir::kInvalidId || v.def_block != kernel.entry_block) return std::nullopt;
-  if (v.arg_idx >= kernel.params.size()) return std::nullopt;
-  return v.arg_idx;
-}
-
-std::optional<std::string> scalar_expr(const Kernel& kernel, ValueId vid) {
-  if (auto pidx = param_index_of(kernel, vid)) {
-    const ir::KernelParam& kp = kernel.params[*pidx];
-    if (kp.type.is_ptr()) return std::nullopt;
-    if (kp.is_constexpr) return std::to_string(kp.constexpr_val) + "L";
-    return "((long)" + kp.name + ")";
-  }
-  const ir::Value& v = kernel.value(vid);
-  if (v.def_op == ir::kInvalidId) return std::nullopt;
-  const Op& def = kernel.op(v.def_op);
-  if (def.kind == OpKind::Constant) {
-    const auto* ca = std::get_if<ir::ConstAttr>(&def.attr);
-    if (ca == nullptr) return std::nullopt;
-    if (const auto* i = std::get_if<int64_t>(&ca->val)) return std::to_string(*i) + "L";
-    if (const auto* u = std::get_if<uint64_t>(&ca->val)) return std::to_string(*u) + "L";
-    if (const auto* b = std::get_if<bool>(&ca->val)) return *b ? "1L" : "0L";
-    return std::nullopt;
-  }
-  if (def.kind == OpKind::Cast && def.operands.size() == 1) return scalar_expr(kernel, def.operands[0]);
-  return std::nullopt;
-}
-
-int64_t constexpr_param(const Kernel& kernel, const char* name, int64_t fallback) {
-  for (const auto& kp : kernel.params) {
-    if (kp.is_constexpr && kp.name == name && kp.constexpr_val > 0) return kp.constexpr_val;
-  }
-  return fallback;
-}
-
-uint32_t fit_divisor(uint32_t threads, uint32_t block) {
-  threads = std::max<uint32_t>(1, std::min(threads, block));
-  while (block % threads != 0) --threads;
-  return threads;
-}
 
 int64_t halo_extent(int64_t tile, const ConvDim& dim) {
   return (tile - 1) * dim.s + static_cast<int64_t>(dim.d) * (dim.k - 1) + 1;
@@ -208,7 +149,7 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
     err = "depthwise conv emitter requires f32 or f16 pointers";
     return std::nullopt;
   }
-  plan.elem = msl_scalar(dt);
+  plan.elem = msl_scalar_type(dt);
   plan.x_name = kernel.params[ptr_idx[0]].name;
   plan.w_name = kernel.params[ptr_idx[1]].name;
   plan.out_name = kernel.params[ptr_idx[2]].name;
@@ -216,7 +157,7 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
 
   std::vector<std::string> dims;
   for (size_t i = num_ptrs; i < ops.size(); ++i) {
-    auto e = scalar_expr(kernel, ops[i]);
+    auto e = scalar_long_expr(kernel, ops[i]);
     if (!e) {
       err = "depthwise conv shape operands must be scalar kernel parameters or constants";
       return std::nullopt;
@@ -235,10 +176,10 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
 
   const int64_t def_bw = (ca->bk == 1 && ca->bn > 0) ? static_cast<int64_t>(ca->bn) : kDefaultBlockW;
   const int64_t def_bh = (ca->bk == 1 && ca->bm > 0) ? static_cast<int64_t>(ca->bm) : kDefaultBlockH;
-  plan.bw = static_cast<uint32_t>(constexpr_param(kernel, kBlockWParam, def_bw));
-  plan.bh = static_cast<uint32_t>(constexpr_param(kernel, kBlockHParam, def_bh));
-  const int64_t vec_w = constexpr_param(kernel, kVecWParam, 0);
-  const int64_t rh_hint = constexpr_param(kernel, kRowsPerThreadParam, 0);
+  plan.bw = static_cast<uint32_t>(positive_constexpr_param(kernel, kBlockWParam, def_bw));
+  plan.bh = static_cast<uint32_t>(positive_constexpr_param(kernel, kBlockHParam, def_bh));
+  const int64_t vec_w = positive_constexpr_param(kernel, kVecWParam, 0);
+  const int64_t rh_hint = positive_constexpr_param(kernel, kRowsPerThreadParam, 0);
 
   if ((vec_w == 4 || plan.bw >= 128) && plan.w.s == 1 && plan.w.d == 1 && plan.h.s == 1 && plan.h.d == 1 &&
       plan.w.k <= kMaxRegSwKernel && plan.h.k <= kMaxRegSwKernel &&
@@ -315,19 +256,7 @@ class ConvDwWriter {
 
   void emit_signature() {
     os_ << "#include <metal_stdlib>\nusing namespace metal;\n\n";
-    os_ << "kernel void " << kernel_.name << "(\n";
-    uint32_t slot = 0;
-    for (const auto& kp : kernel_.params) {
-      if (kp.is_constexpr) continue;
-      if (kp.type.is_ptr()) {
-        const auto pt = std::get<ir::PtrType>(kp.type.value);
-        const bool is_out = kp.name == plan_.out_name;
-        os_ << "    device " << (is_out ? "" : "const ") << msl_scalar(pt.pointee) << "* " << kp.name;
-      } else {
-        os_ << "    constant " << msl_scalar(std::get<ScalarDType>(kp.type.value)) << "& " << kp.name;
-      }
-      os_ << " [[buffer(" << slot++ << ")]],\n";
-    }
+    emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
     os_ << "    uint3 m1_tid [[thread_position_in_threadgroup]]) {\n";
   }
@@ -672,19 +601,7 @@ CompiledMSL try_emit_conv_dw_kernel(const ir::Kernel& kernel, const ir::TargetSp
   res.launch_spec.threadgroup_mem_bytes = 0;
   res.launch_spec.vec_width = plan->reg_sw ? 4 : 1;
   res.launch_spec.fast_math = false;
-  uint32_t slot = 0;
-  for (uint32_t i = 0; i < kernel.params.size(); ++i) {
-    const ir::KernelParam& kp = kernel.params[i];
-    if (kp.is_constexpr) continue;
-    ParamSlot ps;
-    ps.param_index = i;
-    ps.buffer_index = slot++;
-    ps.name = kp.name;
-    ps.is_pointer = kp.type.is_ptr();
-    ps.writable = ps.is_pointer && (kp.writable || kp.name == plan->out_name);
-    ps.dtype = ps.is_pointer ? std::get<ir::PtrType>(kp.type.value).pointee : std::get<ScalarDType>(kp.type.value);
-    res.launch_spec.param_slots.push_back(std::move(ps));
-  }
+  res.launch_spec.param_slots = build_single_out_param_slots(kernel, plan->out_name);
   return res;
 }
 

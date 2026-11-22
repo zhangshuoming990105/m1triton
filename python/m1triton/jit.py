@@ -244,7 +244,6 @@ class JITFunction:
         tuple[Any, ...],
         list[ParamSpec],
         dict[str, Any],
-        list[Any],
         dict[str, Any],
         bool,
     ]:
@@ -254,7 +253,6 @@ class JITFunction:
         param_specs: list[ParamSpec] = []
         constexpr_map: dict[str, Any] = {}
         runtime_by_name: dict[str, Any] = {}
-        runtime_ordered: list[Any] = []
         arg_dtypes: list[tuple[str, str]] = []
         ptr_aligned_flags: list[bool] = []
 
@@ -270,7 +268,6 @@ class JITFunction:
                 ptr_aligned_flags.append(aligned)
                 arg_dtypes.append((name, f"ptr:{dt.name}"))
                 runtime_by_name[name] = val
-                runtime_ordered.append(val)
                 param_specs.append(
                     ParamSpec(
                         name=name,
@@ -284,7 +281,6 @@ class JITFunction:
                 dt = _infer_scalar_dtype(val, param.annotation)
                 arg_dtypes.append((name, f"scalar:{dt.name}"))
                 runtime_by_name[name] = val
-                runtime_ordered.append(val)
                 param_specs.append(
                     ParamSpec(
                         name=name,
@@ -309,7 +305,6 @@ class JITFunction:
             cache_key,
             param_specs,
             runtime_by_name,
-            runtime_ordered,
             constexpr_map,
             effective_fast_math,
         )
@@ -387,7 +382,7 @@ class JITFunction:
     def compile(self, *args: Any, **kwargs: Any) -> CompiledKernel:
         """Lower, optimize, codegen, and compile this kernel specialization without launching."""
         kernel_kwargs, launch_opts = self._split_launch_kwargs(kwargs)
-        cache_key, param_specs, _, _, _, fast_math = self._prepare_specialization(args, kernel_kwargs, launch_opts)
+        cache_key, param_specs, _, _, fast_math = self._prepare_specialization(args, kernel_kwargs, launch_opts)
         dump_ir = bool(launch_opts.get("dump_ir", self.dump_ir or _env_flag("M1TRITON_DUMP_IR")))
         dump_msl = bool(launch_opts.get("dump_msl", self.dump_msl or _env_flag("M1TRITON_DUMP_MSL")))
         verify_ir = bool(launch_opts.get("verify_ir", self.verify_ir))
@@ -404,7 +399,7 @@ class JITFunction:
     def inspect_ir(self, *args: Any, **kwargs: Any) -> tuple[str, str]:
         """Return `(pre_pass_ir, post_pass_ir)` for the specialization matching `*args, **kwargs`."""
         kernel_kwargs, launch_opts = self._split_launch_kwargs(kwargs)
-        cache_key, param_specs, _, _, _, fast_math = self._prepare_specialization(args, kernel_kwargs, launch_opts)
+        cache_key, param_specs, _, _, fast_math = self._prepare_specialization(args, kernel_kwargs, launch_opts)
         verify_ir = bool(launch_opts.get("verify_ir", self.verify_ir))
         compiled = self._compile_specialized(
             cache_key,
@@ -420,7 +415,7 @@ class JITFunction:
     def inspect_msl(self, *args: Any, **kwargs: Any) -> str:
         """Return generated MSL source for the specialization matching `*args, **kwargs`."""
         kernel_kwargs, launch_opts = self._split_launch_kwargs(kwargs)
-        cache_key, param_specs, _, _, _, fast_math = self._prepare_specialization(args, kernel_kwargs, launch_opts)
+        cache_key, param_specs, _, _, fast_math = self._prepare_specialization(args, kernel_kwargs, launch_opts)
         verify_ir = bool(launch_opts.get("verify_ir", self.verify_ir))
         compiled = self._compile_specialized(
             cache_key,
@@ -439,7 +434,6 @@ class JITFunction:
             cache_key,
             param_specs,
             runtime_by_name,
-            runtime_ordered,
             constexpr_map,
             fast_math,
         ) = self._prepare_specialization(args, kernel_kwargs, launch_opts)

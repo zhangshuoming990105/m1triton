@@ -283,6 +283,19 @@ double MetalRuntime::launch_kernel(
       [enc setThreadgroupMemoryLength:cfg.threadgroup_mem_bytes atIndex:0];
     }
 
+    uint64_t tg_threads = static_cast<uint64_t>(cfg.tg_x) * cfg.tg_y * cfg.tg_z;
+    NSUInteger max_tg_threads = [entry.pso maxTotalThreadsPerThreadgroup];
+    if (tg_threads == 0 || tg_threads > static_cast<uint64_t>(max_tg_threads)) {
+      [enc endEncoding];
+      if (error_out) {
+        *error_out = "Threadgroup size (" + std::to_string(tg_threads) +
+                     ") exceeds PSO maxTotalThreadsPerThreadgroup (" +
+                     std::to_string(static_cast<uint64_t>(max_tg_threads)) + ") for kernel " +
+                     entry.fn_name;
+      }
+      return -1.0;
+    }
+
     MTLSize grid = MTLSizeMake(cfg.grid_x, cfg.grid_y, cfg.grid_z);
     MTLSize tg = MTLSizeMake(cfg.tg_x, cfg.tg_y, cfg.tg_z);
     [enc dispatchThreadgroups:grid threadsPerThreadgroup:tg];

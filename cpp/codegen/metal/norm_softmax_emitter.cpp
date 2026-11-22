@@ -1,10 +1,9 @@
 #include "codegen/metal/norm_softmax_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <initializer_list>
-#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -49,45 +48,6 @@ struct Emitter {
   uint32_t nsg() const { return tg / 32u; }
 };
 
-std::string msl_scalar(ir::ScalarDType dt) {
-  switch (dt) {
-    case ir::ScalarDType::F32:
-      return "float";
-    case ir::ScalarDType::F16:
-      return "half";
-    case ir::ScalarDType::I32:
-      return "int";
-    case ir::ScalarDType::U32:
-      return "uint";
-    case ir::ScalarDType::I64:
-      return "long";
-    case ir::ScalarDType::Bool:
-      return "bool";
-  }
-  return "int";
-}
-
-std::string int_literal(int64_t v) {
-  if (v >= std::numeric_limits<int32_t>::min() && v <= std::numeric_limits<int32_t>::max()) {
-    return std::to_string(v);
-  }
-  return std::to_string(v) + "L";
-}
-
-std::string float_literal(double v) {
-  const float f = static_cast<float>(v);
-  char buf[64];
-  for (int prec = 6; prec <= 9; ++prec) {
-    std::snprintf(buf, sizeof(buf), "%.*e", prec, static_cast<double>(f));
-    if (std::strtof(buf, nullptr) == f) break;
-  }
-  return std::string(buf) + "f";
-}
-
-std::string msl_param_name(const ir::KernelParam& kp, uint32_t idx) {
-  return "m1p_" + (kp.name.empty() ? ("arg" + std::to_string(idx)) : kp.name);
-}
-
 bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& err) {
   const ir::Value& val = k.value(vid);
   if (val.def_op == ir::kInvalidId) {
@@ -100,9 +60,9 @@ bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& er
     out.aligned16 = out.is_ptr && kp.divisibility >= 16;
     if (kp.is_constexpr) {
       out.konst = kp.constexpr_val;
-      out.expr = int_literal(kp.constexpr_val);
+      out.expr = msl_int_literal(kp.constexpr_val);
     } else {
-      out.expr = msl_param_name(kp, val.arg_idx);
+      out.expr = msl_prefixed_param_name(kp, val.arg_idx);
     }
     return true;
   }
@@ -115,15 +75,15 @@ bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& er
     }
     if (const auto* i = std::get_if<int64_t>(&c->val)) {
       out.konst = *i;
-      out.expr = int_literal(*i);
+      out.expr = msl_int_literal(*i);
     } else if (const auto* u = std::get_if<uint64_t>(&c->val)) {
       out.konst = static_cast<int64_t>(*u);
-      out.expr = int_literal(static_cast<int64_t>(*u));
+      out.expr = msl_int_literal(static_cast<int64_t>(*u));
     } else if (const auto* b = std::get_if<bool>(&c->val)) {
       out.konst = *b ? 1 : 0;
       out.expr = *b ? "1" : "0";
     } else {
-      out.expr = float_literal(std::get<double>(c->val));
+      out.expr = msl_exact_float_literal(std::get<double>(c->val));
     }
     return true;
   }
@@ -131,7 +91,7 @@ bool resolve_operand(const Kernel& k, ValueId vid, Operand& out, std::string& er
     Operand inner;
     if (!resolve_operand(k, op.operands[0], inner, err)) return false;
     out = inner;
-    out.expr = msl_scalar(val.type.as_scalar()) + "(" + inner.expr + ")";
+    out.expr = msl_scalar_type(val.type.as_scalar()) + "(" + inner.expr + ")";
     return true;
   }
   err = "unsupported operand producer '" + std::string(ir::op_kind_name(op.kind)) + "'";
@@ -168,26 +128,6 @@ bool build_slots(Emitter& e, ValueId out_ptr) {
     e.slots.push_back(std::move(slot));
   }
   return true;
-}
-
-std::string signature(const Emitter& e) {
-  std::ostringstream os;
-  os << "kernel void " << e.kernel.name << "(\n";
-  for (const auto& slot : e.slots) {
-    const std::string name = msl_param_name(e.kernel.params[slot.param_index], slot.param_index);
-    if (slot.is_pointer) {
-      os << "    device " << (slot.writable ? "" : "const ") << "float* " << name;
-    } else {
-      os << "    constant " << msl_scalar(slot.dtype) << "& " << name;
-    }
-    os << " [[buffer(" << slot.buffer_index << ")]],\n";
-  }
-  os << "    uint3 m1_tgp [[threadgroup_position_in_grid]],\n"
-     << "    uint3 m1_ntg [[threadgroups_per_grid]],\n"
-     << "    uint m1_tid [[thread_index_in_threadgroup]],\n"
-     << "    uint m1_lane [[thread_index_in_simdgroup]],\n"
-     << "    uint m1_sg [[simdgroup_index_in_threadgroup]]) {\n";
-  return os.str();
 }
 
 constexpr const char* kPreamble = R"MSL(#include <metal_stdlib>
@@ -417,7 +357,7 @@ bool emit_row_norm(Emitter& e, const ir::WelfordNormAttr& a) {
     emit_wf_accumulators(e, "m1_L > 0u ? " + x + "[m1_base] : 0.0f");
     emit_reduce_loop(e, mode, x, "m1_base", "m1_L", kWfVec, kWfScalar);
     os << "  const m1_wf m1_w = " << tg_wf(e) << ";\n"
-       << "  const float m1_inv = 1.0f / sqrt(m1_w.m2 / m1_w.n + " << float_literal(a.eps) << ");\n"
+       << "  const float m1_inv = 1.0f / sqrt(m1_w.m2 / m1_w.n + " << msl_exact_float_literal(a.eps) << ");\n"
        << "  const float m1_sh = -m1_w.mean * m1_inv;\n";
     emit_map_loop(e, mode, x, o, "m1_base", "m1_L", "fma(v, m1_inv, m1_sh)", "fma(s, m1_inv, m1_sh)", true);
     return true;
@@ -601,7 +541,7 @@ bool emit_stats_stage2(Emitter& e, const ir::WelfordNormAttr& a) {
     os << "  const uint m1_L = uint(" << e.ops[ip + 2].expr << ");\n"
        << "  const uint m1_CH = uint(" << e.ops[ip + 3].expr << ");\n"
        << "  const m1_wf m1_w = m1_wf_partials(" << part << ", m1_tgp.y * m1_CH, m1_CH, m1_lane);\n"
-       << "  const float m1_inv = 1.0f / sqrt(m1_w.m2 / m1_w.n + " << float_literal(eps) << ");\n"
+       << "  const float m1_inv = 1.0f / sqrt(m1_w.m2 / m1_w.n + " << msl_exact_float_literal(eps) << ");\n"
        << "  const float m1_mu = m1_w.mean;\n"
        << "  const uint m1_tl = ((m1_L + m1_ntg.x - 1u) / m1_ntg.x + 3u) & ~3u;\n"
        << "  const uint m1_t0 = min(m1_tgp.x * m1_tl, m1_L);\n"
@@ -634,7 +574,7 @@ bool emit_stats_stage2(Emitter& e, const ir::WelfordNormAttr& a) {
     os << "  const uint m1_first = ((m1_row / m1_C) * " << g << "u + m1_c / (m1_C / " << g << "u)) * m1_CH;\n";
   }
   os << "  const m1_wf m1_w = m1_wf_partials(" << part << ", m1_first, m1_CH, m1_lane);\n"
-     << "  const float m1_inv = 1.0f / sqrt(m1_w.m2 / m1_w.n + " << float_literal(eps) << ");\n"
+     << "  const float m1_inv = 1.0f / sqrt(m1_w.m2 / m1_w.n + " << msl_exact_float_literal(eps) << ");\n"
      << "  const float m1_scale = m1_inv" << (a.has_weight ? " * " + w + "[m1_c]" : "") << ";\n"
      << "  const float m1_shift = " << (a.has_bias ? b + "[m1_c]" : "0.0f") << " - m1_w.mean * m1_scale;\n"
      << "  const uint m1_tl = ((m1_L + m1_ntg.x - 1u) / m1_ntg.x + 3u) & ~3u;\n"
@@ -695,7 +635,7 @@ bool emit_rms(Emitter& e, const ir::WelfordNormAttr& a) {
      << "  if (m1_tid < 64u) {\n"
      << "    float m1_t = 0.0f;\n"
      << "    for (uint m1_j = 0; m1_j < " << chunks << "u; ++m1_j) m1_t += m1_part[m1_j * 64u + m1_tid];\n"
-     << "    m1_scl[m1_tid] = 1.0f / sqrt(m1_t / float(m1_C) + " << float_literal(a.eps) << ");\n"
+     << "    m1_scl[m1_tid] = 1.0f / sqrt(m1_t / float(m1_C) + " << msl_exact_float_literal(a.eps) << ");\n"
      << "  }\n"
      << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
   if (sram) {
@@ -797,7 +737,7 @@ CompiledMSL try_emit_norm_softmax_kernel(const ir::Kernel& kernel, const ir::Tar
 
   CompiledMSL res;
   res.ok = true;
-  res.msl_source = std::string(kPreamble) + signature(e) + e.body.str() + "}\n";
+  res.msl_source = std::string(kPreamble) + emit_prefixed_kernel_sig(e.kernel, e.slots) + e.body.str() + "}\n";
   res.launch_spec.entry_name = kernel.name;
   res.launch_spec.tg_x = e.tg;
   res.launch_spec.tg_y = 1;

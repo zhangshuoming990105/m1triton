@@ -54,6 +54,7 @@ add_library(m1triton_codegen_metal STATIC
   cpp/codegen/metal/flash_attn_emitter.cpp
   cpp/codegen/metal/loss_emitter.cpp
   cpp/codegen/metal/metal_codegen.cpp
+  cpp/codegen/metal/msl_common.cpp
   cpp/codegen/metal/norm_softmax_emitter.cpp
   cpp/codegen/metal/pool_emitter.cpp
   cpp/codegen/metal/reduce_scan_emitter.cpp

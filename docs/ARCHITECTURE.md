@@ -11,16 +11,18 @@ python/m1triton/          Thin Python AST frontend (@jit, tl.*, tlx.*, autotuner
 cpp/ir/                   Pure C++20 Typed Block SSA IR, TargetSpec, Verifier, Printer/Parser
         |
         v  (IR-to-IR transforms, TargetSpec only)
-cpp/passes/               Canonicalize, CSE, LICM, StructurePruning, ConvLowering,
-        |                 Contiguity, TileLayout, ThreadgroupStaging, SGMM, SimdReduceScan,
-        |                 EpilogueFusion, DCE
+cpp/passes/               Canonicalize, CSE, LICM, EpilogueFusion, StructurePruning,
+        |                 OnlineSoftmaxWelford, PoolLowering, ConvLowering, LossLowering,
+        |                 FlashAttentionLowering, Contiguity, TileLayout, ThreadgroupStaging,
+        |                 SimdgroupMatrixLowering, DCE
         v
-cpp/codegen/metal/        IR -> compact readable MSL + LaunchSpec
+cpp/codegen/metal/        Shared msl_common + 11 specialized MSL emitters + LaunchSpec
         |
         v
 cpp/runtime/              Objective-C++ (.mm) Metal UMA runtime: zero-copy MPS/CPU buffers,
                           MTLDevice::newLibraryWithSource + MTLBinaryArchive disk cache,
-                          pipeline cache, GPU timestamps, compiled dispatch counter
+                          pipeline cache, PSO threadgroup-limit guard, GPU timestamps,
+                          compiled dispatch counter
 ```
 
 ## Mechanically Enforced Architecture Boundaries

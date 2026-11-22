@@ -1,5 +1,7 @@
 #include "codegen/metal/row_scan_emitter.hpp"
 
+#include "codegen/metal/msl_common.hpp"
+
 #include <cstdint>
 #include <sstream>
 #include <string>
@@ -302,24 +304,6 @@ std::unordered_map<ValueId, uint32_t> map_entry_args(const Kernel& kernel) {
   return out;
 }
 
-const char* msl_elem_type(ScalarDType dt) {
-  switch (dt) {
-    case ScalarDType::F32:
-      return "float";
-    case ScalarDType::F16:
-      return "half";
-    case ScalarDType::I32:
-      return "int";
-    case ScalarDType::U32:
-      return "uint";
-    case ScalarDType::I64:
-      return "long";
-    case ScalarDType::Bool:
-      return "bool";
-  }
-  return "float";
-}
-
 }  // namespace
 
 CompiledMSL try_emit_row_scan_kernel(const ir::Kernel& kernel, const ir::TargetSpec& target, bool* matched_out) {
@@ -398,9 +382,9 @@ CompiledMSL try_emit_row_scan_kernel(const ir::Kernel& kernel, const ir::TargetS
     slot.writable = slot.is_pointer && (kp.writable || i == out_idx);
     names[i] = slot.name;
     if (slot.is_pointer) {
-      os << "    device " << (slot.writable ? "" : "const ") << msl_elem_type(slot.dtype) << "* " << slot.name;
+      os << "    device " << (slot.writable ? "" : "const ") << msl_scalar_type(slot.dtype) << "* " << slot.name;
     } else {
-      os << "    constant " << msl_elem_type(slot.dtype) << "& " << slot.name;
+      os << "    constant " << msl_scalar_type(slot.dtype) << "& " << slot.name;
     }
     os << " [[buffer(" << slot.buffer_index << ")]],\n";
     res.launch_spec.param_slots.push_back(std::move(slot));
