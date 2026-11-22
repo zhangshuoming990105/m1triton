@@ -4,7 +4,7 @@
   "releaseLine": "v2.0",
   "baselineTag": "v1.0-kernelbench-l1",
   "createdAt": "2026-11-22T05:36:00Z",
-  "updatedAt": "2026-11-22T08:52:00Z",
+  "updatedAt": "2026-11-22T09:38:00Z",
   "milestones": [
     {
       "id": "V2-M0",
@@ -57,18 +57,18 @@
     {
       "id": "V2-M6",
       "title": "FusionOccupancyCostModelPass, MetalGraph/ICB tuning & research-lab performance sprint (L2 >=2.0x geomean, >=85 beats)",
-      "status": "in_progress",
-      "evidence": "",
-      "note": "",
-      "updatedAt": "2026-11-22T08:52:00Z"
+      "status": "verified",
+      "evidence": "FusionOccupancyCostModelPass + m1triton-opt --stats cost metrics (8724d9f), concurrent command_batch() (MTLDispatchTypeConcurrent + automatic buffers_overlap barriers), fast JIT/Autotune dispatch, FlashAttn2 bwd split-reg + reversed causal sched + 4-row delta (L3-02 1.04x-1.14x beats MPS with wait=True, 10/10 L3 beats MPS 4.1064x), MetalGraph ICB vs batch benchmark (1.471x faster on L3-02 3-kernel bwd), L2 Winograd fusion sprint (#4 1.50x, #17 1.12x, #19 1.38x & dpf 154->4, #32 1.13x, #46 1.38x), 7 research-lab trials in .audit/experiments_v2.tsv, ci_local.sh ALL GREEN (17/17 CTest, 118/118 pytest); merge d64e9a9",
+      "note": "Premise circuit breaker properly tripped on l3-02-bwd-memory-layout (2 rejects reverted)",
+      "updatedAt": "2026-11-22T09:38:00Z"
     },
     {
       "id": "V2-M7",
       "title": "Full-repo unslop, fresh-venv install verification, final slop-critic audit, official frozen L2+L3 eval & v2.0 tag",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": "",
       "note": "",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "updatedAt": "2026-11-22T09:38:00Z"
     }
   ],
   "scoreboardL2": {
@@ -85,13 +85,13 @@
     "geomeanSpeedup": 4.3269,
     "artifact": ".audit/eval_l3_preflight.json"
   },
-  "milestonesSinceHygiene": 0,
+  "milestonesSinceHygiene": 1,
   "lastCheckpoint": {
-    "ts": "2026-11-22T08:52:00Z",
-    "commit": "92745a8",
-    "summary": "V2-M4..M5 verified & merged: Shared L3 IR (FlashAttn2/Paged/SW/ALiBi/Softcap/Bwd, GroupedGemm, QuantDot), Metal 3.0 atomic_float, 10/10 L3 kernels (4.3269x geomean), Examples 04 & 05, slop-critic (pro) fixes, CI ALL GREEN (17/17 CTest, 118/118 pytest)",
-    "next": "Execute V2-M6: FusionOccupancyCostModelPass, MetalGraph/ICB tuning, and research-lab perf sprint on slowest L2 chains & L3-02",
-    "hygieneClean": true
+    "ts": "2026-11-22T09:38:00Z",
+    "commit": "d64e9a9",
+    "summary": "V2-M6 verified & merged: FusionOccupancyCostModelPass, concurrent command_batch(), MetalGraph ICB eval (1.471x), fast JIT/Autotune dispatch, L3-02 beats MPS (10/10 L3 beats MPS 4.1064x), L2 Winograd sprint (#19 dpf 154->4, 5-task geomean 1.158x->1.290x), ci_local.sh ALL GREEN",
+    "next": "Execute V2-M7: final slop-critic (pro) + unslop, fresh-venv install test, official frozen L2 (100/100) & L3 (10/10) release evals, docs & v2.0-kernelbench-l2-l3 tag",
+    "hygieneClean": false
   },
   "checkpoints": [
     {
@@ -114,6 +114,13 @@
       "summary": "V2-M4..M5 verified & merged: Shared L3 IR, Metal 3.0 atomic_float, 10/10 L3 kernels (4.3269x geomean), Examples 04 & 05, slop-critic (pro) fixes, CI ALL GREEN (17/17 CTest, 118/118 pytest)",
       "next": "Execute V2-M6: FusionOccupancyCostModelPass, MetalGraph/ICB tuning, and research-lab perf sprint on slowest L2 chains & L3-02",
       "hygieneClean": true
+    },
+    {
+      "ts": "2026-11-22T09:38:00Z",
+      "commit": "d64e9a9",
+      "summary": "V2-M6 verified & merged: FusionOccupancyCostModelPass, concurrent command_batch(), MetalGraph ICB eval (1.471x), fast JIT/Autotune dispatch, L3-02 beats MPS (10/10 L3 beats MPS 4.1064x), L2 Winograd sprint (#19 dpf 154->4, 5-task geomean 1.158x->1.290x), ci_local.sh ALL GREEN",
+      "next": "Execute V2-M7: final slop-critic (pro) + unslop, fresh-venv install test, official frozen L2 (100/100) & L3 (10/10) release evals, docs & v2.0-kernelbench-l2-l3 tag",
+      "hygieneClean": false
     }
   ]
 }
