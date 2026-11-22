@@ -4,7 +4,7 @@
   "releaseLine": "v2.0",
   "baselineTag": "v1.0-kernelbench-l1",
   "createdAt": "2026-11-22T05:36:00Z",
-  "updatedAt": "2026-11-22T05:52:44.190561Z",
+  "updatedAt": "2026-11-22T07:45:50.792969Z",
   "milestones": [
     {
       "id": "V2-M0",
@@ -17,42 +17,42 @@
     {
       "id": "V2-M1",
       "title": "Epilogue DAG IR, EpilogueDAGFusionPass, AlgebraicNormFoldingPass & L2 GEMM fusion cluster",
-      "status": "in_progress",
-      "evidence": "",
-      "note": "",
-      "updatedAt": "2026-11-22T05:52:44.190561Z"
+      "status": "verified",
+      "evidence": "EpilogueDAGAttr + FusedTailAttr + AlgebraicNormFoldingPass + EpilogueDAGFusionPass + SGMM mma2/SRAM epilogue/tail codegen; 37/37 KB L2 GEMM pass & beat baseline; merge 659e74c",
+      "note": "All slop-critic NaN/batch-offset/wait=True fixes applied & verified",
+      "updatedAt": "2026-11-22T07:45:50.792969Z"
     },
     {
       "id": "V2-M2",
       "title": "L2 Conv2D/3D & ConvTranspose register epilogue + BN-fold fusion clusters + hygiene checkpoint",
-      "status": "in_progress",
-      "evidence": "",
-      "note": "",
-      "updatedAt": "2026-11-22T05:52:44.190561Z"
+      "status": "verified",
+      "evidence": "ConvStd (Implicit-GEMM + Winograd F2x2/F4x4) + ConvTranspose (HALO/FUSE_SW) EpilogueDAG/FusedTail codegen; 33/33 ConvStd + 30/30 ConvTranspose pass & beat baseline; merge 659e74c",
+      "note": "Includes mandatory V2-M1..M3 slop-critic (pro) audit + fixes + docs sync",
+      "updatedAt": "2026-11-22T07:45:50.792969Z"
     },
     {
       "id": "V2-M3",
       "title": "Producer-Consumer SRAM fusion (Pool/Reduce/Norm) + torch.compile(backend='m1triton') -> 100/100 KB L2",
-      "status": "pending",
-      "evidence": "",
-      "note": "",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "status": "verified",
+      "evidence": "Norm/Softmax/Pool/Reduce EpilogueDAG codegen + torch.compile(backend='m1triton') FX fusion backend + 100/100 KB L2 preflight PASS (100/100 beats baseline, 2.9878x geomean, median dpf=2, .audit/eval_l2_preflight.json) + ci_local.sh ALL GREEN (16/16 CTest, 118/118 pytest); merge 659e74c",
+      "note": "compile_backend.py deduplicated (-729 lines) + 18/18 tests pass",
+      "updatedAt": "2026-11-22T07:45:50.792969Z"
     },
     {
       "id": "V2-M4",
       "title": "General Triton IR/codegen upgrade & L3 Part 1 (L3-01..L3-05: FlashAttn2 fwd/bwd, PagedAttn, SW/ALiBi, RMSNorm+RoPE+KV) + hygiene",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": "",
       "note": "",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "updatedAt": "2026-11-22T07:45:50.792969Z"
     },
     {
       "id": "V2-M5",
       "title": "L3 Part 2 (L3-06..L3-10: LayerNorm bwd atomics, Chunked Linear CE, Mamba SSM, MoE Grouped GEMM, W4A16) -> 10/10 L3",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": "",
       "note": "",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "updatedAt": "2026-11-22T07:45:50.792969Z"
     },
     {
       "id": "V2-M6",
@@ -72,11 +72,11 @@
     }
   ],
   "scoreboardL2": {
-    "passed": 0,
+    "passed": 100,
     "total": 100,
-    "beatsBaseline": 0,
-    "geomeanSpeedup": 0.0,
-    "artifact": ""
+    "beatsBaseline": 100,
+    "geomeanSpeedup": 2.9878,
+    "artifact": ".audit/eval_l2_preflight.json"
   },
   "scoreboardL3": {
     "passed": 0,
@@ -87,10 +87,10 @@
   },
   "milestonesSinceHygiene": 0,
   "lastCheckpoint": {
-    "ts": "2026-11-22T05:52:44.190561Z",
-    "commit": "3ab0ab4",
-    "summary": "V2-M0 verified & merged: packaging, doctor, MetalGraph/ICB, Autotuner v2, 100 KB L2 tasks & 4 frozen evaluators (81/81 pytest, 15/15 CTest)",
-    "next": "Build shared EpilogueDAG IR contract & launch parallel V2-M1 (GEMM fusion) + V2-M2 (Conv/ConvTranspose fusion) swarm",
+    "ts": "2026-11-22T07:45:50.792969Z",
+    "commit": "659e74c",
+    "summary": "V2-M1..M3 verified & merged: Fusion IR/passes, 100/100 KB L2 (100/100 beats MPS, 2.9878x geomean), torch.compile(backend='m1triton'), slop-critic (pro) 13/13 fixes + docs synced, CI ALL GREEN (16/16 CTest, 118/118 pytest)",
+    "next": "Execute V2-M4 & V2-M5: general Triton IR/codegen upgrades & all 10 Level 3 complex Triton kernels (L3-01..L3-10)",
     "hygieneClean": true
   },
   "checkpoints": [
@@ -99,6 +99,13 @@
       "commit": "3ab0ab4",
       "summary": "V2-M0 verified & merged: packaging, doctor, MetalGraph/ICB, Autotuner v2, 100 KB L2 tasks & 4 frozen evaluators (81/81 pytest, 15/15 CTest)",
       "next": "Build shared EpilogueDAG IR contract & launch parallel V2-M1 (GEMM fusion) + V2-M2 (Conv/ConvTranspose fusion) swarm",
+      "hygieneClean": true
+    },
+    {
+      "ts": "2026-11-22T07:45:50.792969Z",
+      "commit": "659e74c",
+      "summary": "V2-M1..M3 verified & merged: Fusion IR/passes, 100/100 KB L2 (100/100 beats MPS, 2.9878x geomean), torch.compile(backend='m1triton'), slop-critic (pro) 13/13 fixes + docs synced, CI ALL GREEN (16/16 CTest, 118/118 pytest)",
+      "next": "Execute V2-M4 & V2-M5: general Triton IR/codegen upgrades & all 10 Level 3 complex Triton kernels (L3-01..L3-10)",
       "hygieneClean": true
     }
   ]
