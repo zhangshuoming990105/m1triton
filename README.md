@@ -49,7 +49,7 @@ Median dispatches per forward: **`2`** (`24/100` single-dispatch `dpf=1`; min sp
 **Prerequisites**: Apple Silicon macOS with CommandLineTools (`/usr/bin/clang++` + `Metal.framework`, no Xcode/`xcrun metal` required), CMake, Ninja, Python 3.11+, `pybind11`, and PyTorch MPS (`torch`).
 
 ```bash
-git clone <repo-url> && cd ai-compiler
+git clone https://github.com/zhangshuoming990105/m1triton.git && cd m1triton
 python3 -m venv .venv && source .venv/bin/activate
 pip install --no-build-isolation -e ".[dev]"   # builds _C extension + m1triton-opt CLI
 

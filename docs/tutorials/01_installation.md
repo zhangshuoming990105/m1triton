@@ -22,8 +22,8 @@ brew install cmake ninja        # C++20 / Objective-C++ build tools
 ## 2. Clean Virtual Environment Install
 
 ```bash
-git clone <repo-url>
-cd ai-compiler
+git clone https://github.com/zhangshuoming990105/m1triton.git
+cd m1triton
 
 # Create and activate an isolated Python environment
 python3 -m venv .venv

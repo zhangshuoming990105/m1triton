@@ -12,6 +12,11 @@ dependencies = ["numpy>=1.26"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "scipy>=1.10"]
 
+[project.urls]
+Homepage = "https://github.com/zhangshuoming990105/m1triton"
+Repository = "https://github.com/zhangshuoming990105/m1triton"
+Issues = "https://github.com/zhangshuoming990105/m1triton/issues"
+
 [project.scripts]
 m1triton = "m1triton.__main__:main"
 m1triton-doctor = "m1triton.doctor:main"
