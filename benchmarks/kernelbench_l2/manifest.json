@@ -1,0 +1,609 @@
+{
+  "source_repo": "https://github.com/ScalingIntelligence/KernelBench.git",
+  "commit_sha": "423217d9fda91e0c2d67e4a43bf62f96f6d104f1",
+  "level": 2,
+  "task_count": 100,
+  "fetched_at_utc": "2026-11-22T05:36:26.581461+00:00",
+  "tasks": [
+    {
+      "id": 1,
+      "filename": "1_Conv2D_ReLU_BiasAdd.py",
+      "name": "Conv2D_ReLU_BiasAdd",
+      "sha256": "45ee3a3db038396c982207b36812086bf1b94472ebbf229c5e76c5ea0b90f89f"
+    },
+    {
+      "id": 2,
+      "filename": "2_ConvTranspose2d_BiasAdd_Clamp_Scaling_Clamp_Divide.py",
+      "name": "ConvTranspose2d_BiasAdd_Clamp_Scaling_Clamp_Divide",
+      "sha256": "2b69e31d12d28d291fb5b56634176269ba6513e8d240fc01d6f8a7b706abc109"
+    },
+    {
+      "id": 3,
+      "filename": "3_ConvTranspose3d_Sum_LayerNorm_AvgPool_GELU.py",
+      "name": "ConvTranspose3d_Sum_LayerNorm_AvgPool_GELU",
+      "sha256": "43613691d1dec5ccfab8b70311ec83621c1f305ecceea490a053859d3c5b10a5"
+    },
+    {
+      "id": 4,
+      "filename": "4_Conv2d_Mish_Mish.py",
+      "name": "Conv2d_Mish_Mish",
+      "sha256": "7a234db325da9476ea44646c12e54dab1a84d8d16d993fa1061564e7f5ec0afa"
+    },
+    {
+      "id": 5,
+      "filename": "5_ConvTranspose2d_Subtract_Tanh.py",
+      "name": "ConvTranspose2d_Subtract_Tanh",
+      "sha256": "442f35521753e48196379d5a4659d13d979817fd605cfb1a1a205b536faa90cc"
+    },
+    {
+      "id": 6,
+      "filename": "6_Conv3d_Softmax_MaxPool_MaxPool.py",
+      "name": "Conv3d_Softmax_MaxPool_MaxPool",
+      "sha256": "55322b483d9bf27e0fefcdfd0e25f53172c194da6b47154d40bd39f781c60a46"
+    },
+    {
+      "id": 7,
+      "filename": "7_Conv3d_ReLU_LeakyReLU_GELU_Sigmoid_BiasAdd.py",
+      "name": "Conv3d_ReLU_LeakyReLU_GELU_Sigmoid_BiasAdd",
+      "sha256": "cd0390e07dda478af0316a61bd1a407677992229ffdf3fa857d143e40a8533d7"
+    },
+    {
+      "id": 8,
+      "filename": "8_Conv3d_Divide_Max_GlobalAvgPool_BiasAdd_Sum.py",
+      "name": "Conv3d_Divide_Max_GlobalAvgPool_BiasAdd_Sum",
+      "sha256": "80e0126cbb0f9287f7118cba2e8bfa73c1c3401b6f590e10bc240bdd0223d06a"
+    },
+    {
+      "id": 9,
+      "filename": "9_Matmul_Subtract_Multiply_ReLU.py",
+      "name": "Matmul_Subtract_Multiply_ReLU",
+      "sha256": "110e75834cd898f532262ce516e318b8e7a9e85acda705baefcebe687ff85b21"
+    },
+    {
+      "id": 10,
+      "filename": "10_ConvTranspose2d_MaxPool_Hardtanh_Mean_Tanh.py",
+      "name": "ConvTranspose2d_MaxPool_Hardtanh_Mean_Tanh",
+      "sha256": "a8f0fab54e125017083473ddee3bcff6546b4eda28ba98cacbebfbe14ae8130b"
+    },
+    {
+      "id": 11,
+      "filename": "11_ConvTranspose2d_BatchNorm_Tanh_MaxPool_GroupNorm.py",
+      "name": "ConvTranspose2d_BatchNorm_Tanh_MaxPool_GroupNorm",
+      "sha256": "e10fa44d0dbc6f6d9b7fff411dae2730502c2b15236d9ec1097e7deff37f1981"
+    },
+    {
+      "id": 12,
+      "filename": "12_Gemm_Multiply_LeakyReLU.py",
+      "name": "Gemm_Multiply_LeakyReLU",
+      "sha256": "0150537a4e53a29b1436d22667aa05b26c30301dd865d5ccf0f929b2c0cc29f6"
+    },
+    {
+      "id": 13,
+      "filename": "13_ConvTranspose3d_Mean_Add_Softmax_Tanh_Scaling.py",
+      "name": "ConvTranspose3d_Mean_Add_Softmax_Tanh_Scaling",
+      "sha256": "f33a027962c4ffa7b73bc48fe1e26e38d878c21b084e0c2a0a94c0bc290bd4f3"
+    },
+    {
+      "id": 14,
+      "filename": "14_Gemm_Divide_Sum_Scaling.py",
+      "name": "Gemm_Divide_Sum_Scaling",
+      "sha256": "8bd6a36d6dafc8916d9b47d413f668fb7a4c25444378717a4c09f495b3891cd2"
+    },
+    {
+      "id": 15,
+      "filename": "15_ConvTranspose3d_BatchNorm_Subtract.py",
+      "name": "ConvTranspose3d_BatchNorm_Subtract",
+      "sha256": "43f63a8c7edfdde89349af7fb8c8820a73586cb28d6057c46d5e562f374cef6a"
+    },
+    {
+      "id": 16,
+      "filename": "16_ConvTranspose2d_Mish_Add_Hardtanh_Scaling.py",
+      "name": "ConvTranspose2d_Mish_Add_Hardtanh_Scaling",
+      "sha256": "3a5a97178dad5b980b33f35b7712826a08a92a5fd8a486a22cdabc84b97dcc15"
+    },
+    {
+      "id": 17,
+      "filename": "17_Conv2d_InstanceNorm_Divide.py",
+      "name": "Conv2d_InstanceNorm_Divide",
+      "sha256": "bf60129922d425401714b89cf7568b2b6a793ab4303273b24d1d00ed41ed3565"
+    },
+    {
+      "id": 18,
+      "filename": "18_Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp.py",
+      "name": "Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp",
+      "sha256": "0a7391a12a0c88164045b68580b57f51efee843465aa0060d86fbb5f00f65861"
+    },
+    {
+      "id": 19,
+      "filename": "19_ConvTranspose2d_GELU_GroupNorm.py",
+      "name": "ConvTranspose2d_GELU_GroupNorm",
+      "sha256": "b7b68e7498c80dfe9491981ef97feb07aa684ce7229943d2cc701fdb83fb509c"
+    },
+    {
+      "id": 20,
+      "filename": "20_ConvTranspose3d_Sum_ResidualAdd_Multiply_ResidualAdd.py",
+      "name": "ConvTranspose3d_Sum_ResidualAdd_Multiply_ResidualAdd",
+      "sha256": "d5977ca8e549aac43aa5b4fd78dcbfc11784961891668ed5008fb0978d3e4a61"
+    },
+    {
+      "id": 21,
+      "filename": "21_Conv2d_Add_Scale_Sigmoid_GroupNorm.py",
+      "name": "Conv2d_Add_Scale_Sigmoid_GroupNorm",
+      "sha256": "c6488d1d4bebd1b43893cd490871dea02f97c7962e25aa79f9f70530926ac454"
+    },
+    {
+      "id": 22,
+      "filename": "22_Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish.py",
+      "name": "Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish",
+      "sha256": "3ff6a8c5da733c978b3c86bbbba3190e487ae959b63d4501715e60489b6baab9"
+    },
+    {
+      "id": 23,
+      "filename": "23_Conv3d_GroupNorm_Mean.py",
+      "name": "Conv3d_GroupNorm_Mean",
+      "sha256": "9677116401cf1ec4ac00eb19cb6f08762d63b87b137e6ed10f2c8ec3741310fb"
+    },
+    {
+      "id": 24,
+      "filename": "24_Conv3d_Min_Softmax.py",
+      "name": "Conv3d_Min_Softmax",
+      "sha256": "1aad5ff832f3cd5ec353df0d9c040daea4fcddd1bcd6391189a81b94e3fba19a"
+    },
+    {
+      "id": 25,
+      "filename": "25_Conv2d_Min_Tanh_Tanh.py",
+      "name": "Conv2d_Min_Tanh_Tanh",
+      "sha256": "15e3e645a6012d772f1197e988d8a0ea4f191ad2459229fecdbe3f1d9ae344b3"
+    },
+    {
+      "id": 26,
+      "filename": "26_ConvTranspose3d_Add_HardSwish.py",
+      "name": "ConvTranspose3d_Add_HardSwish",
+      "sha256": "807660889baed4d0c4abade85efaec7f9c1c0c2897b812a281c6f8d0d3748852"
+    },
+    {
+      "id": 27,
+      "filename": "27_Conv3d_HardSwish_GroupNorm_Mean.py",
+      "name": "Conv3d_HardSwish_GroupNorm_Mean",
+      "sha256": "29f0c5f4ddc5b3b7db30e61402fcb6aee535e03274b616a11218893a7c7546bb"
+    },
+    {
+      "id": 28,
+      "filename": "28_BMM_InstanceNorm_Sum_ResidualAdd_Multiply.py",
+      "name": "BMM_InstanceNorm_Sum_ResidualAdd_Multiply",
+      "sha256": "5ed41cc50c8b2dfe65d03e642cc471dc3ad7cf6858608c65b911c235946ef00e"
+    },
+    {
+      "id": 29,
+      "filename": "29_Matmul_Mish_Mish.py",
+      "name": "Matmul_Mish_Mish",
+      "sha256": "f7b1c4c4c90d56de3dbd3605ed285d3e68efe5f6d98a245417533371c692b3ec"
+    },
+    {
+      "id": 30,
+      "filename": "30_Gemm_GroupNorm_Hardtanh.py",
+      "name": "Gemm_GroupNorm_Hardtanh",
+      "sha256": "461335ed064d25b193afd8cee6645eb12b37540ce15baa5170f3d61b765d2a90"
+    },
+    {
+      "id": 31,
+      "filename": "31_Conv2d_Min_Add_Multiply.py",
+      "name": "Conv2d_Min_Add_Multiply",
+      "sha256": "c66711246404f71123a6edf5ddcd5c0a01e2cd986725d21401424ca0669c85a5"
+    },
+    {
+      "id": 32,
+      "filename": "32_Conv2d_Scaling_Min.py",
+      "name": "Conv2d_Scaling_Min",
+      "sha256": "61653138241c49110250399f1544bf07db3eafa939ed6dbdab77d7f96c0e76e7"
+    },
+    {
+      "id": 33,
+      "filename": "33_Gemm_Scale_BatchNorm.py",
+      "name": "Gemm_Scale_BatchNorm",
+      "sha256": "50f77c555d65b3cfc908bce9ee4e13fdf2f1ee82f5bbb3c34d9e544e92b1509b"
+    },
+    {
+      "id": 34,
+      "filename": "34_ConvTranspose3d_LayerNorm_GELU_Scaling.py",
+      "name": "ConvTranspose3d_LayerNorm_GELU_Scaling",
+      "sha256": "81095e0048e53905573b62f7e2bb37b77505a9fe4913fd8fe736669ffce3f23c"
+    },
+    {
+      "id": 35,
+      "filename": "35_Conv2d_Subtract_HardSwish_MaxPool_Mish.py",
+      "name": "Conv2d_Subtract_HardSwish_MaxPool_Mish",
+      "sha256": "40a9db82d8b092243d85dce2406c29c087f3bccb371019f8b89a68eb84769b4b"
+    },
+    {
+      "id": 36,
+      "filename": "36_ConvTranspose2d_Min_Sum_GELU_Add.py",
+      "name": "ConvTranspose2d_Min_Sum_GELU_Add",
+      "sha256": "e8a14171f06b41a2bb5067e1397d2b1afd928c95272916b3c16dfff811f98316"
+    },
+    {
+      "id": 37,
+      "filename": "37_Matmul_Swish_Sum_GroupNorm.py",
+      "name": "Matmul_Swish_Sum_GroupNorm",
+      "sha256": "fe2e8dc5418f1549cb3b6e34535b6f3dee0fc37ecce1b6be19a57ed8733156d4"
+    },
+    {
+      "id": 38,
+      "filename": "38_ConvTranspose3d_AvgPool_Clamp_Softmax_Multiply.py",
+      "name": "ConvTranspose3d_AvgPool_Clamp_Softmax_Multiply",
+      "sha256": "913b9a28fa2c866a5f62c06b02aab327728679f3139783053e5872ce5e8e99b6"
+    },
+    {
+      "id": 39,
+      "filename": "39_Gemm_Scale_BatchNorm.py",
+      "name": "Gemm_Scale_BatchNorm",
+      "sha256": "6f7733e04363f470d27a26eadc7c8ab7b94e9c9a4efc3066e42c4e0df4e53e6f"
+    },
+    {
+      "id": 40,
+      "filename": "40_Matmul_Scaling_ResidualAdd.py",
+      "name": "Matmul_Scaling_ResidualAdd",
+      "sha256": "333bf992fd77297a4c43f4287b44662dcc43c8036be69d486b28e7a9db7bffd5"
+    },
+    {
+      "id": 41,
+      "filename": "41_Gemm_BatchNorm_GELU_ReLU.py",
+      "name": "Gemm_BatchNorm_GELU_ReLU",
+      "sha256": "e95f261a671d1b5a425ee132a8975f682420c861b97453340131579d212fc7db"
+    },
+    {
+      "id": 42,
+      "filename": "42_ConvTranspose2d_GlobalAvgPool_BiasAdd_LogSumExp_Sum_Multiply.py",
+      "name": "ConvTranspose2d_GlobalAvgPool_BiasAdd_LogSumExp_Sum_Multiply",
+      "sha256": "0eeb1e46e5bacfed11e5bfddffe6f4fdfd981332e0fb56c4e67b219d6faba3a6"
+    },
+    {
+      "id": 43,
+      "filename": "43_Conv3d_Max_LogSumExp_ReLU.py",
+      "name": "Conv3d_Max_LogSumExp_ReLU",
+      "sha256": "e274319f222a8938fe0fe51c0f9093bedc7c90f00f1b684ba9be8f39e5db6b19"
+    },
+    {
+      "id": 44,
+      "filename": "44_ConvTranspose2d_Multiply_GlobalAvgPool_GlobalAvgPool_Mean.py",
+      "name": "ConvTranspose2d_Multiply_GlobalAvgPool_GlobalAvgPool_Mean",
+      "sha256": "8b08cbe307167cb006a00e6f8309bce56dad016b9bc5346c4484b315cfdb411d"
+    },
+    {
+      "id": 45,
+      "filename": "45_Gemm_Sigmoid_LogSumExp.py",
+      "name": "Gemm_Sigmoid_LogSumExp",
+      "sha256": "c206fcec5ac6b6253fb2f86992a865ea2f560fe54ebfd7a7bf542fc9852cd2c4"
+    },
+    {
+      "id": 46,
+      "filename": "46_Conv2d_Subtract_Tanh_Subtract_AvgPool.py",
+      "name": "Conv2d_Subtract_Tanh_Subtract_AvgPool",
+      "sha256": "b52e744528e32863da06d5a713a9932fc51798c93ee252b57fbde10d769bc0ce"
+    },
+    {
+      "id": 47,
+      "filename": "47_Conv3d_Mish_Tanh.py",
+      "name": "Conv3d_Mish_Tanh",
+      "sha256": "dad33b133cc3a085e46d7237887e872c4c7c05dd34b48d742f6edabc87aa8b44"
+    },
+    {
+      "id": 48,
+      "filename": "48_Conv3d_Scaling_Tanh_Multiply_Sigmoid.py",
+      "name": "Conv3d_Scaling_Tanh_Multiply_Sigmoid",
+      "sha256": "a2f6bc6b97dfff819695956bdfb21f3a1c6873f81eb6c31e19377b1079a0a157"
+    },
+    {
+      "id": 49,
+      "filename": "49_ConvTranspose3d_Softmax_Sigmoid.py",
+      "name": "ConvTranspose3d_Softmax_Sigmoid",
+      "sha256": "9386889fc80859671b9ef7f3bd3dd182bd0fb5b51067f88407c4e48fb1107f79"
+    },
+    {
+      "id": 50,
+      "filename": "50_ConvTranspose3d_Scaling_AvgPool_BiasAdd_Scaling.py",
+      "name": "ConvTranspose3d_Scaling_AvgPool_BiasAdd_Scaling",
+      "sha256": "c094d9151eed193c99c1854706203e33d32c7a0e536abf04c81790f873763765"
+    },
+    {
+      "id": 51,
+      "filename": "51_Gemm_Subtract_GlobalAvgPool_LogSumExp_GELU_ResidualAdd.py",
+      "name": "Gemm_Subtract_GlobalAvgPool_LogSumExp_GELU_ResidualAdd",
+      "sha256": "0a777c0d54e91a3a20d5cc2781e1678b90e4fcda8ed2c1f5e33009e010792b03"
+    },
+    {
+      "id": 52,
+      "filename": "52_Conv2d_Activation_BatchNorm.py",
+      "name": "Conv2d_Activation_BatchNorm",
+      "sha256": "e9b0070822d17b3ba2e80c05f20e8bfd70bcde2f92a21d6d6ef811d8f4ddc898"
+    },
+    {
+      "id": 53,
+      "filename": "53_Gemm_Scaling_Hardtanh_GELU.py",
+      "name": "Gemm_Scaling_Hardtanh_GELU",
+      "sha256": "d296d0b49a0a620b3528506997f600dd7c5635551a13c95b418428bbed50010e"
+    },
+    {
+      "id": 54,
+      "filename": "54_Conv2d_Multiply_LeakyReLU_GELU.py",
+      "name": "Conv2d_Multiply_LeakyReLU_GELU",
+      "sha256": "863895c0021967f1c4976bbe0f7c408a6d3e19c92e65255e13c214978c2e67d8"
+    },
+    {
+      "id": 55,
+      "filename": "55_Matmul_MaxPool_Sum_Scale.py",
+      "name": "Matmul_MaxPool_Sum_Scale",
+      "sha256": "ef3a425677ff103d6080f3f3eddf89cee25f5b54cfa13777de51bc0ab39b41e6"
+    },
+    {
+      "id": 56,
+      "filename": "56_Matmul_Sigmoid_Sum.py",
+      "name": "Matmul_Sigmoid_Sum",
+      "sha256": "00070bf8cc6a0d0ff1c4cbb78729620575164e67cb03ef1d646bbab332ae1fa3"
+    },
+    {
+      "id": 57,
+      "filename": "57_Conv2d_ReLU_HardSwish.py",
+      "name": "Conv2d_ReLU_HardSwish",
+      "sha256": "6c3068e8639d0fce90e78d72027434237594eafe9e1c0919b56c30edeae9ff88"
+    },
+    {
+      "id": 58,
+      "filename": "58_ConvTranspose3d_LogSumExp_HardSwish_Subtract_Clamp.py",
+      "name": "ConvTranspose3d_LogSumExp_HardSwish_Subtract_Clamp",
+      "sha256": "d89693a52be9080caf580e0a21691a19d1cf9ef44c31a9466b6df97178ac9c21"
+    },
+    {
+      "id": 59,
+      "filename": "59_Matmul_Swish_Scaling.py",
+      "name": "Matmul_Swish_Scaling",
+      "sha256": "af4bfb47631eb3eee01055c0ae090e7452edacb0aa35fa40d117de2675bc2720"
+    },
+    {
+      "id": 60,
+      "filename": "60_ConvTranspose3d_Swish_GroupNorm_HardSwish.py",
+      "name": "ConvTranspose3d_Swish_GroupNorm_HardSwish",
+      "sha256": "b5f0476a56ce409c0293a0b68bd9f24ac3558916acdc15576890f8665b551bb6"
+    },
+    {
+      "id": 61,
+      "filename": "61_ConvTranspose3d_ReLU_GroupNorm.py",
+      "name": "ConvTranspose3d_ReLU_GroupNorm",
+      "sha256": "6ba34e37873d2f6221865d43dc9e73fe1b0f8db4b5ad82f2d9071a38beae9a22"
+    },
+    {
+      "id": 62,
+      "filename": "62_Matmul_GroupNorm_LeakyReLU_Sum.py",
+      "name": "Matmul_GroupNorm_LeakyReLU_Sum",
+      "sha256": "9ac23a8651df7ef366e1a9928886bb3fa116fa97d62e5eeba0bc6c138d6bb91e"
+    },
+    {
+      "id": 63,
+      "filename": "63_Gemm_ReLU_Divide.py",
+      "name": "Gemm_ReLU_Divide",
+      "sha256": "d4013c4cf5639bd56d28fd036c10c7c9103a6bd3573c3f6f79fd93a79bfc2a5a"
+    },
+    {
+      "id": 64,
+      "filename": "64_Gemm_LogSumExp_LeakyReLU_LeakyReLU_GELU_GELU.py",
+      "name": "Gemm_LogSumExp_LeakyReLU_LeakyReLU_GELU_GELU",
+      "sha256": "3cb78d4eb7f710768b801f0081fef85a5fb5f119a3e49a00ad97bf4baea33a83"
+    },
+    {
+      "id": 65,
+      "filename": "65_Conv2d_AvgPool_Sigmoid_Sum.py",
+      "name": "Conv2d_AvgPool_Sigmoid_Sum",
+      "sha256": "7bd02c41c99f336d8515c06cd299fcd95dcc575f3aa1114b4de84b81cadbe7d4"
+    },
+    {
+      "id": 66,
+      "filename": "66_Matmul_Dropout_Softmax.py",
+      "name": "Matmul_Dropout_Softmax",
+      "sha256": "7a8bcefb75586bbf0acfcdeb0e8391c8881548fe9b55844c0033a96e9f898a29"
+    },
+    {
+      "id": 67,
+      "filename": "67_Conv2d_GELU_GlobalAvgPool.py",
+      "name": "Conv2d_GELU_GlobalAvgPool",
+      "sha256": "3a9572034d80dd060bb523e1d265aa941113a8044ecd30c614e764fdf029d94a"
+    },
+    {
+      "id": 68,
+      "filename": "68_Matmul_Min_Subtract.py",
+      "name": "Matmul_Min_Subtract",
+      "sha256": "89b99c3df1d7d0fa49981c9f5aae7755df1d7dfd1e49b85b09d166e486d2670a"
+    },
+    {
+      "id": 69,
+      "filename": "69_Conv2d_HardSwish_ReLU.py",
+      "name": "Conv2d_HardSwish_ReLU",
+      "sha256": "442df07c27315075294d997dcd7ce61310a7d41a8dff4033c33ef4cf61b4727e"
+    },
+    {
+      "id": 70,
+      "filename": "70_Gemm_Sigmoid_Scaling_ResidualAdd.py",
+      "name": "Gemm_Sigmoid_Scaling_ResidualAdd",
+      "sha256": "a1544425f96477bad2814578d9ba2d928568d952527af98bd6acbbd0c2170fbc"
+    },
+    {
+      "id": 71,
+      "filename": "71_Conv2d_Divide_LeakyReLU.py",
+      "name": "Conv2d_Divide_LeakyReLU",
+      "sha256": "412f9c4244239814ab3cc6d58c0837c7ffbc94e5d63453c88f8388fb28309fad"
+    },
+    {
+      "id": 72,
+      "filename": "72_ConvTranspose3d_BatchNorm_AvgPool_AvgPool.py",
+      "name": "ConvTranspose3d_BatchNorm_AvgPool_AvgPool",
+      "sha256": "cc65e3beca217d11df994ed6beb6476909c234b5b5282a1cbfee0c5312908ea6"
+    },
+    {
+      "id": 73,
+      "filename": "73_Conv2d_BatchNorm_Scaling.py",
+      "name": "Conv2d_BatchNorm_Scaling",
+      "sha256": "5c2d1c40a5ba00505f8c18579b377052c92ecce39bb3c405dba42ee05a1d7740"
+    },
+    {
+      "id": 74,
+      "filename": "74_ConvTranspose3d_LeakyReLU_Multiply_LeakyReLU_Max.py",
+      "name": "ConvTranspose3d_LeakyReLU_Multiply_LeakyReLU_Max",
+      "sha256": "7d05e9bcc2a444487b190089498e25fdcfd236ea00b844a5459ac13ce8121833"
+    },
+    {
+      "id": 75,
+      "filename": "75_Gemm_GroupNorm_Min_BiasAdd.py",
+      "name": "Gemm_GroupNorm_Min_BiasAdd",
+      "sha256": "5485a335508d1a92464b644e2be1d166a9072bb0f62d3e2c3426dd4768e06342"
+    },
+    {
+      "id": 76,
+      "filename": "76_Gemm_Add_ReLU.py",
+      "name": "Gemm_Add_ReLU",
+      "sha256": "88e932ace4f16e0477574c5c99b8d5665393e02f82f664dc99f2e22a2674ea42"
+    },
+    {
+      "id": 77,
+      "filename": "77_ConvTranspose3d_Scale_BatchNorm_GlobalAvgPool.py",
+      "name": "ConvTranspose3d_Scale_BatchNorm_GlobalAvgPool",
+      "sha256": "cc3dcfba9cd5526d515917bbae7ee2af7d7694322a91a96a4461e73ec8a6278b"
+    },
+    {
+      "id": 78,
+      "filename": "78_ConvTranspose3d_Max_Max_Sum.py",
+      "name": "ConvTranspose3d_Max_Max_Sum",
+      "sha256": "72724f4f417c8e598702d327ecb7f22356bde897235b2ac93f0f303b6d9bfefe"
+    },
+    {
+      "id": 79,
+      "filename": "79_Conv3d_Multiply_InstanceNorm_Clamp_Multiply_Max.py",
+      "name": "Conv3d_Multiply_InstanceNorm_Clamp_Multiply_Max",
+      "sha256": "9355597767e42b73adda3ce5f8d60d70a4d8cd823438b782c88b1270d91a3e2d"
+    },
+    {
+      "id": 80,
+      "filename": "80_Gemm_Max_Subtract_GELU.py",
+      "name": "Gemm_Max_Subtract_GELU",
+      "sha256": "44dff2e3c3e9b014df3f41f40e3678aa17830ecc7b161d2f142f556f87ee134c"
+    },
+    {
+      "id": 81,
+      "filename": "81_Gemm_Swish_Divide_Clamp_Tanh_Clamp.py",
+      "name": "Gemm_Swish_Divide_Clamp_Tanh_Clamp",
+      "sha256": "291d748f061f23d3bf97e012c69cf321cb8821159cce45e403af7cfaee7f14ed"
+    },
+    {
+      "id": 82,
+      "filename": "82_Conv2d_Tanh_Scaling_BiasAdd_Max.py",
+      "name": "Conv2d_Tanh_Scaling_BiasAdd_Max",
+      "sha256": "1085dcf3a5845103c4dcdec8b8d3932ca48c729502fb101654bec085dae1dd8d"
+    },
+    {
+      "id": 83,
+      "filename": "83_Conv3d_GroupNorm_Min_Clamp_Dropout.py",
+      "name": "Conv3d_GroupNorm_Min_Clamp_Dropout",
+      "sha256": "223d45d8423c55369bd0b1277abca1d358a28ad77cf7661f1c6e602c856a694a"
+    },
+    {
+      "id": 84,
+      "filename": "84_Gemm_BatchNorm_Scaling_Softmax.py",
+      "name": "Gemm_BatchNorm_Scaling_Softmax",
+      "sha256": "e6f588ca44598dc81bbd2d626d3c40bda2287a1d1cc644f8afe01b288f1babfe"
+    },
+    {
+      "id": 85,
+      "filename": "85_Conv2d_GroupNorm_Scale_MaxPool_Clamp.py",
+      "name": "Conv2d_GroupNorm_Scale_MaxPool_Clamp",
+      "sha256": "ba63b5b156a347f2f92a607c4a612e2bb1963dbcb9e7f04b3e4f0cb4a294fff3"
+    },
+    {
+      "id": 86,
+      "filename": "86_Matmul_Divide_GELU.py",
+      "name": "Matmul_Divide_GELU",
+      "sha256": "d6fc788bd7aa852d0740320aa786189d89a6489ed9634ee0b28f488d809b335a"
+    },
+    {
+      "id": 87,
+      "filename": "87_Conv2d_Subtract_Subtract_Mish.py",
+      "name": "Conv2d_Subtract_Subtract_Mish",
+      "sha256": "ab44c31f27a7265867d3842b7b8e5b2ba9d555d597efe6804d474e45c15aa621"
+    },
+    {
+      "id": 88,
+      "filename": "88_Gemm_GroupNorm_Swish_Multiply_Swish.py",
+      "name": "Gemm_GroupNorm_Swish_Multiply_Swish",
+      "sha256": "eda8a47c825eb3fc49836d6cc0c9cd6ba596cc35ece1d22c871bba198009c6e7"
+    },
+    {
+      "id": 89,
+      "filename": "89_ConvTranspose3d_MaxPool_Softmax_Subtract_Swish_Max.py",
+      "name": "ConvTranspose3d_MaxPool_Softmax_Subtract_Swish_Max",
+      "sha256": "300030609984e750550fcf6b263c5fe8bba73389cb644cd48085c30be109b0df"
+    },
+    {
+      "id": 90,
+      "filename": "90_Conv3d_LeakyReLU_Sum_Clamp_GELU.py",
+      "name": "Conv3d_LeakyReLU_Sum_Clamp_GELU",
+      "sha256": "bd2eaa246f1176ad3bfb887b2ca27666f2f801a648cd4ffe5cf6aae49278dcb2"
+    },
+    {
+      "id": 91,
+      "filename": "91_ConvTranspose2d_Softmax_BiasAdd_Scaling_Sigmoid.py",
+      "name": "ConvTranspose2d_Softmax_BiasAdd_Scaling_Sigmoid",
+      "sha256": "3b571801aec40ec4214ffd9ae7dc4a099560a6bc35564c792280331951023c71"
+    },
+    {
+      "id": 92,
+      "filename": "92_Conv2d_GroupNorm_Tanh_HardSwish_ResidualAdd_LogSumExp.py",
+      "name": "Conv2d_GroupNorm_Tanh_HardSwish_ResidualAdd_LogSumExp",
+      "sha256": "d5732faa8c80a56b551b28f064ced01ed0fe640a57f72b117ee19e01dc71952d"
+    },
+    {
+      "id": 93,
+      "filename": "93_ConvTranspose2d_Add_Min_GELU_Multiply.py",
+      "name": "ConvTranspose2d_Add_Min_GELU_Multiply",
+      "sha256": "3f9c3e542afa320508390c00b28bb407b3999caa919a5885bbd03e2c8f1df547"
+    },
+    {
+      "id": 94,
+      "filename": "94_Gemm_BiasAdd_Hardtanh_Mish_GroupNorm.py",
+      "name": "Gemm_BiasAdd_Hardtanh_Mish_GroupNorm",
+      "sha256": "649fe2a6aaefeffcd6209c6afb873586c35751756585a9c1a7ab2a11a546c8d3"
+    },
+    {
+      "id": 95,
+      "filename": "95_Matmul_Add_Swish_Tanh_GELU_Hardtanh.py",
+      "name": "Matmul_Add_Swish_Tanh_GELU_Hardtanh",
+      "sha256": "0c5123322ffe7a5436f194147612833f0c1ae0ecbd21788515718d720c8e5d96"
+    },
+    {
+      "id": 96,
+      "filename": "96_ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp.py",
+      "name": "ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp",
+      "sha256": "164edd0135adff496adade63a772074630ebf2c13feaa450307d98a9728da2e6"
+    },
+    {
+      "id": 97,
+      "filename": "97_Matmul_BatchNorm_BiasAdd_Divide_Swish.py",
+      "name": "Matmul_BatchNorm_BiasAdd_Divide_Swish",
+      "sha256": "49ed9c680b1764ddc4b7dfe42a328923ab5b6685afd7dfa702c0587d1cb59685"
+    },
+    {
+      "id": 98,
+      "filename": "98_Matmul_AvgPool_GELU_Scale_Max.py",
+      "name": "Matmul_AvgPool_GELU_Scale_Max",
+      "sha256": "8e5df29ff246f69cde03ab21ab53c706d58cd082014184641332cbb157607eb7"
+    },
+    {
+      "id": 99,
+      "filename": "99_Matmul_GELU_Softmax.py",
+      "name": "Matmul_GELU_Softmax",
+      "sha256": "a27769675f355605c1931433193bbf36a309e050c4b27d3e6375938f22329709"
+    },
+    {
+      "id": 100,
+      "filename": "100_ConvTranspose3d_Clamp_Min_Divide.py",
+      "name": "ConvTranspose3d_Clamp_Min_Divide",
+      "sha256": "1f9ce1ae75f5e9986156c1d6e40b525db04d89c11e825c159ef2cc108f7e132e"
+    }
+  ]
+}

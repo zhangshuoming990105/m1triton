@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import sys
 from typing import Any, Sequence
 
 from m1triton import _C
+
+
+def _sync_torch_mps() -> None:
+    torch_mod = sys.modules.get("torch")
+    if torch_mod is not None and hasattr(torch_mod, "mps"):
+        torch_mod.mps.synchronize()
 
 
 def device_info():
@@ -42,6 +49,143 @@ def compile_kernel(msl_source: str, fn_name: str, *, cache_key: str | None = Non
         digest = hashlib.sha256(f"{fn_name}\n{int(fast_math)}\n{msl_source}".encode("utf-8")).hexdigest()
         cache_key = f"{fn_name}_{digest[:24]}"
     return int(_C.compile_kernel(cache_key, msl_source, fn_name, fast_math))
+
+
+def kernel_max_threads_per_threadgroup(kernel_id: int) -> int:
+    return int(_C.kernel_max_threads_per_threadgroup(int(kernel_id)))
+
+
+def kernel_supports_icb(kernel_id: int) -> bool:
+    return bool(_C.kernel_supports_icb(int(kernel_id)))
+
+
+def begin_batch() -> None:
+    _C.begin_batch()
+
+
+def end_batch(wait: bool = True) -> float:
+    return float(_C.end_batch(bool(wait)))
+
+
+def in_batch() -> bool:
+    return bool(_C.in_batch())
+
+
+class _CommandBatch:
+    """Context manager encoding multiple kernel dispatches onto one MTLCommandBuffer."""
+
+    def __init__(self, wait: bool = True, sync_mps: bool = True) -> None:
+        self.wait = bool(wait)
+        self.sync_mps = bool(sync_mps)
+        self.gpu_ms: float = 0.0
+        self._active: bool = False
+
+    def __enter__(self) -> _CommandBatch:
+        if self.sync_mps:
+            _sync_torch_mps()
+        begin_batch()
+        self._active = True
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if not self._active:
+            return False
+        self._active = False
+        if exc_type is not None:
+            _C.abort_batch()
+            return False
+        self.gpu_ms = end_batch(wait=self.wait)
+        return False
+
+
+def command_batch(wait: bool = True, sync_mps: bool = True) -> _CommandBatch:
+    """Batch subsequent kernel launches into a single Metal command buffer."""
+    return _CommandBatch(wait=wait, sync_mps=sync_mps)
+
+
+def begin_graph_capture() -> None:
+    _C.begin_graph_capture()
+
+
+def end_graph_capture() -> int:
+    return int(_C.end_graph_capture())
+
+
+def in_graph_capture() -> bool:
+    return bool(_C.in_graph_capture())
+
+
+def replay_graph(graph_id: int, wait: bool = True) -> float:
+    return float(_C.replay_graph(int(graph_id), bool(wait)))
+
+
+def destroy_graph(graph_id: int) -> None:
+    _C.destroy_graph(int(graph_id))
+
+
+def graph_command_count(graph_id: int) -> int:
+    return int(_C.graph_command_count(int(graph_id)))
+
+
+class MetalGraph:
+    """Captured Metal Compute Indirect Command Buffer (ICB) execution graph."""
+
+    def __init__(self, *, sync_mps: bool = True) -> None:
+        self.sync_mps = bool(sync_mps)
+        self._graph_id: int = 0
+        self._capturing: bool = False
+        self.last_gpu_ms: float = 0.0
+
+    @property
+    def graph_id(self) -> int:
+        return self._graph_id
+
+    @property
+    def command_count(self) -> int:
+        if self._graph_id == 0:
+            return 0
+        return graph_command_count(self._graph_id)
+
+    def __enter__(self) -> MetalGraph:
+        if self._graph_id != 0:
+            raise RuntimeError("MetalGraph has already been captured; construct a new MetalGraph")
+        if self.sync_mps:
+            _sync_torch_mps()
+        begin_graph_capture()
+        self._capturing = True
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if not self._capturing:
+            return False
+        self._capturing = False
+        if exc_type is not None:
+            _C.abort_graph_capture()
+            return False
+        self._graph_id = end_graph_capture()
+        return False
+
+    def replay(self, wait: bool = True, *, sync_mps: bool | None = None) -> float:
+        if self._graph_id == 0:
+            raise RuntimeError("MetalGraph is not captured or has been closed")
+        do_sync = self.sync_mps if sync_mps is None else bool(sync_mps)
+        if do_sync:
+            _sync_torch_mps()
+        gpu_ms = replay_graph(self._graph_id, wait=bool(wait))
+        self.last_gpu_ms = gpu_ms
+        return gpu_ms
+
+    def close(self) -> None:
+        if self._graph_id != 0:
+            gid = self._graph_id
+            self._graph_id = 0
+            destroy_graph(gid)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def make_buffer_arg(tensor_or_array: Any, index: int, *, writable: bool = False) -> _C.BufferArg:

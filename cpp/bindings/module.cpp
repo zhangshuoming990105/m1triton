@@ -730,6 +730,9 @@ PYBIND11_MODULE(_C, m) {
       .def_readonly("recommended_max_working_set_bytes",
                     &m1triton::runtime::DeviceInfo::recommended_max_working_set_bytes)
       .def_readonly("has_unified_memory", &m1triton::runtime::DeviceInfo::has_unified_memory)
+      .def_readonly("supports_metal3", &m1triton::runtime::DeviceInfo::supports_metal3)
+      .def_readonly("supports_indirect_command_buffers",
+                    &m1triton::runtime::DeviceInfo::supports_indirect_command_buffers)
       .def_readonly("available", &m1triton::runtime::DeviceInfo::available);
 
   py::class_<m1triton::runtime::BufferArg>(m, "BufferArg")
@@ -793,6 +796,84 @@ PYBIND11_MODULE(_C, m) {
         }
         return gpu_ms;
       });
+
+  m.def(
+      "kernel_max_threads_per_threadgroup",
+      [](uint64_t kernel_id) {
+        return m1triton::runtime::MetalRuntime::instance().kernel_max_threads_per_threadgroup(kernel_id);
+      },
+      py::arg("kernel_id"));
+
+  m.def(
+      "kernel_supports_icb",
+      [](uint64_t kernel_id) {
+        return m1triton::runtime::MetalRuntime::instance().kernel_supports_icb(kernel_id);
+      },
+      py::arg("kernel_id"));
+
+  m.def("begin_batch", []() {
+    std::string err;
+    if (!m1triton::runtime::MetalRuntime::instance().begin_batch(&err)) {
+      throw std::runtime_error(err);
+    }
+  });
+
+  m.def(
+      "end_batch",
+      [](bool wait) {
+        std::string err;
+        double gpu_ms = m1triton::runtime::MetalRuntime::instance().end_batch(wait, &err);
+        if (gpu_ms < 0.0) {
+          throw std::runtime_error(err);
+        }
+        return gpu_ms;
+      },
+      py::arg("wait") = true);
+
+  m.def("abort_batch", []() { m1triton::runtime::MetalRuntime::instance().abort_batch(); });
+  m.def("in_batch", []() { return m1triton::runtime::MetalRuntime::instance().in_batch(); });
+
+  m.def("begin_graph_capture", []() {
+    std::string err;
+    if (!m1triton::runtime::MetalRuntime::instance().begin_graph_capture(&err)) {
+      throw std::runtime_error(err);
+    }
+  });
+
+  m.def("end_graph_capture", []() {
+    std::string err;
+    uint64_t gid = m1triton::runtime::MetalRuntime::instance().end_graph_capture(&err);
+    if (gid == 0) {
+      throw std::runtime_error(err);
+    }
+    return gid;
+  });
+
+  m.def("abort_graph_capture", []() { m1triton::runtime::MetalRuntime::instance().abort_graph_capture(); });
+  m.def("in_graph_capture", []() { return m1triton::runtime::MetalRuntime::instance().in_graph_capture(); });
+
+  m.def(
+      "replay_graph",
+      [](uint64_t graph_id, bool wait) {
+        std::string err;
+        double gpu_ms = m1triton::runtime::MetalRuntime::instance().replay_graph(graph_id, wait, &err);
+        if (gpu_ms < 0.0) {
+          throw std::runtime_error(err);
+        }
+        return gpu_ms;
+      },
+      py::arg("graph_id"),
+      py::arg("wait") = true);
+
+  m.def(
+      "destroy_graph",
+      [](uint64_t graph_id) { m1triton::runtime::MetalRuntime::instance().destroy_graph(graph_id); },
+      py::arg("graph_id"));
+
+  m.def(
+      "graph_command_count",
+      [](uint64_t graph_id) { return m1triton::runtime::MetalRuntime::instance().graph_command_count(graph_id); },
+      py::arg("graph_id"));
 
   m.def("compile_msl_smoke", [](const std::string& src, const std::string& fn) {
     std::string err;
