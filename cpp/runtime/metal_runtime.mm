@@ -157,7 +157,7 @@ struct MetalRuntime::Impl {
         (env_dir && env_dir[0] != '\0') ? std::filesystem::path(env_dir) : std::filesystem::path(".m1triton_cache");
     std::error_code ec;
     std::filesystem::create_directories(cache_dir, ec);
-    archive_path = (cache_dir / "pipelines.metallib").string();
+    archive_path = (cache_dir / (supports_metal3 ? "pipelines_metal3.metallib" : "pipelines.metallib")).string();
 
     MTLBinaryArchiveDescriptor* desc = [[MTLBinaryArchiveDescriptor alloc] init];
     NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:archive_path.c_str()]];
@@ -265,6 +265,11 @@ uint64_t MetalRuntime::compile_kernel(
     NSError* err = nil;
     MTLCompileOptions* opts = [[MTLCompileOptions alloc] init];
     opts.mathMode = fast_math ? MTLMathModeFast : MTLMathModeSafe;
+    if (impl_->supports_metal3) {
+      if (@available(macOS 13.0, *)) {
+        opts.languageVersion = MTLLanguageVersion3_0;
+      }
+    }
 
     id<MTLLibrary> lib = [impl_->device newLibraryWithSource:[NSString stringWithUTF8String:msl_source.c_str()]
                                                      options:opts

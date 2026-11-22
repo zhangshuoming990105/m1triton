@@ -332,8 +332,120 @@ def flash_attention_tile(
     scale: float = 1.0,
     causal: bool = False,
     causal_offset: int = 0,
+    window_size: int = -1,
+    softcap: float = 0.0,
+    lse_ptr: Any = None,
+    alibi_ptr: Any = None,
+    kv_group_size: int = 1,
+    num_q_heads: Any = None,
 ) -> Any:
     return _jit_only("flash_attention_tile")
+
+
+def flash_attention_bwd_dkdv(
+    q_ptr: Any,
+    k_ptr: Any,
+    v_ptr: Any,
+    do_ptr: Any,
+    lse_ptr: Any,
+    delta_ptr: Any,
+    dk_ptr: Any,
+    dv_ptr: Any,
+    bh: Any,
+    lq: Any,
+    lkv: Any,
+    d: Any,
+    *,
+    scale: float = 1.0,
+    causal: bool = False,
+    causal_offset: int = 0,
+    window_size: int = -1,
+    softcap: float = 0.0,
+) -> Any:
+    return _jit_only("flash_attention_bwd_dkdv")
+
+
+def flash_attention_bwd_dq(
+    q_ptr: Any,
+    k_ptr: Any,
+    v_ptr: Any,
+    do_ptr: Any,
+    lse_ptr: Any,
+    delta_ptr: Any,
+    dq_ptr: Any,
+    bh: Any,
+    lq: Any,
+    lkv: Any,
+    d: Any,
+    *,
+    scale: float = 1.0,
+    causal: bool = False,
+    causal_offset: int = 0,
+    window_size: int = -1,
+    softcap: float = 0.0,
+) -> Any:
+    return _jit_only("flash_attention_bwd_dq")
+
+
+def paged_attention_decode(
+    q_ptr: Any,
+    k_cache_ptr: Any,
+    v_cache_ptr: Any,
+    block_tables_ptr: Any,
+    context_lens_ptr: Any,
+    partial_o_ptr: Any,
+    partial_lse_ptr: Any,
+    b: Any,
+    h_q: Any,
+    h_kv: Any,
+    max_blocks: Any,
+    d: Any,
+    *,
+    scale: float = 1.0,
+    softcap: float = 0.0,
+) -> Any:
+    return _jit_only("paged_attention_decode")
+
+
+def grouped_gemm(
+    a_ptr: Any,
+    w_ptr: Any,
+    offsets_ptr: Any,
+    out_ptr: Any,
+    num_experts: Any,
+    n: Any,
+    k: Any,
+    *,
+    bm: int = 64,
+    bn: int = 64,
+    bk: int = 16,
+    num_simdgroups: int = 4,
+    transpose_b: bool = True,
+    persistent: bool = True,
+    max_tgs_per_core: int = 2,
+) -> Any:
+    return _jit_only("grouped_gemm")
+
+
+def quant_dot(
+    a_ptr: Any,
+    qweight_ptr: Any,
+    scales_ptr: Any,
+    zeros_ptr: Any,
+    out_ptr: Any,
+    m: Any,
+    n: Any,
+    k: Any,
+    *,
+    bits: int = 4,
+    group_size: int = 128,
+    bm: int = 64,
+    bn: int = 64,
+    bk: int = 32,
+    num_simdgroups: int = 4,
+    symmetric: bool = False,
+) -> Any:
+    return _jit_only("quant_dot")
 
 
 __all__ = [
@@ -360,4 +472,9 @@ __all__ = [
     "implicit_gemm_conv",
     "fused_loss",
     "flash_attention_tile",
+    "flash_attention_bwd_dkdv",
+    "flash_attention_bwd_dq",
+    "paged_attention_decode",
+    "grouped_gemm",
+    "quant_dot",
 ]

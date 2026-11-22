@@ -284,4 +284,22 @@ std::optional<TailKind> parse_tail_kind_name(std::string_view name) {
   return std::nullopt;
 }
 
+std::string_view flash_attn_mode_name(FlashAttnMode mode) {
+  switch (mode) {
+    case FlashAttnMode::Fwd: return "fwd";
+    case FlashAttnMode::BwdDKDV: return "bwd_dkdv";
+    case FlashAttnMode::BwdDQ: return "bwd_dq";
+    case FlashAttnMode::PagedDecode: return "paged_decode";
+  }
+  return "fwd";
+}
+
+std::optional<FlashAttnMode> parse_flash_attn_mode(std::string_view name) {
+  if (name == "fwd") return FlashAttnMode::Fwd;
+  if (name == "bwd_dkdv") return FlashAttnMode::BwdDKDV;
+  if (name == "bwd_dq") return FlashAttnMode::BwdDQ;
+  if (name == "paged_decode") return FlashAttnMode::PagedDecode;
+  return std::nullopt;
+}
+
 }  // namespace m1triton::ir

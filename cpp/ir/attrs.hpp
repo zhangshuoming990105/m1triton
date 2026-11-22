@@ -297,6 +297,8 @@ struct ConvAttr {
   bool operator==(const ConvAttr&) const = default;
 };
 
+enum class FlashAttnMode : uint8_t { Fwd, BwdDKDV, BwdDQ, PagedDecode };
+
 struct FlashAttnAttr {
   float scale = 1.0f;
   bool causal = false;
@@ -305,7 +307,35 @@ struct FlashAttnAttr {
   uint32_t bn = 64;
   uint32_t bd = 32;
   uint32_t num_simdgroups = 16;
+  FlashAttnMode mode = FlashAttnMode::Fwd;
+  int32_t window_size = -1;
+  float softcap = 0.0f;
+  bool has_alibi = false;
+  bool return_lse = false;
+  int32_t kv_group_size = 1;
   bool operator==(const FlashAttnAttr&) const = default;
+};
+
+struct GroupedGemmAttr {
+  uint32_t bm = 64;
+  uint32_t bn = 64;
+  uint32_t bk = 16;
+  uint32_t num_simdgroups = 4;
+  bool transpose_b = true;
+  bool persistent = true;
+  uint32_t max_tgs_per_core = 2;
+  bool operator==(const GroupedGemmAttr&) const = default;
+};
+
+struct QuantDotAttr {
+  uint32_t bits = 4;
+  uint32_t group_size = 128;
+  uint32_t bm = 64;
+  uint32_t bn = 64;
+  uint32_t bk = 32;
+  uint32_t num_simdgroups = 4;
+  bool symmetric = false;
+  bool operator==(const QuantDotAttr&) const = default;
 };
 
 struct LossAttr {
@@ -406,7 +436,12 @@ using OpPayload = std::variant<
     OnlineSoftmaxAttr,
     WelfordNormAttr,
     PoolAttr,
-    LossAttr>;
+    LossAttr,
+    GroupedGemmAttr,
+    QuantDotAttr>;
+
+std::string_view flash_attn_mode_name(FlashAttnMode mode);
+std::optional<FlashAttnMode> parse_flash_attn_mode(std::string_view name);
 
 std::string_view unary_op_name(UnaryOp op);
 std::string_view binary_op_name(BinaryOp op);

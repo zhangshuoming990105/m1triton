@@ -1097,13 +1097,103 @@ class KernelVerifier {
           error(tag + ": missing FlashAttnAttr");
           break;
         }
-        if (node.operands.size() != 8 || !node.results.empty()) {
-          error(tag + ": expects 8 operands (q, k, v, out, BH, L_q, L_kv, D) and 0 results");
+        const auto& fa = std::get<FlashAttnAttr>(node.attr);
+        if (!node.results.empty()) {
+          error(tag + ": expects 0 results");
+          break;
+        }
+        if (fa.kv_group_size < 1) {
+          error(tag + ": kv_group_size must be >= 1");
+          break;
+        }
+        if (fa.mode == FlashAttnMode::Fwd) {
+          const size_t expected = 8u + (fa.return_lse ? 1u : 0u) + (fa.has_alibi ? 1u : 0u) +
+                                  (fa.kv_group_size > 1 ? 1u : 0u);
+          if (node.operands.size() != expected) {
+            error(tag + ": fwd mode expects " + std::to_string(expected) + " operands");
+            break;
+          }
+          for (size_t i = 0; i < 4; ++i) {
+            if (!kernel_.value(node.operands[i]).type.is_ptr()) {
+              error(tag + ": operand " + std::to_string(i) + " must be a device pointer");
+            }
+          }
+          size_t idx = 8u;
+          if (fa.return_lse) {
+            if (!kernel_.value(node.operands[idx++]).type.is_ptr()) {
+              error(tag + ": return_lse operand must be a device pointer");
+            }
+          }
+          if (fa.has_alibi) {
+            if (!kernel_.value(node.operands[idx++]).type.is_ptr()) {
+              error(tag + ": has_alibi operand must be a device pointer");
+            }
+          }
+        } else if (fa.mode == FlashAttnMode::BwdDKDV) {
+          if (node.operands.size() != 12u) {
+            error(tag + ": bwd_dkdv expects 12 operands (Q, K, V, dO, L, Delta, dK, dV, BH, Lq, Lkv, D)");
+            break;
+          }
+          for (size_t i = 0; i < 8; ++i) {
+            if (!kernel_.value(node.operands[i]).type.is_ptr()) {
+              error(tag + ": bwd_dkdv operand " + std::to_string(i) + " must be a device pointer");
+            }
+          }
+        } else if (fa.mode == FlashAttnMode::BwdDQ) {
+          if (node.operands.size() != 11u) {
+            error(tag + ": bwd_dq expects 11 operands (Q, K, V, dO, L, Delta, dQ, BH, Lq, Lkv, D)");
+            break;
+          }
+          for (size_t i = 0; i < 7; ++i) {
+            if (!kernel_.value(node.operands[i]).type.is_ptr()) {
+              error(tag + ": bwd_dq operand " + std::to_string(i) + " must be a device pointer");
+            }
+          }
+        } else if (fa.mode == FlashAttnMode::PagedDecode) {
+          if (node.operands.size() != 12u) {
+            error(tag +
+                  ": paged_decode expects 12 operands (Q, K_cache, V_cache, BlockTables, ContextLens, PartialO, "
+                  "PartialLSE, B, H_q, H_kv, MaxBlocks, D)");
+            break;
+          }
+          for (size_t i = 0; i < 7; ++i) {
+            if (!kernel_.value(node.operands[i]).type.is_ptr()) {
+              error(tag + ": paged_decode operand " + std::to_string(i) + " must be a device pointer");
+            }
+          }
+        }
+        break;
+      }
+
+      case OpKind::GroupedGemm: {
+        if (!std::holds_alternative<GroupedGemmAttr>(node.attr)) {
+          error(tag + ": missing GroupedGemmAttr");
+          break;
+        }
+        if (node.operands.size() != 7u || !node.results.empty()) {
+          error(tag + ": grouped_gemm expects 7 operands (A, W, Offsets, Out, E, N, K) and 0 results");
           break;
         }
         for (size_t i = 0; i < 4; ++i) {
           if (!kernel_.value(node.operands[i]).type.is_ptr()) {
-            error(tag + ": operand " + std::to_string(i) + " must be a device pointer");
+            error(tag + ": grouped_gemm operand " + std::to_string(i) + " must be a device pointer");
+          }
+        }
+        break;
+      }
+
+      case OpKind::QuantDot: {
+        if (!std::holds_alternative<QuantDotAttr>(node.attr)) {
+          error(tag + ": missing QuantDotAttr");
+          break;
+        }
+        if (node.operands.size() != 8u || !node.results.empty()) {
+          error(tag + ": quant_dot expects 8 operands (A, QWeight, Scales, Zeros, Out, M, N, K) and 0 results");
+          break;
+        }
+        for (size_t i = 0; i < 5; ++i) {
+          if (!kernel_.value(node.operands[i]).type.is_ptr()) {
+            error(tag + ": quant_dot operand " + std::to_string(i) + " must be a device pointer");
           }
         }
         break;

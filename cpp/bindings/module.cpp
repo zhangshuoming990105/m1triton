@@ -422,6 +422,12 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("layout", &ir::ConvAttr::layout)
       .def("__eq__", [](const ir::ConvAttr& a, const ir::ConvAttr& b) { return a == b; });
 
+  py::enum_<ir::FlashAttnMode>(ir_m, "FlashAttnMode")
+      .value("Fwd", ir::FlashAttnMode::Fwd)
+      .value("BwdDKDV", ir::FlashAttnMode::BwdDKDV)
+      .value("BwdDQ", ir::FlashAttnMode::BwdDQ)
+      .value("PagedDecode", ir::FlashAttnMode::PagedDecode);
+
   py::class_<ir::FlashAttnAttr>(ir_m, "FlashAttnAttr")
       .def(py::init<>())
       .def_readwrite("scale", &ir::FlashAttnAttr::scale)
@@ -431,7 +437,35 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("bn", &ir::FlashAttnAttr::bn)
       .def_readwrite("bd", &ir::FlashAttnAttr::bd)
       .def_readwrite("num_simdgroups", &ir::FlashAttnAttr::num_simdgroups)
+      .def_readwrite("mode", &ir::FlashAttnAttr::mode)
+      .def_readwrite("window_size", &ir::FlashAttnAttr::window_size)
+      .def_readwrite("softcap", &ir::FlashAttnAttr::softcap)
+      .def_readwrite("has_alibi", &ir::FlashAttnAttr::has_alibi)
+      .def_readwrite("return_lse", &ir::FlashAttnAttr::return_lse)
+      .def_readwrite("kv_group_size", &ir::FlashAttnAttr::kv_group_size)
       .def("__eq__", [](const ir::FlashAttnAttr& a, const ir::FlashAttnAttr& b) { return a == b; });
+
+  py::class_<ir::GroupedGemmAttr>(ir_m, "GroupedGemmAttr")
+      .def(py::init<>())
+      .def_readwrite("bm", &ir::GroupedGemmAttr::bm)
+      .def_readwrite("bn", &ir::GroupedGemmAttr::bn)
+      .def_readwrite("bk", &ir::GroupedGemmAttr::bk)
+      .def_readwrite("num_simdgroups", &ir::GroupedGemmAttr::num_simdgroups)
+      .def_readwrite("transpose_b", &ir::GroupedGemmAttr::transpose_b)
+      .def_readwrite("persistent", &ir::GroupedGemmAttr::persistent)
+      .def_readwrite("max_tgs_per_core", &ir::GroupedGemmAttr::max_tgs_per_core)
+      .def("__eq__", [](const ir::GroupedGemmAttr& a, const ir::GroupedGemmAttr& b) { return a == b; });
+
+  py::class_<ir::QuantDotAttr>(ir_m, "QuantDotAttr")
+      .def(py::init<>())
+      .def_readwrite("bits", &ir::QuantDotAttr::bits)
+      .def_readwrite("group_size", &ir::QuantDotAttr::group_size)
+      .def_readwrite("bm", &ir::QuantDotAttr::bm)
+      .def_readwrite("bn", &ir::QuantDotAttr::bn)
+      .def_readwrite("bk", &ir::QuantDotAttr::bk)
+      .def_readwrite("num_simdgroups", &ir::QuantDotAttr::num_simdgroups)
+      .def_readwrite("symmetric", &ir::QuantDotAttr::symmetric)
+      .def("__eq__", [](const ir::QuantDotAttr& a, const ir::QuantDotAttr& b) { return a == b; });
 
   py::class_<ir::LossAttr>(ir_m, "LossAttr")
       .def(py::init<>())
@@ -668,6 +702,16 @@ void bind_ir_submodule(py::module_& m) {
            &ir::IRBuilder::emit_flash_attention,
            py::arg("operands"),
            py::arg("attr") = ir::FlashAttnAttr{},
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_grouped_gemm",
+           &ir::IRBuilder::emit_grouped_gemm,
+           py::arg("operands"),
+           py::arg("attr") = ir::GroupedGemmAttr{},
+           py::arg("hints") = ir::OpHints{})
+      .def("emit_quant_dot",
+           &ir::IRBuilder::emit_quant_dot,
+           py::arg("operands"),
+           py::arg("attr") = ir::QuantDotAttr{},
            py::arg("hints") = ir::OpHints{})
       .def("begin_for_loop",
            &ir::IRBuilder::begin_for_loop,

@@ -54,6 +54,7 @@ add_library(m1triton_codegen_metal STATIC
   cpp/codegen/metal/conv_std_emitter.cpp
   cpp/codegen/metal/conv_transpose_emitter.cpp
   cpp/codegen/metal/flash_attn_emitter.cpp
+  cpp/codegen/metal/l3_gemm_emitter.cpp
   cpp/codegen/metal/loss_emitter.cpp
   cpp/codegen/metal/metal_codegen.cpp
   cpp/codegen/metal/msl_common.cpp
@@ -173,3 +174,8 @@ add_executable(test_v2_fusion_passes tests/cpp/test_v2_fusion_passes.cpp)
 target_link_libraries(test_v2_fusion_passes PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
 target_compile_options(test_v2_fusion_passes PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME test_v2_fusion_passes COMMAND test_v2_fusion_passes)
+
+add_executable(test_l3_gemm_emitter tests/cpp/test_l3_gemm_emitter.cpp)
+target_link_libraries(test_l3_gemm_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_l3_gemm_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_l3_gemm_emitter COMMAND test_l3_gemm_emitter)

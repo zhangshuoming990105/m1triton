@@ -277,6 +277,8 @@ std::optional<OpKind> parse_op_kind(std::string_view s) {
   if (s == "simdgroup_matmul") return OpKind::SimdgroupMatmul;
   if (s == "simd_reduce") return OpKind::SimdReduce;
   if (s == "simd_scan") return OpKind::SimdScan;
+  if (s == "grouped_gemm") return OpKind::GroupedGemm;
+  if (s == "quant_dot") return OpKind::QuantDot;
   return std::nullopt;
 }
 
@@ -1184,7 +1186,55 @@ class Parser {
         else if (k == "bn") a.bn = parse_u32();
         else if (k == "bd") a.bd = parse_u32();
         else if (k == "simds") a.num_simdgroups = parse_u32();
+        else if (k == "mode") {
+          const std::string m = expect(TokKind::Ident, "flash_attn mode").text;
+          auto pm = parse_flash_attn_mode(m);
+          if (!pm) throw std::runtime_error("Unknown FlashAttnMode: " + m);
+          a.mode = *pm;
+        } else if (k == "window_size") a.window_size = static_cast<int32_t>(parse_i64());
+        else if (k == "softcap") a.softcap = static_cast<float>(parse_double());
+        else if (k == "has_alibi") a.has_alibi = parse_bool();
+        else if (k == "return_lse") a.return_lse = parse_bool();
+        else if (k == "kv_group_size") a.kv_group_size = static_cast<int32_t>(parse_i64());
         else throw std::runtime_error("Unknown FlashAttnAttr key: " + k);
+        if (check(TokKind::Comma)) consume();
+      }
+      expect(TokKind::RBrace, "'}'");
+      return a;
+    }
+
+    if (kind == OpKind::GroupedGemm) {
+      GroupedGemmAttr a;
+      while (!check(TokKind::RBrace)) {
+        const std::string k = expect(TokKind::Ident, "grouped_gemm key").text;
+        expect(TokKind::Equals, "'='");
+        if (k == "bm") a.bm = parse_u32();
+        else if (k == "bn") a.bn = parse_u32();
+        else if (k == "bk") a.bk = parse_u32();
+        else if (k == "simds") a.num_simdgroups = parse_u32();
+        else if (k == "transpose_b") a.transpose_b = parse_bool();
+        else if (k == "persistent") a.persistent = parse_bool();
+        else if (k == "max_tgs_per_core") a.max_tgs_per_core = parse_u32();
+        else throw std::runtime_error("Unknown GroupedGemmAttr key: " + k);
+        if (check(TokKind::Comma)) consume();
+      }
+      expect(TokKind::RBrace, "'}'");
+      return a;
+    }
+
+    if (kind == OpKind::QuantDot) {
+      QuantDotAttr a;
+      while (!check(TokKind::RBrace)) {
+        const std::string k = expect(TokKind::Ident, "quant_dot key").text;
+        expect(TokKind::Equals, "'='");
+        if (k == "bits") a.bits = parse_u32();
+        else if (k == "group_size") a.group_size = parse_u32();
+        else if (k == "bm") a.bm = parse_u32();
+        else if (k == "bn") a.bn = parse_u32();
+        else if (k == "bk") a.bk = parse_u32();
+        else if (k == "simds") a.num_simdgroups = parse_u32();
+        else if (k == "symmetric") a.symmetric = parse_bool();
+        else throw std::runtime_error("Unknown QuantDotAttr key: " + k);
         if (check(TokKind::Comma)) consume();
       }
       expect(TokKind::RBrace, "'}'");

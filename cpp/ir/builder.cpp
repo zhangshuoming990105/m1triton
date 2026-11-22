@@ -570,6 +570,16 @@ OpId IRBuilder::emit_flash_attention(std::vector<ValueId> operands, FlashAttnAtt
                            std::move(hints));
 }
 
+OpId IRBuilder::emit_grouped_gemm(std::vector<ValueId> operands, GroupedGemmAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::GroupedGemm, current_block_, std::move(operands), {}, std::move(attr),
+                           std::move(hints));
+}
+
+OpId IRBuilder::emit_quant_dot(std::vector<ValueId> operands, QuantDotAttr attr, OpHints hints) {
+  return kernel_.create_op(OpKind::QuantDot, current_block_, std::move(operands), {}, std::move(attr),
+                           std::move(hints));
+}
+
 ForLoopHandle IRBuilder::begin_for_loop(ValueId lo, ValueId hi, ValueId step,
                                         const std::vector<ValueId>& iter_inits) {
   const Type lo_ty = kernel_.value(lo).type;

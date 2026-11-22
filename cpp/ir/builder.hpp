@@ -73,6 +73,8 @@ class IRBuilder {
   OpId emit_implicit_gemm_conv(std::vector<ValueId> operands, ConvAttr attr = {}, OpHints hints = {});
   OpId emit_fused_loss(std::vector<ValueId> operands, LossAttr attr = {}, OpHints hints = {});
   OpId emit_flash_attention(std::vector<ValueId> operands, FlashAttnAttr attr = {}, OpHints hints = {});
+  OpId emit_grouped_gemm(std::vector<ValueId> operands, GroupedGemmAttr attr = {}, OpHints hints = {});
+  OpId emit_quant_dot(std::vector<ValueId> operands, QuantDotAttr attr = {}, OpHints hints = {});
 
   ForLoopHandle begin_for_loop(ValueId lo, ValueId hi, ValueId step, const std::vector<ValueId>& iter_inits);
   void end_for_loop(const ForLoopHandle& handle, const std::vector<ValueId>& yield_vals, BlockId resume_block);
