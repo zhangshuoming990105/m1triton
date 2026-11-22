@@ -15,6 +15,13 @@ from m1triton.autotune import Autotuner, Config, Heuristics, autotune, heuristic
 from m1triton.jit import CompiledKernel, JITFunction, jit
 from m1triton.language import cdiv
 
+try:
+    from m1triton import compile_backend
+    from m1triton.compile_backend import compile
+except ImportError:  # pragma: no cover
+    compile_backend = None
+    compile = None
+
 
 def next_power_of_2(n: int) -> int:
     """Return the smallest power of two >= `n`."""
@@ -52,6 +59,8 @@ __all__ = [
     "JITFunction",
     "autotune",
     "cdiv",
+    "compile",
+    "compile_backend",
     "heuristics",
     "jit",
     "language",
