@@ -11,7 +11,7 @@ if _BUILD_PKG_DIR.is_dir() and str(_BUILD_PKG_DIR) not in __path__:
     __path__.append(str(_BUILD_PKG_DIR))
 
 from m1triton import language, runtime, tlx
-from m1triton.autotune import Autotuner, Config, autotune
+from m1triton.autotune import Autotuner, Config, Heuristics, autotune, heuristics
 from m1triton.jit import CompiledKernel, JITFunction, jit
 from m1triton.language import cdiv
 
@@ -29,6 +29,8 @@ def _make_triton_compat_module() -> types.ModuleType:
     mod.__doc__ = "Drop-in Triton compatibility namespace (`import m1triton.triton_compat as triton`)."
     mod.jit = jit
     mod.autotune = autotune
+    mod.heuristics = heuristics
+    mod.Heuristics = Heuristics
     mod.Config = Config
     mod.cdiv = cdiv
     mod.next_power_of_2 = next_power_of_2
@@ -46,9 +48,11 @@ __all__ = [
     "Autotuner",
     "CompiledKernel",
     "Config",
+    "Heuristics",
     "JITFunction",
     "autotune",
     "cdiv",
+    "heuristics",
     "jit",
     "language",
     "next_power_of_2",
@@ -56,4 +60,4 @@ __all__ = [
     "tlx",
     "triton_compat",
 ]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

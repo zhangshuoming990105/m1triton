@@ -1,13 +1,24 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel", "pybind11>=2.11"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "m1triton"
-version = "0.1.0"
+version = "0.2.0"
 description = "Apple M1 Max specialized Triton-compatible and co-designed Metal compiler"
 requires-python = ">=3.11"
 dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "scipy>=1.10"]
+
+[project.scripts]
+m1triton = "m1triton.__main__:main"
+m1triton-doctor = "m1triton.doctor:main"
+m1triton-opt = "m1triton.__main__:opt_main"
+
+[tool.setuptools.packages.find]
+where = ["python"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
