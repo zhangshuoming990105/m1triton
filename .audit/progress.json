@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "goalFile": "GOAL.md",
   "createdAt": "2026-11-21T08:52:55.075Z",
-  "updatedAt": "2026-11-21T16:23:49.637789Z",
+  "updatedAt": "2026-11-22T01:02:44.846119Z",
   "milestones": [
     {
       "id": "M0",
@@ -71,27 +71,28 @@
     {
       "id": "M8",
       "title": "Full-repo unslop, docs synthesis, adversarial interrogation & final release",
-      "status": "in_progress",
-      "evidence": "",
+      "status": "verified",
+      "evidence": "ci_local.sh green (15/15 CTest, 62/62 pytest incl. 10 M8 regressions), lock-eval OK (2 frozen files), C++ msl_common dedup (-1,019 net lines), slop-critic pro final audit resolved (PSO threadgroup limit guard, Winograd NUM_SG=8 non-pow2 fix, strict IEEE-754 NaN propagation across activations, cross-queue sync fixes), official unmodified frozen eval_kernelbench.py 100/100 passed (0 failed, 71 beats baseline >1.00x, 85 >=0.98x parity+, 95 >=0.90x, geomean 1.9268x), README & docs synced, merge bd8132f",
       "note": "",
-      "updatedAt": "2026-11-21T16:23:49.637789Z"
+      "updatedAt": "2026-11-22T01:02:44.846119Z"
     }
   ],
   "scoreboard": {
     "passed": 100,
     "total": 100,
-    "beatsBaseline": 73,
-    "geomeanSpeedup": 1.8659,
-    "artifact": ".audit/eval_m7_clusters.json",
-    "updatedAt": "2026-11-21T16:23:49.637789Z"
+    "beatsBaseline": 71,
+    "geomeanSpeedup": 1.9268,
+    "parityOrFaster98": 85,
+    "artifact": ".audit/eval_final_100.json",
+    "updatedAt": "2026-11-22T01:02:44.846119Z"
   },
-  "milestonesSinceHygiene": 1,
+  "milestonesSinceHygiene": 0,
   "lastCheckpoint": {
-    "ts": "2026-11-21T16:23:49.637789Z",
-    "commit": "abb145d",
-    "summary": "M7 verified & merged: 100/100 KB L1 passing, geomean 1.8659x (73/100 >=1.00x, 87/100 >=0.98x parity), 6 research-lab trials in .audit/experiments.tsv",
-    "next": "M8 full-repo unslop (extract msl_common, deduplicate emitters), adversarial slop-critic pro audit, final 100-task frozen eval_kernelbench.py, README/docs synthesis, release tag",
-    "hygieneClean": false
+    "ts": "2026-11-22T01:02:44.846119Z",
+    "commit": "bd8132f",
+    "summary": "M8 verified & merged (v1.0-kernelbench-l1): official unmodified frozen eval 100/100 passed, 1.9268x geomean, 71 beats / 85 parity+ (>=0.98x), full unslop + slop-critic audit resolved, README & docs complete",
+    "next": "Tag v1.0-kernelbench-l1 and draft KernelBench Level 2 GOAL.md for user approval",
+    "hygieneClean": true
   },
   "checkpoints": [
     {
@@ -135,6 +136,13 @@
       "summary": "M7 verified & merged: 100/100 KB L1 passing, geomean 1.8659x (73/100 >=1.00x, 87/100 >=0.98x parity), 6 research-lab trials in .audit/experiments.tsv",
       "next": "M8 full-repo unslop (extract msl_common, deduplicate emitters), adversarial slop-critic pro audit, final 100-task frozen eval_kernelbench.py, README/docs synthesis, release tag",
       "hygieneClean": false
+    },
+    {
+      "ts": "2026-11-22T01:02:44.846119Z",
+      "commit": "bd8132f",
+      "summary": "M8 verified & merged (v1.0-kernelbench-l1): official unmodified frozen eval 100/100 passed, 1.9268x geomean, 71 beats / 85 parity+ (>=0.98x), full unslop + slop-critic audit resolved, README & docs complete",
+      "next": "Tag v1.0-kernelbench-l1 and draft KernelBench Level 2 GOAL.md for user approval",
+      "hygieneClean": true
     }
   ]
 }
