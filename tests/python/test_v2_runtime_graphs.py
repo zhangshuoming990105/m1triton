@@ -135,6 +135,35 @@ def test_command_batch_cpu_buffers_and_error_handling():
     assert rt.in_batch() is False
 
 
+def test_command_batch_cpu_slice_aliasing_waw_and_strided_mps_span():
+    # 1. CPU slice aliasing inside command_batch: write full buffer, then read overlapping sub-slice.
+    buf = np.zeros(512, dtype=np.float32)
+    out = np.zeros(256, dtype=np.float32)
+    with rt.command_batch(wait=True, sync_mps=False):
+        _affine_kernel[(4,)](buf, buf, 1.0, 7.0, 512, BLOCK_SIZE=128, sync_mps=False)
+        _affine_kernel[(2,)](buf[64:320], out, 1.0, 1.0, 256, BLOCK_SIZE=128, sync_mps=False)
+    np.testing.assert_allclose(out, np.full(256, 8.0, dtype=np.float32), atol=1e-5, rtol=1e-5)
+
+    # 2. Disjoint-nbytes WAW on same base pointer: write 512 elems then overwrite first 256 elems.
+    waw = np.zeros(512, dtype=np.float32)
+    with rt.command_batch(wait=True, sync_mps=False):
+        _affine_kernel[(4,)](waw, waw, 0.0, 5.0, 512, BLOCK_SIZE=128, sync_mps=False)
+        _affine_kernel[(2,)](waw[:256], waw[:256], 0.0, 9.0, 256, BLOCK_SIZE=128, sync_mps=False)
+    expected_waw = np.concatenate([np.full(256, 9.0, dtype=np.float32), np.full(256, 5.0, dtype=np.float32)])
+    np.testing.assert_allclose(waw, expected_waw, atol=1e-5, rtol=1e-5)
+
+    # 3. Strided MPS view reports full spanned byte extent so overlapping views trigger barriers.
+    base = torch.zeros((64, 64), device="mps", dtype=torch.float32)
+    col0 = base[:, 0]
+    row32 = base[32, :]
+    arg_col = rt.make_buffer_arg(col0, 0, writable=True)
+    arg_row = rt.make_buffer_arg(row32, 1, writable=False)
+    assert arg_col.byte_offset == 0
+    assert arg_col.nbytes == (63 * 64 + 1) * 4
+    assert arg_row.byte_offset == 32 * 64 * 4
+    assert arg_col.byte_offset + arg_col.nbytes > arg_row.byte_offset
+
+
 def test_metal_graph_icb_dependent_chain_and_in_place_mutation():
     assert torch.backends.mps.is_available()
     n = 65536

@@ -35,7 +35,7 @@ class ModelNew(ConvTransposeL2Base):
     ) -> None:
         super().__init__()
         self._init_conv_transpose(
-            in_channels, out_channels, kernel_size, stride=stride, groups=1, bias=True
+            in_channels, out_channels, kernel_size, stride=stride, groups=groups, bias=True
         )
         self._init_gn_params(num_groups, out_channels, eps=1e-5)
 
@@ -58,6 +58,8 @@ class ModelNew(ConvTransposeL2Base):
         x_c = x if x.is_contiguous() else x.contiguous()
         gn_w = self.gn_weight.detach().contiguous()
         gn_b = self.gn_bias.detach().contiguous()
+        h_out = (int(x_c.shape[2]) - 1) * self.stride[0] - 2 * self.padding[0] + self.dilation[0] * (self.kernel_size[0] - 1) + self.output_padding[0] + 1
+        w_out = (int(x_c.shape[3]) - 1) * self.stride[1] - 2 * self.padding[1] + self.dilation[1] * (self.kernel_size[1] - 1) + self.output_padding[1] + 1
         if (
             self.kernel_size == (3, 3)
             and self.stride == (1, 1)
@@ -67,6 +69,9 @@ class ModelNew(ConvTransposeL2Base):
             and self.padding[0] <= 2
             and self.padding[1] <= 2
             and x_c.dtype == torch.float32
+            and int(x_c.shape[1]) >= 8
+            and self.out_channels >= 16
+            and h_out * w_out >= 256
         ):
             with m1triton.runtime.command_batch(wait=True, sync_mps=True):
                 y = conv_nd_epilogue(

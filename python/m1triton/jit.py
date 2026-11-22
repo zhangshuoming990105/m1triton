@@ -108,7 +108,9 @@ def _freeze_constexpr(val: Any) -> Any:
     if isinstance(val, (bool, int, float, str, bytes, type(None), tl.dtype)):
         return (type(val).__name__, val)
     if isinstance(val, (tuple, list)):
-        return tuple(_freeze_constexpr(x) for x in val)
+        return (type(val).__name__, tuple(_freeze_constexpr(x) for x in val))
+    if isinstance(val, dict):
+        return ("dict", tuple(sorted(((_freeze_constexpr(k), _freeze_constexpr(v)) for k, v in val.items()), key=repr)))
     return repr(val)
 
 
@@ -228,7 +230,7 @@ class JITFunction:
             for name, param in self._sig.parameters.items()
         )
         self._simple_sig = all(
-            kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+            kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
             for _, _, _, _, _, kind in self._param_defs
         )
         self._param_index = {name: i for i, name in enumerate(self._param_names)}

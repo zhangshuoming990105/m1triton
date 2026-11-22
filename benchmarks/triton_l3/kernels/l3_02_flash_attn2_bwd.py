@@ -15,13 +15,12 @@ import m1triton.tlx as tlx
 @m1triton.autotune(
     configs=[
         m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 32, "NUM_SG": 2}, num_warps=2),
-        m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "NUM_SG": 2}, num_warps=2),
         m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
         m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "NUM_SG": 4}, num_warps=4),
     ],
     key=["BH", "L_q", "L_kv", "D", "CAUSAL"],
-    warmup=4,
-    rep=10,
+    warmup=8,
+    rep=20,
 )
 @m1triton.jit
 def flash_attn2_fwd_lse_kernel(
@@ -86,14 +85,13 @@ def flash_attn2_delta_kernel(
 
 @m1triton.autotune(
     configs=[
-        m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "NUM_SG": 8}, num_warps=8),
         m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
         m1triton.Config({"BLOCK_M": 16, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
-        m1triton.Config({"BLOCK_M": 16, "BLOCK_N": 64, "NUM_SG": 8}, num_warps=8),
+        m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 16, "NUM_SG": 4}, num_warps=4),
     ],
     key=["BH", "L_q", "L_kv", "D", "CAUSAL"],
-    warmup=4,
-    rep=10,
+    warmup=8,
+    rep=20,
 )
 @m1triton.jit
 def flash_attn2_bwd_dkdv_kernel(
@@ -140,8 +138,8 @@ def flash_attn2_bwd_dkdv_kernel(
         m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
     ],
     key=["BH", "L_q", "L_kv", "D", "CAUSAL"],
-    warmup=4,
-    rep=10,
+    warmup=8,
+    rep=20,
 )
 @m1triton.jit
 def flash_attn2_bwd_dq_kernel(
@@ -179,7 +177,7 @@ def flash_attn2_bwd_dq_kernel(
     )
 
 
-_TUNED_BWD_KEYS: set[tuple[int, int, int, int, bool]] = set()
+_TUNED_BWD_KEYS: set[tuple[int, int, int, int, bool, torch.dtype]] = set()
 
 
 class _FlashAttention2Function(torch.autograd.Function):
@@ -198,7 +196,6 @@ class _FlashAttention2Function(torch.autograd.Function):
         lse = torch.empty((bh, l_q), device=q_c.device, dtype=torch.float32)
 
         grid = lambda meta: (m1triton.cdiv(l_q, meta["BLOCK_M"]), bh, 1)
-        need_bwd = any(ctx.needs_input_grad[:3])
         flash_attn2_fwd_lse_kernel[grid](
             q_c,
             k_c,
@@ -247,7 +244,7 @@ class _FlashAttention2Function(torch.autograd.Function):
         dq_args = (q_c, k_c, v_c, do_c, lse, delta, dq, bh, l_q, l_kv, d)
         bwd_kw = {"SCALE": scale, "CAUSAL": is_causal}
 
-        bwd_key = (bh, l_q, l_kv, d, bool(is_causal))
+        bwd_key = (bh, l_q, l_kv, d, bool(is_causal), q_c.dtype)
         if bwd_key not in _TUNED_BWD_KEYS:
             flash_attn2_delta_kernel[grid_delta](
                 do_c, out, delta, n_rows, d, BLOCK_D=block_d, ROWS_PER_TG=rows_per_tg, wait=True, sync_mps=True

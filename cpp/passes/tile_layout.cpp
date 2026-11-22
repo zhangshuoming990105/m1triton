@@ -184,6 +184,10 @@ std::optional<SgmmAssignment> choose_sgmm_assignment(const DotInfo& d, const Tar
   }
 
   std::vector<std::pair<uint32_t, uint32_t>> candidates;
+  if (req_sg >= 32) {
+    candidates.push_back({8, 4});
+    candidates.push_back({4, 8});
+  }
   if (req_sg >= 16) {
     candidates.push_back({4, 4});
   }

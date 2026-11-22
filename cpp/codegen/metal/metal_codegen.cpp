@@ -1107,8 +1107,8 @@ std::optional<CompiledMSL> try_emit_1d_vec4(const Kernel& kernel, const TargetSp
       ScalarDType rdt_in = scalar_dtype_of(kernel.value(op.operands[1]).type);
       std::string le = get_v4(op.operands[0], ldt);
       std::string re = get_v4(op.operands[1], rdt_in);
-      body << indent_str(ind) << vty << " " << vname << " = " << msl_binary_expr(bop, le, re, ldt, rdt_in, rdt, true)
-           << ";\n";
+      body << indent_str(ind) << vty << " " << vname << " = "
+           << msl_binary_expr(bop, le, re, ldt, rdt_in, rdt, true, &helpers) << ";\n";
     } else if (op.kind == OpKind::Select) {
       std::string ce = get_v4(op.operands[0], ScalarDType::Bool);
       ScalarDType tdt = scalar_dtype_of(kernel.value(op.operands[1]).type);
@@ -1757,7 +1757,7 @@ struct Tiled2DEmitter {
         std::string re = eval_at(op.operands[1], nr, nc, scope);
         ScalarDType ldt = scalar_dtype_of(kernel.value(op.operands[0]).type);
         ScalarDType rdt_in = scalar_dtype_of(kernel.value(op.operands[1]).type);
-        expr = msl_binary_expr(std::get<BinaryAttr>(op.attr).op, le, re, ldt, rdt_in, rdt, false);
+        expr = msl_binary_expr(std::get<BinaryAttr>(op.attr).op, le, re, ldt, rdt_in, rdt, false, &helpers);
         break;
       }
       case OpKind::Select: {
@@ -1958,7 +1958,7 @@ struct Tiled2DEmitter {
         std::string re = eval_at(op.operands[1], "m1_row", "m1_col", sc);
         val_expr = msl_binary_expr(std::get<BinaryAttr>(op.attr).op, le, re,
                                    scalar_dtype_of(kernel.value(op.operands[0]).type),
-                                   scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false);
+                                   scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false, &helpers);
         break;
       }
       case OpKind::Select: {

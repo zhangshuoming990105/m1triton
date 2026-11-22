@@ -8,13 +8,15 @@ import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT / "python") not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT / "python"))
-
 import torch
 
-import m1triton
+try:
+    import m1triton
+except ModuleNotFoundError:
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+    if str(REPO_ROOT / "python") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "python"))
+    import m1triton
 import m1triton.language as tl
 import m1triton.runtime as rt
 import m1triton.tlx as tlx
@@ -161,7 +163,6 @@ class M1FlashAttention2(torch.autograd.Function):
 
         out = torch.empty_like(q_c)
         lse = torch.empty((bh, l_q), device=q_c.device, dtype=torch.float32)
-        need_bwd = any(ctx.needs_input_grad[:3])
         _fa2_fwd_lse_kernel[(m1triton.cdiv(l_q, 32), bh, 1)](
             q_c,
             k_c,

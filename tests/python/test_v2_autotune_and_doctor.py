@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -328,3 +329,71 @@ def test_examples_run_end_to_end(script_rel: str, tmp_path):
     )
     assert proc.returncode == 0, f"{script_rel} failed:\nstdout={proc.stdout}\nstderr={proc.stderr}"
     assert "Correctness  : PASS" in proc.stdout
+
+
+def test_jit_bind_pos_kw_only_and_autotune_key_edge_cases():
+    @m1triton.jit
+    def pos_kw_kernel(x_ptr, /, out_ptr, n_elements, *, BLOCK_SIZE: tl.constexpr = 64):
+        pid = tl.program_id(0)
+        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = offs < n_elements
+        tl.store(out_ptr + offs, tl.load(x_ptr + offs, mask=mask) + 1.0, mask=mask)
+
+    x_np = np.ones(64, dtype=np.float32)
+    y_np = np.zeros(64, dtype=np.float32)
+    pos_kw_kernel[(1,)](x_np, y_np, 64, BLOCK_SIZE=64)
+    np.testing.assert_allclose(y_np, np.full(64, 2.0, dtype=np.float32), atol=1e-5)
+
+    with pytest.raises(TypeError):
+        pos_kw_kernel[(1,)](x_ptr=x_np, out_ptr=y_np, n_elements=64, BLOCK_SIZE=64)
+    with pytest.raises(TypeError):
+        pos_kw_kernel[(1,)](x_np, y_np, 64, 64)
+
+    @m1triton.jit
+    def acc_kernel(x_ptr, out_ptr, n_elements, tag: tl.constexpr, BLOCK_SIZE: tl.constexpr):
+        pid = tl.program_id(0)
+        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = offs < n_elements
+        v = tl.load(x_ptr + offs, mask=mask, other=0.0)
+        cur = tl.load(out_ptr + offs, mask=mask, other=0.0)
+        tl.store(out_ptr + offs, cur + v, mask=mask)
+
+    tuner = Autotuner(
+        acc_kernel,
+        configs=[Config({"BLOCK_SIZE": 64}, num_warps=2), Config({"BLOCK_SIZE": 128}, num_warps=4)],
+        key=["n_elements", "tag"],
+        reset_to_zero=["out_ptr"],
+        warmup=1,
+        rep=2,
+        use_disk_cache=False,
+    )
+    grid = lambda meta: (m1triton.cdiv(128, meta["BLOCK_SIZE"]),)
+    a_np = np.ones(128, dtype=np.float32)
+    b_np = np.zeros(128, dtype=np.float32)
+
+    # tl.constexpr hits cache on repeat, bool vs int do not collide, list/dict keys are hashable, NumPy resets to zero.
+    tuner[grid](a_np, b_np, 128, tag=tl.constexpr(1))
+    np.testing.assert_allclose(b_np, a_np, atol=1e-5)
+    benches_after_1 = tuner.bench_count
+    b_np.fill(0)
+    tuner[grid](a_np, b_np, 128, tag=tl.constexpr(1))
+    assert tuner.bench_count == benches_after_1
+
+    b_np.fill(0)
+    tuner[grid](a_np, b_np, 128, tag=True)
+    assert tuner.bench_count > benches_after_1
+    benches_after_bool = tuner.bench_count
+
+    b_np.fill(0)
+    tuner[grid](a_np, b_np, 128, tag=[1, 2])
+    assert tuner.bench_count > benches_after_bool
+    benches_after_list = tuner.bench_count
+
+    # MPS tensor separates from CPU numpy array with same dtype/shape.
+    a_mps = torch.ones(128, device="mps", dtype=torch.float32)
+    b_mps = torch.zeros(128, device="mps", dtype=torch.float32)
+    torch.mps.synchronize()
+    tuner[grid](a_mps, b_mps, 128, tag=tl.constexpr(1))
+    rt.synchronize()
+    assert tuner.bench_count > benches_after_list
+    torch.testing.assert_close(b_mps.cpu(), a_mps.cpu(), atol=1e-5, rtol=1e-5)

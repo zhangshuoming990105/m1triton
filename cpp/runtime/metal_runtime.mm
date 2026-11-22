@@ -45,7 +45,7 @@ bool buffers_overlap(const BufferArg& a, const BufferArg& b) {
   const uint64_t a_start = static_cast<uint64_t>(a.handle) + a.byte_offset;
   const uint64_t b_start = static_cast<uint64_t>(b.handle) + b.byte_offset;
   if (a.nbytes == 0 || b.nbytes == 0) {
-    return a_start == b_start;
+    return true;
   }
   const uint64_t a_end = a_start + a.nbytes;
   const uint64_t b_end = b_start + b.nbytes;
@@ -112,12 +112,13 @@ struct BatchState {
   id<MTLComputeCommandEncoder> enc = nil;
   std::vector<id<MTLBuffer>> temp_buffers;
   std::unordered_map<CpuBufKey, id<MTLBuffer>, CpuBufKeyHash> cpu_buf_cache;
-  std::unordered_set<uintptr_t> copy_back_ptrs;
+  std::unordered_set<CpuBufKey, CpuBufKeyHash> copy_back_keys;
   std::vector<CpuCopyBack> copy_backs;
   std::vector<BufferArg> pending_buffers;
   bool needs_sync = false;
   uint64_t dispatch_count = 0;
   uint32_t last_tg_mem_bytes = 0;
+  double accumulated_gpu_ms = 0.0;
 };
 
 struct CapturedDispatch {
@@ -248,10 +249,13 @@ void MetalRuntime::synchronize() {
     {
       std::lock_guard<std::mutex> lock(impl_->mu);
       pending = impl_->last_cmd_buf;
-      impl_->last_cmd_buf = nil;
     }
     if (pending != nil) {
       [pending waitUntilCompleted];
+      std::lock_guard<std::mutex> lock(impl_->mu);
+      if (impl_->last_cmd_buf == pending) {
+        impl_->last_cmd_buf = nil;
+      }
     }
   }
 }
@@ -438,18 +442,24 @@ double MetalRuntime::end_batch(bool wait, std::string* error_out) {
       [finished.enc endEncoding];
     }
     if (finished.dispatch_count == 0) {
-      return 0.0;
+      return finished.accumulated_gpu_ms;
     }
 
-    [finished.cb commit];
     const bool do_sync = wait || finished.needs_sync;
     {
       std::lock_guard<std::mutex> lock(impl_->mu);
-      impl_->last_cmd_buf = do_sync ? nil : finished.cb;
+      [finished.cb commit];
+      impl_->last_cmd_buf = finished.cb;
     }
 
     if (do_sync) {
       [finished.cb waitUntilCompleted];
+      {
+        std::lock_guard<std::mutex> lock(impl_->mu);
+        if (impl_->last_cmd_buf == finished.cb) {
+          impl_->last_cmd_buf = nil;
+        }
+      }
       if ([finished.cb status] == MTLCommandBufferStatusError) {
         if (error_out) {
           NSError* err = [finished.cb error];
@@ -460,9 +470,9 @@ double MetalRuntime::end_batch(bool wait, std::string* error_out) {
       for (const auto& cbk : finished.copy_backs) {
         std::memcpy(cbk.host_ptr, [cbk.mtl_buf contents], static_cast<size_t>(cbk.nbytes));
       }
-      return command_buffer_gpu_ms(finished.cb);
+      return finished.accumulated_gpu_ms + command_buffer_gpu_ms(finished.cb);
     }
-    return 0.0;
+    return finished.accumulated_gpu_ms;
   }
 }
 
@@ -753,17 +763,23 @@ double MetalRuntime::replay_graph(uint64_t graph_id, bool wait, std::string* err
       }
 
       [enc endEncoding];
-      [cb commit];
 
       impl_->dispatches.fetch_add(static_cast<uint64_t>(graph->command_count), std::memory_order_acq_rel);
       {
         std::lock_guard<std::mutex> lock(impl_->mu);
+        [cb commit];
         impl_->last_kernel = graph->last_kernel;
-        impl_->last_cmd_buf = wait ? nil : cb;
+        impl_->last_cmd_buf = cb;
       }
 
       if (wait) {
         [cb waitUntilCompleted];
+        {
+          std::lock_guard<std::mutex> lock(impl_->mu);
+          if (impl_->last_cmd_buf == cb) {
+            impl_->last_cmd_buf = nil;
+          }
+        }
         if ([cb status] == MTLCommandBufferStatusError) {
           if (error_out) {
             NSError* err = [cb error];
@@ -925,7 +941,76 @@ double MetalRuntime::launch_kernel(
           break;
         }
       }
-      if (has_hazard) {
+      bool need_cpu_alias_flush = false;
+      if (!impl_->batch.cpu_buf_cache.empty()) {
+        for (const auto& b : buffers) {
+          if (b.is_metal_buffer) continue;
+          const uintptr_t raw_addr = reinterpret_cast<uintptr_t>(reinterpret_cast<uint8_t*>(b.handle) + b.byte_offset);
+          const uint64_t alloc_bytes = b.nbytes > 0 ? b.nbytes : 4;
+          const CpuBufKey cache_key{raw_addr, alloc_bytes};
+          if (impl_->batch.cpu_buf_cache.find(cache_key) != impl_->batch.cpu_buf_cache.end()) {
+            continue;
+          }
+          const uint64_t b_start = static_cast<uint64_t>(raw_addr);
+          const uint64_t b_end = b_start + alloc_bytes;
+          for (const auto& kv : impl_->batch.cpu_buf_cache) {
+            const uint64_t p_start = static_cast<uint64_t>(kv.first.ptr);
+            const uint64_t p_end = p_start + kv.first.nbytes;
+            if ((b_start < p_end) && (p_start < b_end)) {
+              need_cpu_alias_flush = true;
+              break;
+            }
+          }
+          if (need_cpu_alias_flush) break;
+        }
+      }
+
+      if (need_cpu_alias_flush) {
+        if (enc != nil) {
+          [enc endEncoding];
+        }
+        id<MTLCommandBuffer> flush_cb = impl_->batch.cb;
+        [flush_cb commit];
+        impl_->last_cmd_buf = flush_cb;
+        [flush_cb waitUntilCompleted];
+        if (impl_->last_cmd_buf == flush_cb) {
+          impl_->last_cmd_buf = nil;
+        }
+        if ([flush_cb status] == MTLCommandBufferStatusError) {
+          if (error_out) {
+            NSError* err = [flush_cb error];
+            *error_out = err ? [[err localizedDescription] UTF8String] : "Metal command batch error";
+          }
+          impl_->batch = BatchState{};
+          return -1.0;
+        }
+        for (const auto& cbk : impl_->batch.copy_backs) {
+          std::memcpy(cbk.host_ptr, [cbk.mtl_buf contents], static_cast<size_t>(cbk.nbytes));
+        }
+        impl_->batch.accumulated_gpu_ms += command_buffer_gpu_ms(flush_cb);
+        impl_->batch.temp_buffers.clear();
+        impl_->batch.cpu_buf_cache.clear();
+        impl_->batch.copy_back_keys.clear();
+        impl_->batch.copy_backs.clear();
+        impl_->batch.pending_buffers.clear();
+        impl_->batch.dispatch_count = 0;
+        impl_->batch.last_tg_mem_bytes = 0;
+        impl_->batch.cb = [impl_->queue commandBuffer];
+        if (impl_->batch.cb == nil) {
+          if (error_out) *error_out = "Failed to allocate Metal command buffer during CPU alias flush";
+          impl_->batch = BatchState{};
+          return -1.0;
+        }
+        impl_->batch.enc = [impl_->batch.cb computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
+        if (impl_->batch.enc == nil) {
+          if (error_out) *error_out = "Failed to allocate Metal compute encoder during CPU alias flush";
+          impl_->batch = BatchState{};
+          return -1.0;
+        }
+        enc = impl_->batch.enc;
+      }
+
+      if (has_hazard && !need_cpu_alias_flush) {
         [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
         impl_->batch.pending_buffers.clear();
       }
@@ -948,7 +1033,7 @@ double MetalRuntime::launch_kernel(
           if (it != impl_->batch.cpu_buf_cache.end()) {
             buf = it->second;
             if (b.writable && !is_page_aligned(reinterpret_cast<uintptr_t>(raw_ptr), alloc_bytes)) {
-              if (impl_->batch.copy_back_ptrs.insert(reinterpret_cast<uintptr_t>(raw_ptr)).second) {
+              if (impl_->batch.copy_back_keys.insert(cache_key).second) {
                 impl_->batch.copy_backs.push_back(CpuCopyBack{raw_ptr, buf, b.nbytes});
               }
               impl_->batch.needs_sync = true;
@@ -968,7 +1053,7 @@ double MetalRuntime::launch_kernel(
             impl_->batch.temp_buffers.push_back(buf);
             impl_->batch.cpu_buf_cache.emplace(cache_key, buf);
             if (b.writable) {
-              if (impl_->batch.copy_back_ptrs.insert(reinterpret_cast<uintptr_t>(raw_ptr)).second) {
+              if (impl_->batch.copy_back_keys.insert(cache_key).second) {
                 impl_->batch.copy_backs.push_back(CpuCopyBack{raw_ptr, buf, b.nbytes});
               }
               impl_->batch.needs_sync = true;
@@ -1053,17 +1138,23 @@ double MetalRuntime::launch_kernel(
     MTLSize tg = MTLSizeMake(cfg.tg_x, cfg.tg_y, cfg.tg_z);
     [enc dispatchThreadgroups:grid threadsPerThreadgroup:tg];
     [enc endEncoding];
-    [cb commit];
 
     impl_->dispatches.fetch_add(1, std::memory_order_acq_rel);
     {
       std::lock_guard<std::mutex> lock(impl_->mu);
+      [cb commit];
       impl_->last_kernel = entry.fn_name;
-      impl_->last_cmd_buf = needs_sync ? nil : cb;
+      impl_->last_cmd_buf = cb;
     }
 
     if (needs_sync) {
       [cb waitUntilCompleted];
+      {
+        std::lock_guard<std::mutex> lock(impl_->mu);
+        if (impl_->last_cmd_buf == cb) {
+          impl_->last_cmd_buf = nil;
+        }
+      }
       if ([cb status] == MTLCommandBufferStatusError) {
         if (error_out) {
           NSError* err = [cb error];
