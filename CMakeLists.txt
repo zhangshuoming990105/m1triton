@@ -26,11 +26,13 @@ target_include_directories(m1triton_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 target_compile_options(m1triton_ir PRIVATE -Wall -Wextra -Werror)
 
 add_library(m1triton_passes STATIC
+  cpp/passes/algebraic_norm_fold.cpp
   cpp/passes/canonicalize.cpp
   cpp/passes/contiguity_analysis.cpp
   cpp/passes/conv_lowering.cpp
   cpp/passes/cse.cpp
   cpp/passes/dce.cpp
+  cpp/passes/epilogue_dag_fusion.cpp
   cpp/passes/epilogue_fusion.cpp
   cpp/passes/flash_attn_lowering.cpp
   cpp/passes/licm.cpp
@@ -166,3 +168,8 @@ add_executable(test_flash_attn_emitter tests/cpp/test_flash_attn_emitter.cpp)
 target_link_libraries(test_flash_attn_emitter PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
 target_compile_options(test_flash_attn_emitter PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME test_flash_attn_emitter COMMAND test_flash_attn_emitter)
+
+add_executable(test_v2_fusion_passes tests/cpp/test_v2_fusion_passes.cpp)
+target_link_libraries(test_v2_fusion_passes PRIVATE m1triton_codegen_metal m1triton_passes m1triton_ir)
+target_compile_options(test_v2_fusion_passes PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME test_v2_fusion_passes COMMAND test_v2_fusion_passes)

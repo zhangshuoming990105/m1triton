@@ -165,7 +165,8 @@ void print_structure_inline(std::ostream& os, const StructureAttr& s) {
 
 bool has_any_hints(const OpHints& h) {
   return h.tile_spec.has_value() || h.structure.has_value() || h.vec_width.has_value() || h.layout_hint.has_value() ||
-         h.persistent_grid.has_value();
+         h.persistent_grid.has_value() || (h.epilogue_dag.has_value() && !h.epilogue_dag->steps.empty()) ||
+         (h.fused_tail.has_value() && h.fused_tail->kind != TailKind::None);
 }
 
 void print_hints(std::ostream& os, const OpHints& h) {
@@ -200,6 +201,44 @@ void print_hints(std::ostream& os, const OpHints& h) {
     sep();
     os << "persistent_grid(enabled=" << (h.persistent_grid->enabled ? "true" : "false")
        << ", max_tgs=" << h.persistent_grid->max_tgs_per_core << ", swizzle_w=" << h.persistent_grid->swizzle_w << ")";
+  }
+  if (h.epilogue_dag && !h.epilogue_dag->steps.empty()) {
+    sep();
+    os << "epilogue_dag=[";
+    for (size_t i = 0; i < h.epilogue_dag->steps.size(); ++i) {
+      if (i > 0) os << ", ";
+      const auto& st = h.epilogue_dag->steps[i];
+      os << epilogue_op_name(st.op);
+      const bool has_params = (st.param0 != 0.0f || st.param1 != 0.0f || st.arg_idx >= 0);
+      if (has_params) {
+        os << "(";
+        bool pf = true;
+        auto psep = [&]() {
+          if (!pf) os << ", ";
+          pf = false;
+        };
+        if (st.arg_idx >= 0) {
+          psep();
+          os << "arg=" << st.arg_idx;
+        }
+        if (st.param0 != 0.0f || st.param1 != 0.0f) {
+          psep();
+          os << "p0=" << format_double(st.param0);
+        }
+        if (st.param1 != 0.0f) {
+          psep();
+          os << "p1=" << format_double(st.param1);
+        }
+        os << ")";
+      }
+    }
+    os << "]";
+  }
+  if (h.fused_tail && h.fused_tail->kind != TailKind::None) {
+    sep();
+    const auto& ft = *h.fused_tail;
+    os << "fused_tail(kind=" << tail_kind_name(ft.kind) << ", k=" << ft.kernel_size << ", s=" << ft.stride
+       << ", scale=" << format_double(ft.post_scale) << ", keep_dims=" << (ft.keep_dims ? "true" : "false") << ")";
   }
   os << "}";
 }

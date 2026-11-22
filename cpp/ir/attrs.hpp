@@ -79,6 +79,90 @@ enum class LossKind : uint8_t {
 enum class BarrierScope : uint8_t { Simdgroup, Threadgroup, DeviceMem };
 enum class TensorLayoutHint : uint8_t { NCHW, NHWC, NCDHW, RowMajor, ColMajor };
 
+enum class EpilogueOpKind : uint8_t {
+  AddConst,
+  SubConst,
+  RSubConst,
+  MulConst,
+  DivConst,
+  MinConst,
+  MaxConst,
+  Clamp,
+  AddBias,
+  SubBias,
+  MulBias,
+  DivBias,
+  MinBias,
+  MaxBias,
+  AddScalar,
+  SubScalar,
+  MulScalar,
+  DivScalar,
+  AddResidual,
+  SubResidual,
+  MulResidual,
+  SaveReg,
+  AddSaved,
+  SubSaved,
+  MulSaved,
+  ReLU,
+  LeakyReLU,
+  Sigmoid,
+  Tanh,
+  GELU,
+  GELUTanh,
+  Swish,
+  Mish,
+  HardSwish,
+  HardSigmoid,
+  HardTanh,
+  ELU,
+  SELU,
+  Softplus,
+  Softsign,
+  Log,
+  Exp,
+  Abs,
+  Neg,
+  Sqrt,
+};
+
+struct EpilogueStep {
+  EpilogueOpKind op = EpilogueOpKind::ReLU;
+  float param0 = 0.0f;
+  float param1 = 0.0f;
+  int32_t arg_idx = -1;
+  bool operator==(const EpilogueStep&) const = default;
+};
+
+struct EpilogueDAGAttr {
+  std::vector<EpilogueStep> steps;
+  bool operator==(const EpilogueDAGAttr&) const = default;
+};
+
+enum class TailKind : uint8_t {
+  None,
+  RowSum,
+  RowMean,
+  RowMax,
+  RowMin,
+  RowLogSumExp,
+  SpatialGlobalAvgPool,
+  SpatialGlobalSum,
+  SpatialGlobalMax,
+  Pool1DMax,
+  Pool1DAvg,
+};
+
+struct FusedTailAttr {
+  TailKind kind = TailKind::None;
+  int32_t kernel_size = 1;
+  int32_t stride = 1;
+  float post_scale = 1.0f;
+  bool keep_dims = true;
+  bool operator==(const FusedTailAttr&) const = default;
+};
+
 struct TileSpecAttr {
   uint32_t bm = 64;
   uint32_t bn = 64;
@@ -114,6 +198,8 @@ struct OpHints {
   std::optional<VecWidthAttr> vec_width;
   std::optional<LayoutHintAttr> layout_hint;
   std::optional<PersistentGridAttr> persistent_grid;
+  std::optional<EpilogueDAGAttr> epilogue_dag;
+  std::optional<FusedTailAttr> fused_tail;
   bool operator==(const OpHints&) const = default;
 };
 
@@ -326,5 +412,13 @@ std::string_view unary_op_name(UnaryOp op);
 std::string_view binary_op_name(BinaryOp op);
 bool is_comparison_op(BinaryOp op);
 bool is_commutative_op(BinaryOp op);
+
+std::string_view epilogue_op_name(EpilogueOpKind op);
+std::optional<EpilogueOpKind> parse_epilogue_op_name(std::string_view name);
+bool epilogue_op_needs_ptr_arg(EpilogueOpKind op);
+bool epilogue_op_needs_scalar_arg(EpilogueOpKind op);
+bool epilogue_op_uses_reg_slot(EpilogueOpKind op);
+std::string_view tail_kind_name(TailKind kind);
+std::optional<TailKind> parse_tail_kind_name(std::string_view name);
 
 }  // namespace m1triton::ir

@@ -52,6 +52,34 @@ class PersistentGridHint:
     swizzle_w: int = 8
 
 
+@dataclass(frozen=True)
+class EpilogueStepHint:
+    """Single step in a composable register-level epilogue DAG."""
+
+    op: str
+    param0: float = 0.0
+    param1: float = 0.0
+    arg_idx: int = -1
+
+
+@dataclass(frozen=True)
+class EpilogueDAGHint:
+    """Composable register-level post-op DAG lowered to `ir.EpilogueDAGAttr`."""
+
+    steps: tuple[EpilogueStepHint, ...] = ()
+
+
+@dataclass(frozen=True)
+class FusedTailHint:
+    """Producer-consumer reduction or pooling tail lowered to `ir.FusedTailAttr`."""
+
+    kind: str = "none"
+    kernel_size: int = 1
+    stride: int = 1
+    post_scale: float = 1.0
+    keep_dims: bool = True
+
+
 def _jit_only(name: str) -> Any:
     raise RuntimeError(f"tlx.{name} is a Co-Design DSL primitive and must be called inside an @m1triton.jit kernel.")
 
@@ -128,6 +156,43 @@ def persistent_grid(
         enabled=bool(enabled),
         max_tgs_per_core=int(max_tgs_per_core),
         swizzle_w=int(swizzle_w),
+    )
+
+
+def epilogue(steps: Any) -> EpilogueDAGHint:
+    """Attach a composable epilogue DAG (`[("relu",), ("add_const", 1.0), ("mul_bias", ptr), ...]`)."""
+    parsed: list[EpilogueStepHint] = []
+    for raw in steps:
+        if isinstance(raw, EpilogueStepHint):
+            parsed.append(raw)
+        elif isinstance(raw, str):
+            parsed.append(EpilogueStepHint(op=raw))
+        elif isinstance(raw, (tuple, list)) and len(raw) >= 1:
+            op = str(raw[0])
+            p0 = float(raw[1]) if len(raw) >= 2 and raw[1] is not None else 0.0
+            p1 = float(raw[2]) if len(raw) >= 3 and raw[2] is not None else 0.0
+            aidx = int(raw[3]) if len(raw) >= 4 and raw[3] is not None else -1
+            parsed.append(EpilogueStepHint(op=op, param0=p0, param1=p1, arg_idx=aidx))
+        else:
+            raise TypeError(f"Unsupported epilogue step spec: {raw!r}")
+    return EpilogueDAGHint(steps=tuple(parsed))
+
+
+def fused_tail(
+    kind: str,
+    *,
+    kernel_size: int = 1,
+    stride: int = 1,
+    post_scale: float = 1.0,
+    keep_dims: bool = True,
+) -> FusedTailHint:
+    """Attach a producer-consumer reduction or pooling tail hint."""
+    return FusedTailHint(
+        kind=str(kind),
+        kernel_size=int(kernel_size),
+        stride=int(stride),
+        post_scale=float(post_scale),
+        keep_dims=bool(keep_dims),
     )
 
 
@@ -253,11 +318,16 @@ __all__ = [
     "VecWidthHint",
     "LayoutHint",
     "PersistentGridHint",
+    "EpilogueStepHint",
+    "EpilogueDAGHint",
+    "FusedTailHint",
     "structure",
     "tile_spec",
     "vec_width",
     "layout_hint",
     "persistent_grid",
+    "epilogue",
+    "fused_tail",
     "online_softmax",
     "welford_norm",
     "pool",

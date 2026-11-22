@@ -204,6 +204,83 @@ def _unwrap_const(val: Any) -> Any:
     return val.value if isinstance(val, tl.constexpr) else val
 
 
+def _parse_epilogue_op(op: str) -> _C.ir.EpilogueOpKind:
+    ir = _C.ir
+    key = op.strip().lower().replace("-", "_")
+    mapping = {
+        "add_const": ir.EpilogueOpKind.AddConst,
+        "sub_const": ir.EpilogueOpKind.SubConst,
+        "rsub_const": ir.EpilogueOpKind.RSubConst,
+        "mul_const": ir.EpilogueOpKind.MulConst,
+        "div_const": ir.EpilogueOpKind.DivConst,
+        "min_const": ir.EpilogueOpKind.MinConst,
+        "max_const": ir.EpilogueOpKind.MaxConst,
+        "clamp": ir.EpilogueOpKind.Clamp,
+        "add_bias": ir.EpilogueOpKind.AddBias,
+        "sub_bias": ir.EpilogueOpKind.SubBias,
+        "mul_bias": ir.EpilogueOpKind.MulBias,
+        "div_bias": ir.EpilogueOpKind.DivBias,
+        "min_bias": ir.EpilogueOpKind.MinBias,
+        "max_bias": ir.EpilogueOpKind.MaxBias,
+        "add_scalar": ir.EpilogueOpKind.AddScalar,
+        "sub_scalar": ir.EpilogueOpKind.SubScalar,
+        "mul_scalar": ir.EpilogueOpKind.MulScalar,
+        "div_scalar": ir.EpilogueOpKind.DivScalar,
+        "add_residual": ir.EpilogueOpKind.AddResidual,
+        "sub_residual": ir.EpilogueOpKind.SubResidual,
+        "mul_residual": ir.EpilogueOpKind.MulResidual,
+        "save_reg": ir.EpilogueOpKind.SaveReg,
+        "add_saved": ir.EpilogueOpKind.AddSaved,
+        "sub_saved": ir.EpilogueOpKind.SubSaved,
+        "mul_saved": ir.EpilogueOpKind.MulSaved,
+        "relu": ir.EpilogueOpKind.ReLU,
+        "leaky_relu": ir.EpilogueOpKind.LeakyReLU,
+        "sigmoid": ir.EpilogueOpKind.Sigmoid,
+        "tanh": ir.EpilogueOpKind.Tanh,
+        "gelu": ir.EpilogueOpKind.GELU,
+        "gelu_tanh": ir.EpilogueOpKind.GELUTanh,
+        "swish": ir.EpilogueOpKind.Swish,
+        "silu": ir.EpilogueOpKind.Swish,
+        "mish": ir.EpilogueOpKind.Mish,
+        "hardswish": ir.EpilogueOpKind.HardSwish,
+        "hardsigmoid": ir.EpilogueOpKind.HardSigmoid,
+        "hardtanh": ir.EpilogueOpKind.HardTanh,
+        "elu": ir.EpilogueOpKind.ELU,
+        "selu": ir.EpilogueOpKind.SELU,
+        "softplus": ir.EpilogueOpKind.Softplus,
+        "softsign": ir.EpilogueOpKind.Softsign,
+        "log": ir.EpilogueOpKind.Log,
+        "exp": ir.EpilogueOpKind.Exp,
+        "abs": ir.EpilogueOpKind.Abs,
+        "neg": ir.EpilogueOpKind.Neg,
+        "sqrt": ir.EpilogueOpKind.Sqrt,
+    }
+    if key not in mapping:
+        raise ValueError(f"Unknown tlx.epilogue op: {op!r}")
+    return mapping[key]
+
+
+def _parse_tail_kind(kind: str) -> _C.ir.TailKind:
+    ir = _C.ir
+    key = kind.strip().lower().replace("-", "_")
+    mapping = {
+        "none": ir.TailKind.None,
+        "row_sum": ir.TailKind.RowSum,
+        "row_mean": ir.TailKind.RowMean,
+        "row_max": ir.TailKind.RowMax,
+        "row_min": ir.TailKind.RowMin,
+        "row_logsumexp": ir.TailKind.RowLogSumExp,
+        "spatial_global_avg_pool": ir.TailKind.SpatialGlobalAvgPool,
+        "spatial_global_sum": ir.TailKind.SpatialGlobalSum,
+        "spatial_global_max": ir.TailKind.SpatialGlobalMax,
+        "pool1d_max": ir.TailKind.Pool1DMax,
+        "pool1d_avg": ir.TailKind.Pool1DAvg,
+    }
+    if key not in mapping:
+        raise ValueError(f"Unknown tlx.fused_tail kind: {kind!r}")
+    return mapping[key]
+
+
 def _apply_kernel_hint(kernel: _C.ir.Kernel, hint: Any) -> None:
     ir = _C.ir
     hints = kernel.hints
@@ -232,6 +309,21 @@ def _apply_kernel_hint(kernel: _C.ir.Kernel, hint: Any) -> None:
         pg.max_tgs_per_core = int(hint.max_tgs_per_core)
         pg.swizzle_w = int(hint.swizzle_w)
         hints.persistent_grid = pg
+    elif isinstance(hint, tlx.EpilogueDAGHint):
+        dag = ir.EpilogueDAGAttr()
+        dag.steps = [
+            ir.EpilogueStep(_parse_epilogue_op(s.op), float(s.param0), float(s.param1), int(s.arg_idx))
+            for s in hint.steps
+        ]
+        hints.epilogue_dag = dag
+    elif isinstance(hint, tlx.FusedTailHint):
+        ft = ir.FusedTailAttr()
+        ft.kind = _parse_tail_kind(hint.kind)
+        ft.kernel_size = int(hint.kernel_size)
+        ft.stride = int(hint.stride)
+        ft.post_scale = float(hint.post_scale)
+        ft.keep_dims = bool(hint.keep_dims)
+        hints.fused_tail = ft
     else:
         raise TypeError(f"Unsupported M1Triton kernel hint: {hint!r}")
     kernel.hints = hints
@@ -1576,6 +1668,64 @@ class _ASTIRLowerer(ast.NodeVisitor):
             u_args = [_unwrap_const(a) for a in args]
             u_kwargs = {k: _unwrap_const(v) for k, v in kwargs.items()}
             hint = tlx.persistent_grid(*u_args, **u_kwargs)
+            _apply_kernel_hint(self.kernel, hint)
+            return hint
+
+        if name == "epilogue":
+            raw_steps = _unwrap_const(args[0] if args else kwargs["steps"])
+            if not raw_steps:
+                return None
+            param_idx_by_name = {kp.name: idx for idx, kp in enumerate(self.kernel.params)}
+            param_idx_by_vid = {self.param_vals[kp.name].vid: idx for idx, kp in enumerate(self.kernel.params) if kp.name in self.param_vals}
+            step_hints: list[tlx.EpilogueStepHint] = []
+            for raw in raw_steps:
+                if isinstance(raw, tlx.EpilogueStepHint):
+                    step_hints.append(raw)
+                    continue
+                if isinstance(raw, str):
+                    step_hints.append(tlx.EpilogueStepHint(op=raw))
+                    continue
+                if not isinstance(raw, (tuple, list)) or len(raw) == 0:
+                    raise TypeError(f"Invalid tlx.epilogue step: {raw!r}")
+                op_name = str(_unwrap_const(raw[0]))
+                op_key = op_name.strip().lower().replace("-", "_")
+                p0, p1, aidx = 0.0, 0.0, -1
+                if op_key in {
+                    "add_bias", "sub_bias", "mul_bias", "div_bias", "min_bias", "max_bias",
+                    "add_scalar", "sub_scalar", "mul_scalar", "div_scalar",
+                    "add_residual", "sub_residual", "mul_residual",
+                }:
+                    ref = _unwrap_const(raw[1])
+                    if isinstance(ref, _SSAVal):
+                        if ref.vid not in param_idx_by_vid:
+                            raise ValueError(f"tlx.epilogue {op_name} operand must be a direct kernel parameter")
+                        aidx = param_idx_by_vid[ref.vid]
+                    elif isinstance(ref, str):
+                        if ref not in param_idx_by_name:
+                            raise ValueError(f"tlx.epilogue unknown kernel param {ref!r}")
+                        aidx = param_idx_by_name[ref]
+                    else:
+                        aidx = int(ref)
+                elif op_key in {"save_reg", "add_saved", "sub_saved", "mul_saved"}:
+                    aidx = int(_unwrap_const(raw[1]))
+                else:
+                    if len(raw) >= 2 and _unwrap_const(raw[1]) is not None:
+                        p0 = float(_unwrap_const(raw[1]))
+                    if len(raw) >= 3 and _unwrap_const(raw[2]) is not None:
+                        p1 = float(_unwrap_const(raw[2]))
+                    if len(raw) >= 4 and _unwrap_const(raw[3]) is not None:
+                        aidx = int(_unwrap_const(raw[3]))
+                step_hints.append(tlx.EpilogueStepHint(op=op_name, param0=p0, param1=p1, arg_idx=aidx))
+            hint = tlx.EpilogueDAGHint(steps=tuple(step_hints))
+            _apply_kernel_hint(self.kernel, hint)
+            return hint
+
+        if name == "fused_tail":
+            u_args = [_unwrap_const(a) for a in args]
+            u_kwargs = {k: _unwrap_const(v) for k, v in kwargs.items()}
+            if not u_args or u_args[0] is None or str(u_args[0]).lower() == "none":
+                return None
+            hint = tlx.fused_tail(*u_args, **u_kwargs)
             _apply_kernel_hint(self.kernel, hint)
             return hint
 

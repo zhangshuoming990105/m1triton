@@ -3,11 +3,13 @@
 #include <string>
 
 #include "ir/printer.hpp"
+#include "passes/algebraic_norm_fold.hpp"
 #include "passes/canonicalize.hpp"
 #include "passes/contiguity_analysis.hpp"
 #include "passes/conv_lowering.hpp"
 #include "passes/cse.hpp"
 #include "passes/dce.hpp"
+#include "passes/epilogue_dag_fusion.hpp"
 #include "passes/epilogue_fusion.hpp"
 #include "passes/flash_attn_lowering.hpp"
 #include "passes/licm.hpp"
@@ -29,6 +31,8 @@ PassManager build_pipeline(SgmmSchedulePolicy sgmm_policy) {
   pm.add_pass<CSEPass>();
   pm.add_pass<LICMPass>();
   pm.add_pass<EpilogueFusionPass>();
+  pm.add_pass<EpilogueDAGFusionPass>();
+  pm.add_pass<AlgebraicNormFoldingPass>();
   pm.add_pass<StructureAwareDeadTilePruningPass>();
   pm.add_pass<OnlineSoftmaxWelfordPass>();
   pm.add_pass<PoolLoweringPass>();

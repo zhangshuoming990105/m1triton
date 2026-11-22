@@ -167,6 +167,66 @@ void bind_ir_submodule(py::module_& m) {
       .value("RowMajor", ir::TensorLayoutHint::RowMajor)
       .value("ColMajor", ir::TensorLayoutHint::ColMajor);
 
+  py::enum_<ir::EpilogueOpKind>(ir_m, "EpilogueOpKind")
+      .value("AddConst", ir::EpilogueOpKind::AddConst)
+      .value("SubConst", ir::EpilogueOpKind::SubConst)
+      .value("RSubConst", ir::EpilogueOpKind::RSubConst)
+      .value("MulConst", ir::EpilogueOpKind::MulConst)
+      .value("DivConst", ir::EpilogueOpKind::DivConst)
+      .value("MinConst", ir::EpilogueOpKind::MinConst)
+      .value("MaxConst", ir::EpilogueOpKind::MaxConst)
+      .value("Clamp", ir::EpilogueOpKind::Clamp)
+      .value("AddBias", ir::EpilogueOpKind::AddBias)
+      .value("SubBias", ir::EpilogueOpKind::SubBias)
+      .value("MulBias", ir::EpilogueOpKind::MulBias)
+      .value("DivBias", ir::EpilogueOpKind::DivBias)
+      .value("MinBias", ir::EpilogueOpKind::MinBias)
+      .value("MaxBias", ir::EpilogueOpKind::MaxBias)
+      .value("AddScalar", ir::EpilogueOpKind::AddScalar)
+      .value("SubScalar", ir::EpilogueOpKind::SubScalar)
+      .value("MulScalar", ir::EpilogueOpKind::MulScalar)
+      .value("DivScalar", ir::EpilogueOpKind::DivScalar)
+      .value("AddResidual", ir::EpilogueOpKind::AddResidual)
+      .value("SubResidual", ir::EpilogueOpKind::SubResidual)
+      .value("MulResidual", ir::EpilogueOpKind::MulResidual)
+      .value("SaveReg", ir::EpilogueOpKind::SaveReg)
+      .value("AddSaved", ir::EpilogueOpKind::AddSaved)
+      .value("SubSaved", ir::EpilogueOpKind::SubSaved)
+      .value("MulSaved", ir::EpilogueOpKind::MulSaved)
+      .value("ReLU", ir::EpilogueOpKind::ReLU)
+      .value("LeakyReLU", ir::EpilogueOpKind::LeakyReLU)
+      .value("Sigmoid", ir::EpilogueOpKind::Sigmoid)
+      .value("Tanh", ir::EpilogueOpKind::Tanh)
+      .value("GELU", ir::EpilogueOpKind::GELU)
+      .value("GELUTanh", ir::EpilogueOpKind::GELUTanh)
+      .value("Swish", ir::EpilogueOpKind::Swish)
+      .value("Mish", ir::EpilogueOpKind::Mish)
+      .value("HardSwish", ir::EpilogueOpKind::HardSwish)
+      .value("HardSigmoid", ir::EpilogueOpKind::HardSigmoid)
+      .value("HardTanh", ir::EpilogueOpKind::HardTanh)
+      .value("ELU", ir::EpilogueOpKind::ELU)
+      .value("SELU", ir::EpilogueOpKind::SELU)
+      .value("Softplus", ir::EpilogueOpKind::Softplus)
+      .value("Softsign", ir::EpilogueOpKind::Softsign)
+      .value("Log", ir::EpilogueOpKind::Log)
+      .value("Exp", ir::EpilogueOpKind::Exp)
+      .value("Abs", ir::EpilogueOpKind::Abs)
+      .value("Neg", ir::EpilogueOpKind::Neg)
+      .value("Sqrt", ir::EpilogueOpKind::Sqrt);
+
+  py::enum_<ir::TailKind>(ir_m, "TailKind")
+      .value("None", ir::TailKind::None)
+      .value("RowSum", ir::TailKind::RowSum)
+      .value("RowMean", ir::TailKind::RowMean)
+      .value("RowMax", ir::TailKind::RowMax)
+      .value("RowMin", ir::TailKind::RowMin)
+      .value("RowLogSumExp", ir::TailKind::RowLogSumExp)
+      .value("SpatialGlobalAvgPool", ir::TailKind::SpatialGlobalAvgPool)
+      .value("SpatialGlobalSum", ir::TailKind::SpatialGlobalSum)
+      .value("SpatialGlobalMax", ir::TailKind::SpatialGlobalMax)
+      .value("Pool1DMax", ir::TailKind::Pool1DMax)
+      .value("Pool1DAvg", ir::TailKind::Pool1DAvg);
+
   py::enum_<ir::VerifyStage>(ir_m, "VerifyStage")
       .value("HighLevel", ir::VerifyStage::HighLevel)
       .value("PostTile", ir::VerifyStage::PostTile)
@@ -226,6 +286,35 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("swizzle_w", &ir::PersistentGridAttr::swizzle_w)
       .def("__eq__", [](const ir::PersistentGridAttr& a, const ir::PersistentGridAttr& b) { return a == b; });
 
+  py::class_<ir::EpilogueStep>(ir_m, "EpilogueStep")
+      .def(py::init<>())
+      .def(py::init([](ir::EpilogueOpKind op, float p0, float p1, int32_t arg_idx) {
+             return ir::EpilogueStep{op, p0, p1, arg_idx};
+           }),
+           py::arg("op") = ir::EpilogueOpKind::ReLU,
+           py::arg("param0") = 0.0f,
+           py::arg("param1") = 0.0f,
+           py::arg("arg_idx") = int32_t{-1})
+      .def_readwrite("op", &ir::EpilogueStep::op)
+      .def_readwrite("param0", &ir::EpilogueStep::param0)
+      .def_readwrite("param1", &ir::EpilogueStep::param1)
+      .def_readwrite("arg_idx", &ir::EpilogueStep::arg_idx)
+      .def("__eq__", [](const ir::EpilogueStep& a, const ir::EpilogueStep& b) { return a == b; });
+
+  py::class_<ir::EpilogueDAGAttr>(ir_m, "EpilogueDAGAttr")
+      .def(py::init<>())
+      .def_readwrite("steps", &ir::EpilogueDAGAttr::steps)
+      .def("__eq__", [](const ir::EpilogueDAGAttr& a, const ir::EpilogueDAGAttr& b) { return a == b; });
+
+  py::class_<ir::FusedTailAttr>(ir_m, "FusedTailAttr")
+      .def(py::init<>())
+      .def_readwrite("kind", &ir::FusedTailAttr::kind)
+      .def_readwrite("kernel_size", &ir::FusedTailAttr::kernel_size)
+      .def_readwrite("stride", &ir::FusedTailAttr::stride)
+      .def_readwrite("post_scale", &ir::FusedTailAttr::post_scale)
+      .def_readwrite("keep_dims", &ir::FusedTailAttr::keep_dims)
+      .def("__eq__", [](const ir::FusedTailAttr& a, const ir::FusedTailAttr& b) { return a == b; });
+
   py::class_<ir::OpHints>(ir_m, "OpHints")
       .def(py::init<>())
       .def_readwrite("tile_spec", &ir::OpHints::tile_spec)
@@ -233,6 +322,8 @@ void bind_ir_submodule(py::module_& m) {
       .def_readwrite("vec_width", &ir::OpHints::vec_width)
       .def_readwrite("layout_hint", &ir::OpHints::layout_hint)
       .def_readwrite("persistent_grid", &ir::OpHints::persistent_grid)
+      .def_readwrite("epilogue_dag", &ir::OpHints::epilogue_dag)
+      .def_readwrite("fused_tail", &ir::OpHints::fused_tail)
       .def("__eq__", [](const ir::OpHints& a, const ir::OpHints& b) { return a == b; });
 
   py::class_<ir::LoadStoreAttr>(ir_m, "LoadStoreAttr")

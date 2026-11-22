@@ -10,11 +10,13 @@
 #include "ir/printer.hpp"
 #include "ir/target_spec.hpp"
 #include "ir/verifier.hpp"
+#include "passes/algebraic_norm_fold.hpp"
 #include "passes/canonicalize.hpp"
 #include "passes/contiguity_analysis.hpp"
 #include "passes/conv_lowering.hpp"
 #include "passes/cse.hpp"
 #include "passes/dce.hpp"
+#include "passes/epilogue_dag_fusion.hpp"
 #include "passes/epilogue_fusion.hpp"
 #include "passes/flash_attn_lowering.hpp"
 #include "passes/licm.hpp"
@@ -52,6 +54,10 @@ bool append_named_pass(PassList& passes, const std::string& name) {
     passes.push_back(std::make_unique<LICMPass>());
   } else if (name == "epilogue-fusion") {
     passes.push_back(std::make_unique<EpilogueFusionPass>());
+  } else if (name == "epilogue-dag-fusion") {
+    passes.push_back(std::make_unique<EpilogueDAGFusionPass>());
+  } else if (name == "algebraic-norm-fold") {
+    passes.push_back(std::make_unique<AlgebraicNormFoldingPass>());
   } else if (name == "structure-pruning") {
     passes.push_back(std::make_unique<StructureAwareDeadTilePruningPass>());
   } else if (name == "online-softmax-welford") {
@@ -87,6 +93,8 @@ PassList build_standard_pass_list(m1triton::passes::SgmmSchedulePolicy sgmm_poli
   passes.push_back(std::make_unique<CSEPass>());
   passes.push_back(std::make_unique<LICMPass>());
   passes.push_back(std::make_unique<EpilogueFusionPass>());
+  passes.push_back(std::make_unique<EpilogueDAGFusionPass>());
+  passes.push_back(std::make_unique<AlgebraicNormFoldingPass>());
   passes.push_back(std::make_unique<StructureAwareDeadTilePruningPass>());
   passes.push_back(std::make_unique<OnlineSoftmaxWelfordPass>());
   passes.push_back(std::make_unique<PoolLoweringPass>());

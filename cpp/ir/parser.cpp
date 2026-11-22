@@ -699,6 +699,60 @@ class Parser {
         }
         expect(TokKind::RParen, "')'");
         hints.persistent_grid = pg;
+      } else if (k == "epilogue_dag") {
+        expect(TokKind::Equals, "'='");
+        expect(TokKind::LBracket, "'['");
+        EpilogueDAGAttr dag;
+        while (!check(TokKind::RBracket)) {
+          const std::string op_nm = expect(TokKind::Ident, "epilogue op").text;
+          auto parsed_op = parse_epilogue_op_name(op_nm);
+          if (!parsed_op.has_value()) throw std::runtime_error("Unknown epilogue op: " + op_nm);
+          EpilogueStep st;
+          st.op = *parsed_op;
+          if (check(TokKind::LParen)) {
+            consume();
+            while (!check(TokKind::RParen)) {
+              const std::string fk = expect(TokKind::Ident, "epilogue field").text;
+              expect(TokKind::Equals, "'='");
+              if (fk == "arg") st.arg_idx = static_cast<int32_t>(parse_i64());
+              else if (fk == "p0") st.param0 = static_cast<float>(parse_double());
+              else if (fk == "p1") st.param1 = static_cast<float>(parse_double());
+              else throw std::runtime_error("Unknown epilogue field: " + fk);
+              if (check(TokKind::Comma)) consume();
+            }
+            expect(TokKind::RParen, "')'");
+          }
+          dag.steps.push_back(st);
+          if (check(TokKind::Comma)) consume();
+        }
+        expect(TokKind::RBracket, "']'");
+        hints.epilogue_dag = std::move(dag);
+      } else if (k == "fused_tail") {
+        FusedTailAttr ft;
+        expect(TokKind::LParen, "'('");
+        while (!check(TokKind::RParen)) {
+          const std::string fk = expect(TokKind::Ident, "fused_tail key").text;
+          expect(TokKind::Equals, "'='");
+          if (fk == "kind") {
+            const std::string kn = expect(TokKind::Ident, "tail kind").text;
+            auto pk = parse_tail_kind_name(kn);
+            if (!pk.has_value()) throw std::runtime_error("Unknown fused_tail kind: " + kn);
+            ft.kind = *pk;
+          } else if (fk == "k") {
+            ft.kernel_size = static_cast<int32_t>(parse_i64());
+          } else if (fk == "s") {
+            ft.stride = static_cast<int32_t>(parse_i64());
+          } else if (fk == "scale") {
+            ft.post_scale = static_cast<float>(parse_double());
+          } else if (fk == "keep_dims") {
+            ft.keep_dims = parse_bool();
+          } else {
+            throw std::runtime_error("Unknown fused_tail field: " + fk);
+          }
+          if (check(TokKind::Comma)) consume();
+        }
+        expect(TokKind::RParen, "')'");
+        hints.fused_tail = ft;
       } else {
         throw std::runtime_error("Unknown hint key: " + k);
       }
