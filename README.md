@@ -57,6 +57,11 @@ pip install --no-build-isolation -e ".[dev]"   # builds _C extension + m1triton-
 m1triton doctor
 ```
 
+**Tutorials (Start Here)**:
+1. [Installation, Verification & Troubleshooting](docs/tutorials/01_installation.md) — Clean virtualenv setup, `m1triton doctor`, caches, env vars, and FAQ
+2. [Getting Started (`@jit`, `torch.compile`, `@autotune`)](docs/tutorials/02_getting_started.md) — Your first kernel, zero-rewrite `torch.compile`, and disk-cached autotuning
+3. [Advanced Guide (`tlx`, Execution Graphs, Custom Autograd & `m1triton-opt`)](docs/tutorials/03_advanced.md) — Hardware-aware fusion, `command_batch()` vs. `MetalGraph` Compute ICB, backward kernels, and IR/MSL debugging
+
 ### Runnable Examples (Verified in Fresh Venv Without `PYTHONPATH`)
 
 ```bash
@@ -137,6 +142,7 @@ node tools/check-guardrails.mjs
 
 ## Documentation
 
+- **User Tutorials**: [01 Installation](docs/tutorials/01_installation.md) · [02 Getting Started](docs/tutorials/02_getting_started.md) · [03 Advanced Guide](docs/tutorials/03_advanced.md)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Layered compiler architecture, mechanical boundaries, and UMA runtime
 - [docs/FUSION_ARCHITECTURE.md](docs/FUSION_ARCHITECTURE.md) — v2.0 Epilogue DAG fusion, producer-consumer tails, `torch.compile`, concurrent batching & Compute ICB graphs
 - [docs/PASS_PIPELINE.md](docs/PASS_PIPELINE.md) — All 18 pure C++20 SSA optimization passes and `m1triton-opt` CLI usage
