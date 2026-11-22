@@ -13,10 +13,9 @@ if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
 import m1triton
+from _l2_conv_std_common import conv_nd_epilogue
 from _l2_conv_transpose_common import (
     ConvTransposeL2Base,
-    conv_transpose_nd_epilogue,
-    gelu_1d,
     group_norm,
     launch_conv_transpose_fused,
 )
@@ -69,20 +68,22 @@ class ModelNew(ConvTransposeL2Base):
             and self.padding[1] <= 2
             and x_c.dtype == torch.float32
         ):
-            y = conv_transpose_nd_epilogue(
-                x_c,
-                self.conv_weight.detach(),
-                None if self.conv_bias is None else self.conv_bias.detach(),
-                ndim=2,
-                stride=self.stride,
-                padding=self.padding,
-                output_padding=self.output_padding,
-                dilation=self.dilation,
-                groups=self.groups,
-                allow_winograd=True,
-            )
             with m1triton.runtime.command_batch(wait=True, sync_mps=True):
-                y = gelu_1d(y)
+                y = conv_nd_epilogue(
+                    x_c,
+                    self.conv_weight.detach(),
+                    None if self.conv_bias is None else self.conv_bias.detach(),
+                    ndim=2,
+                    stride=self.stride,
+                    padding=self.padding,
+                    dilation=self.dilation,
+                    groups=self.groups,
+                    epilogue_steps=(("gelu",),),
+                    transposed=True,
+                    use_staged_4x3=False,
+                    sync_mps=False,
+                    wait=False,
+                )
                 out = group_norm(y, gn_w, gn_b, num_groups=self.gn_num_groups, eps=self.gn_eps)
             return out
         prep = self._prepare_conv()

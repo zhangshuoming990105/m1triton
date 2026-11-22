@@ -63,6 +63,7 @@ class ModelNew(ConvStdL2Base):
                     ("tanh",),
                     ("sub_const", self.subtract2_value),
                 ),
+                use_staged_4x3=True,
                 sync_mps=False,
                 wait=False,
             )

@@ -46,4 +46,5 @@ class ModelNew(ConvStdL2Base):
             dilation=self.dilation,
             groups=self.groups,
             epilogue_steps=(("mish",), ("mish",)),
+            use_staged_4x3=True,
         )

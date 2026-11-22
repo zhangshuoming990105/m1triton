@@ -28,15 +28,28 @@ bool is_page_aligned(uintptr_t ptr, uint64_t nbytes) {
 }
 
 bool buffers_overlap(const BufferArg& a, const BufferArg& b) {
-  if (a.handle != b.handle) {
+  if (a.is_metal_buffer != b.is_metal_buffer) {
     return false;
   }
-  if (a.nbytes == 0 || b.nbytes == 0) {
-    return true;
+  if (a.is_metal_buffer) {
+    if (a.handle != b.handle) {
+      return false;
+    }
+    if (a.nbytes == 0 || b.nbytes == 0) {
+      return true;
+    }
+    const uint64_t a_end = a.byte_offset + a.nbytes;
+    const uint64_t b_end = b.byte_offset + b.nbytes;
+    return (a.byte_offset < b_end) && (b.byte_offset < a_end);
   }
-  const uint64_t a_end = a.byte_offset + a.nbytes;
-  const uint64_t b_end = b.byte_offset + b.nbytes;
-  return (a.byte_offset < b_end) && (b.byte_offset < a_end);
+  const uint64_t a_start = static_cast<uint64_t>(a.handle) + a.byte_offset;
+  const uint64_t b_start = static_cast<uint64_t>(b.handle) + b.byte_offset;
+  if (a.nbytes == 0 || b.nbytes == 0) {
+    return a_start == b_start;
+  }
+  const uint64_t a_end = a_start + a.nbytes;
+  const uint64_t b_end = b_start + b.nbytes;
+  return (a_start < b_end) && (b_start < a_end);
 }
 
 size_t align_up(size_t value, size_t alignment) {
@@ -101,6 +114,7 @@ struct BatchState {
   std::unordered_map<CpuBufKey, id<MTLBuffer>, CpuBufKeyHash> cpu_buf_cache;
   std::unordered_set<uintptr_t> copy_back_ptrs;
   std::vector<CpuCopyBack> copy_backs;
+  std::vector<BufferArg> pending_buffers;
   bool needs_sync = false;
   uint64_t dispatch_count = 0;
   uint32_t last_tg_mem_bytes = 0;
@@ -392,7 +406,8 @@ bool MetalRuntime::begin_batch(std::string* error_out) {
       if (error_out) *error_out = "Failed to create Metal command buffer for batch";
       return false;
     }
-    id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
+    id<MTLComputeCommandEncoder> enc =
+        [cb computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     if (enc == nil) {
       if (error_out) *error_out = "Failed to create Metal compute command encoder for batch";
       return false;
@@ -898,6 +913,26 @@ double MetalRuntime::launch_kernel(
       }
 
       id<MTLComputeCommandEncoder> enc = impl_->batch.enc;
+      bool has_hazard = false;
+      for (const auto& nb : buffers) {
+        for (const auto& pb : impl_->batch.pending_buffers) {
+          if (buffers_overlap(pb, nb) && (pb.writable || nb.writable)) {
+            has_hazard = true;
+            break;
+          }
+        }
+        if (has_hazard) {
+          break;
+        }
+      }
+      if (has_hazard) {
+        [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
+        impl_->batch.pending_buffers.clear();
+      }
+      for (const auto& nb : buffers) {
+        impl_->batch.pending_buffers.push_back(nb);
+      }
+
       [enc setComputePipelineState:entry.pso];
 
       for (const auto& b : buffers) {

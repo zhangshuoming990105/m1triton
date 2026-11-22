@@ -54,6 +54,7 @@ class ModelNew(ConvStdL2Base):
                 padding=self.padding,
                 dilation=self.dilation,
                 groups=self.groups,
+                use_staged_4x3=True,
                 sync_mps=False,
                 wait=False,
             )

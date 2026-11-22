@@ -12,6 +12,7 @@
 #include "passes/epilogue_dag_fusion.hpp"
 #include "passes/epilogue_fusion.hpp"
 #include "passes/flash_attn_lowering.hpp"
+#include "passes/fusion_cost_model.hpp"
 #include "passes/licm.hpp"
 #include "passes/loss_lowering.hpp"
 #include "passes/online_softmax_welford.hpp"
@@ -39,6 +40,7 @@ PassManager build_pipeline(SgmmSchedulePolicy sgmm_policy) {
   pm.add_pass<ConvLoweringPass>();
   pm.add_pass<LossLoweringPass>();
   pm.add_pass<FlashAttentionLoweringPass>();
+  pm.add_pass<FusionOccupancyCostModelPass>();
   pm.add_pass<ContiguityAndAlignmentAnalysis>();
   pm.add_pass<TileAndLayoutAssignmentPass>(sgmm_policy);
   pm.add_pass<ThreadgroupStagingAndSwizzlePass>();
