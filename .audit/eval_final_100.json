@@ -1,0 +1,4359 @@
+{
+  "kernelbench_commit_sha": "423217d9fda91e0c2d67e4a43bf62f96f6d104f1",
+  "mode": "full_eval",
+  "seeds": 3,
+  "warmup": 10,
+  "trials": 30,
+  "summary": {
+    "total_evaluated": 100,
+    "passed": 100,
+    "failed": 0,
+    "missing": 0,
+    "beats_baseline": 71,
+    "geomean_speedup": 1.9268,
+    "mps_unsupported_task_ids": [
+      46
+    ]
+  },
+  "tasks": [
+    {
+      "id": 1,
+      "name": "Square_matrix_multiplication",
+      "filename": "1_Square_matrix_multiplication_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_001.py",
+      "cold_compile_ms": 1783.0968,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 16.4042,
+      "baseline_iqr_ms": 0.2549,
+      "candidate_median_ms": 16.7202,
+      "candidate_iqr_ms": 0.1125,
+      "speedup": 0.9811
+    },
+    {
+      "id": 2,
+      "name": "Standard_matrix_multiplication",
+      "filename": "2_Standard_matrix_multiplication_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_002.py",
+      "cold_compile_ms": 26.0328,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 16.6048,
+      "baseline_iqr_ms": 0.2082,
+      "candidate_median_ms": 16.7296,
+      "candidate_iqr_ms": 0.2525,
+      "speedup": 0.9925
+    },
+    {
+      "id": 3,
+      "name": "Batched_matrix_multiplication",
+      "filename": "3_Batched_matrix_multiplication.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_003.py",
+      "cold_compile_ms": 763.6363,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 31.4929,
+      "baseline_iqr_ms": 0.0499,
+      "candidate_median_ms": 33.8012,
+      "candidate_iqr_ms": 0.0528,
+      "speedup": 0.9317
+    },
+    {
+      "id": 4,
+      "name": "Matrix_vector_multiplication",
+      "filename": "4_Matrix_vector_multiplication_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_004.py",
+      "cold_compile_ms": 766.4604,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.46875,
+          "max_rel_err": 1.789134898899647e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.390625,
+          "max_rel_err": 1.4912122878740774e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.421875,
+          "max_rel_err": 1.6096897752504447e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 26.5299,
+      "baseline_iqr_ms": 0.6007,
+      "candidate_median_ms": 25.2795,
+      "candidate_iqr_ms": 0.4523,
+      "speedup": 1.0495
+    },
+    {
+      "id": 5,
+      "name": "Matrix_scalar_multiplication",
+      "filename": "5_Matrix_scalar_multiplication.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_005.py",
+      "cold_compile_ms": 886.2899,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 23.546,
+      "baseline_iqr_ms": 0.1864,
+      "candidate_median_ms": 23.7951,
+      "candidate_iqr_ms": 0.1353,
+      "speedup": 0.9895
+    },
+    {
+      "id": 6,
+      "name": "Matmul_with_large_K_dimension",
+      "filename": "6_Matmul_with_large_K_dimension_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_006.py",
+      "cold_compile_ms": 1711.5057,
+      "seed_reports": [
+        {
+          "max_abs_err": 10.53125,
+          "max_rel_err": 8.019620145205408e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 10.953125,
+          "max_rel_err": 8.352252916665748e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 11.5234375,
+          "max_rel_err": 8.79572908161208e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 96.7615,
+      "baseline_iqr_ms": 2.0667,
+      "candidate_median_ms": 11.5757,
+      "candidate_iqr_ms": 0.3074,
+      "speedup": 8.359
+    },
+    {
+      "id": 7,
+      "name": "Matmul_with_small_K_dimension",
+      "filename": "7_Matmul_with_small_K_dimension_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_007.py",
+      "cold_compile_ms": 938.3885,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 18.4734,
+      "baseline_iqr_ms": 0.1856,
+      "candidate_median_ms": 20.7798,
+      "candidate_iqr_ms": 0.1498,
+      "speedup": 0.889
+    },
+    {
+      "id": 8,
+      "name": "Matmul_with_irregular_shapes",
+      "filename": "8_Matmul_with_irregular_shapes_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_008.py",
+      "cold_compile_ms": 1238.4214,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 39.618,
+      "baseline_iqr_ms": 0.0757,
+      "candidate_median_ms": 39.2717,
+      "candidate_iqr_ms": 0.2674,
+      "speedup": 1.0088
+    },
+    {
+      "id": 9,
+      "name": "Tall_skinny_matrix_multiplication",
+      "filename": "9_Tall_skinny_matrix_multiplication_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_009.py",
+      "cold_compile_ms": 173.5863,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 12.0212,
+      "baseline_iqr_ms": 0.3207,
+      "candidate_median_ms": 12.6866,
+      "candidate_iqr_ms": 0.1771,
+      "speedup": 0.9476
+    },
+    {
+      "id": 10,
+      "name": "3D_tensor_matrix_multiplication",
+      "filename": "10_3D_tensor_matrix_multiplication.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_010.py",
+      "cold_compile_ms": 21.4187,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 6.3209,
+      "baseline_iqr_ms": 0.1035,
+      "candidate_median_ms": 6.6557,
+      "candidate_iqr_ms": 0.0848,
+      "speedup": 0.9497
+    },
+    {
+      "id": 11,
+      "name": "4D_tensor_matrix_multiplication",
+      "filename": "11_4D_tensor_matrix_multiplication.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_011.py",
+      "cold_compile_ms": 855.6191,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 70.1449,
+      "baseline_iqr_ms": 0.5961,
+      "candidate_median_ms": 53.1562,
+      "candidate_iqr_ms": 0.1793,
+      "speedup": 1.3196
+    },
+    {
+      "id": 12,
+      "name": "Matmul_with_diagonal_matrices",
+      "filename": "12_Matmul_with_diagonal_matrices_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_012.py",
+      "cold_compile_ms": 1807.8059,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 1.5474,
+      "baseline_iqr_ms": 0.0464,
+      "candidate_median_ms": 0.7036,
+      "candidate_iqr_ms": 0.0471,
+      "speedup": 2.1993
+    },
+    {
+      "id": 13,
+      "name": "Matmul_for_symmetric_matrices",
+      "filename": "13_Matmul_for_symmetric_matrices.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_013.py",
+      "cold_compile_ms": 28.515,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 16.4431,
+      "baseline_iqr_ms": 0.1379,
+      "candidate_median_ms": 16.6941,
+      "candidate_iqr_ms": 0.0765,
+      "speedup": 0.985
+    },
+    {
+      "id": 14,
+      "name": "Matmul_for_upper_triangular_matrices",
+      "filename": "14_Matmul_for_upper_triangular_matrices.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_014.py",
+      "cold_compile_ms": 786.9173,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 16.639,
+      "baseline_iqr_ms": 0.0809,
+      "candidate_median_ms": 4.4115,
+      "candidate_iqr_ms": 0.109,
+      "speedup": 3.7717
+    },
+    {
+      "id": 15,
+      "name": "Matmul_for_lower_triangular_matrices",
+      "filename": "15_Matmul_for_lower_triangular_matrices.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_015.py",
+      "cold_compile_ms": 780.696,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 16.6612,
+      "baseline_iqr_ms": 0.0974,
+      "candidate_median_ms": 4.2105,
+      "candidate_iqr_ms": 0.0868,
+      "speedup": 3.9571
+    },
+    {
+      "id": 16,
+      "name": "Matmul_with_transposed_A",
+      "filename": "16_Matmul_with_transposed_A.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_016.py",
+      "cold_compile_ms": 766.7084,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 17.1092,
+      "baseline_iqr_ms": 0.1623,
+      "candidate_median_ms": 18.1582,
+      "candidate_iqr_ms": 0.4982,
+      "speedup": 0.9422
+    },
+    {
+      "id": 17,
+      "name": "Matmul_with_transposed_B",
+      "filename": "17_Matmul_with_transposed_B.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_017.py",
+      "cold_compile_ms": 783.2762,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 37.4647,
+      "baseline_iqr_ms": 0.9896,
+      "candidate_median_ms": 23.3998,
+      "candidate_iqr_ms": 1.1343,
+      "speedup": 1.6011
+    },
+    {
+      "id": 18,
+      "name": "Matmul_with_transposed_both",
+      "filename": "18_Matmul_with_transposed_both.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_018.py",
+      "cold_compile_ms": 812.7932,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 38.0804,
+      "baseline_iqr_ms": 1.9075,
+      "candidate_median_ms": 20.3552,
+      "candidate_iqr_ms": 0.5993,
+      "speedup": 1.8708
+    },
+    {
+      "id": 19,
+      "name": "ReLU",
+      "filename": "19_ReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_019.py",
+      "cold_compile_ms": 291.6854,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.3827,
+      "baseline_iqr_ms": 0.3143,
+      "candidate_median_ms": 35.5674,
+      "candidate_iqr_ms": 0.3307,
+      "speedup": 0.9948
+    },
+    {
+      "id": 20,
+      "name": "LeakyReLU",
+      "filename": "20_LeakyReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_020.py",
+      "cold_compile_ms": 297.6643,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.1927,
+      "baseline_iqr_ms": 0.2005,
+      "candidate_median_ms": 35.5055,
+      "candidate_iqr_ms": 0.4055,
+      "speedup": 0.9912
+    },
+    {
+      "id": 21,
+      "name": "Sigmoid",
+      "filename": "21_Sigmoid.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_021.py",
+      "cold_compile_ms": 2655.7136,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.3757060318985168e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.3757060318985168e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.3757060318985168e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.3951,
+      "baseline_iqr_ms": 0.3828,
+      "candidate_median_ms": 35.4801,
+      "candidate_iqr_ms": 0.2005,
+      "speedup": 0.9976
+    },
+    {
+      "id": 22,
+      "name": "Tanh",
+      "filename": "22_Tanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_022.py",
+      "cold_compile_ms": 1203.5924,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 0.5,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 0.5,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 0.5,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 36.5236,
+      "baseline_iqr_ms": 0.8917,
+      "candidate_median_ms": 36.5139,
+      "candidate_iqr_ms": 0.9649,
+      "speedup": 1.0003
+    },
+    {
+      "id": 23,
+      "name": "Softmax",
+      "filename": "23_Softmax.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_023.py",
+      "cold_compile_ms": 1617.0501,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.2737367544323206e-12,
+          "max_rel_err": 7.260789516294608e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.2737367544323206e-12,
+          "max_rel_err": 7.260321694957383e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.5011104298755527e-12,
+          "max_rel_err": 7.646222570656391e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 73.7151,
+      "baseline_iqr_ms": 0.6642,
+      "candidate_median_ms": 54.7337,
+      "candidate_iqr_ms": 1.1316,
+      "speedup": 1.3468
+    },
+    {
+      "id": 24,
+      "name": "LogSoftmax",
+      "filename": "24_LogSoftmax.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_024.py",
+      "cold_compile_ms": 1587.6275,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 2.3031566342979204e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 2.3031593343603163e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 2.3031891771552182e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 73.4036,
+      "baseline_iqr_ms": 0.8125,
+      "candidate_median_ms": 54.9431,
+      "candidate_iqr_ms": 0.5934,
+      "speedup": 1.336
+    },
+    {
+      "id": 25,
+      "name": "Swish",
+      "filename": "25_Swish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_025.py",
+      "cold_compile_ms": 1455.9948,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 3.5209777138334175e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 3.5209777138334175e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 3.5209777138334175e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 88.9337,
+      "baseline_iqr_ms": 0.7255,
+      "candidate_median_ms": 35.4436,
+      "candidate_iqr_ms": 0.234,
+      "speedup": 2.5092
+    },
+    {
+      "id": 26,
+      "name": "GELU",
+      "filename": "26_GELU_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_026.py",
+      "cold_compile_ms": 1187.281,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 6.783758976780518e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 6.783758976780518e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 6.783758976780518e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.3909,
+      "baseline_iqr_ms": 0.2597,
+      "candidate_median_ms": 35.4596,
+      "candidate_iqr_ms": 0.2797,
+      "speedup": 0.9981
+    },
+    {
+      "id": 27,
+      "name": "SELU",
+      "filename": "27_SELU_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_027.py",
+      "cold_compile_ms": 286.9745,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.2652,
+      "baseline_iqr_ms": 0.2826,
+      "candidate_median_ms": 35.4853,
+      "candidate_iqr_ms": 0.2478,
+      "speedup": 0.9938
+    },
+    {
+      "id": 28,
+      "name": "HardSigmoid",
+      "filename": "28_HardSigmoid.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_028.py",
+      "cold_compile_ms": 1261.3798,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.960464477539063e-08,
+          "max_rel_err": 1.1920927533992653e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 5.960464477539063e-08,
+          "max_rel_err": 1.1920927533992653e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 5.960464477539063e-08,
+          "max_rel_err": 1.1920927533992653e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.4476,
+      "baseline_iqr_ms": 0.2295,
+      "candidate_median_ms": 35.577,
+      "candidate_iqr_ms": 0.1847,
+      "speedup": 0.9964
+    },
+    {
+      "id": 29,
+      "name": "Softplus",
+      "filename": "29_Softplus.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_029.py",
+      "cold_compile_ms": 1286.0009,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 5.091658863420889e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 5.091658863420889e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 5.091658863420889e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 51.7131,
+      "baseline_iqr_ms": 0.1943,
+      "candidate_median_ms": 35.2814,
+      "candidate_iqr_ms": 0.065,
+      "speedup": 1.4657
+    },
+    {
+      "id": 30,
+      "name": "Softsign",
+      "filename": "30_Softsign.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_030.py",
+      "cold_compile_ms": 1247.0965,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 123.8695,
+      "baseline_iqr_ms": 1.0437,
+      "candidate_median_ms": 35.3111,
+      "candidate_iqr_ms": 0.2601,
+      "speedup": 3.508
+    },
+    {
+      "id": 31,
+      "name": "ELU",
+      "filename": "31_ELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_031.py",
+      "cold_compile_ms": 1039.2273,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.2887,
+      "baseline_iqr_ms": 0.2525,
+      "candidate_median_ms": 35.4016,
+      "candidate_iqr_ms": 0.1941,
+      "speedup": 0.9968
+    },
+    {
+      "id": 32,
+      "name": "HardTanh",
+      "filename": "32_HardTanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_032.py",
+      "cold_compile_ms": 1044.4271,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 35.1054,
+      "baseline_iqr_ms": 0.181,
+      "candidate_median_ms": 35.3392,
+      "candidate_iqr_ms": 0.1393,
+      "speedup": 0.9934
+    },
+    {
+      "id": 33,
+      "name": "BatchNorm",
+      "filename": "33_BatchNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_033.py",
+      "cold_compile_ms": 3234.2654,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 41.62112808227539,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 26.41986083984375,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 26.12581443786621,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 47.6764,
+      "baseline_iqr_ms": 0.2668,
+      "candidate_median_ms": 35.715,
+      "candidate_iqr_ms": 0.228,
+      "speedup": 1.3349
+    },
+    {
+      "id": 34,
+      "name": "InstanceNorm",
+      "filename": "34_InstanceNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_034.py",
+      "cold_compile_ms": 1097.812,
+      "seed_reports": [
+        {
+          "max_abs_err": 8.344650268554688e-07,
+          "max_rel_err": 26.54035186767578,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 33.74357986450195,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 26.55965232849121,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 82.7182,
+      "baseline_iqr_ms": 0.5393,
+      "candidate_median_ms": 60.6302,
+      "candidate_iqr_ms": 0.4003,
+      "speedup": 1.3643
+    },
+    {
+      "id": 35,
+      "name": "GroupNorm",
+      "filename": "35_GroupNorm_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_035.py",
+      "cold_compile_ms": 3486.0102,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.3113021850585938e-06,
+          "max_rel_err": 26.58932876586914,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.5497207641601562e-06,
+          "max_rel_err": 26.586769104003906,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 38.57612609863281,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 93.4564,
+      "baseline_iqr_ms": 2.8886,
+      "candidate_median_ms": 62.0876,
+      "candidate_iqr_ms": 0.3273,
+      "speedup": 1.5052
+    },
+    {
+      "id": 36,
+      "name": "RMSNorm",
+      "filename": "36_RMSNorm_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_036.py",
+      "cold_compile_ms": 2998.0391,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 3.5760083960667544e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 3.8600731500082475e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 3.7756325355076115e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 138.5561,
+      "baseline_iqr_ms": 0.456,
+      "candidate_median_ms": 210.3893,
+      "candidate_iqr_ms": 0.4678,
+      "speedup": 0.6586
+    },
+    {
+      "id": 37,
+      "name": "FrobeniusNorm",
+      "filename": "37_FrobeniusNorm_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_037.py",
+      "cold_compile_ms": 3478.2777,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.637978807091713e-12,
+          "max_rel_err": 1.192091474422341e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.637978807091713e-12,
+          "max_rel_err": 1.7021979203946103e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.637978807091713e-12,
+          "max_rel_err": 1.1920927533992653e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 62.2387,
+      "baseline_iqr_ms": 0.4404,
+      "candidate_median_ms": 66.2892,
+      "candidate_iqr_ms": 1.7294,
+      "speedup": 0.9389
+    },
+    {
+      "id": 38,
+      "name": "L1Norm",
+      "filename": "38_L1Norm_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_038.py",
+      "cold_compile_ms": 6793.4903,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 4.2804234112736594e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 4.249142477874557e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 4.259389072558406e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 243.4505,
+      "baseline_iqr_ms": 1.0221,
+      "candidate_median_ms": 65.9398,
+      "candidate_iqr_ms": 0.5838,
+      "speedup": 3.692
+    },
+    {
+      "id": 39,
+      "name": "L2Norm",
+      "filename": "39_L2Norm_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_039.py",
+      "cold_compile_ms": 5993.4416,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.862645149230957e-09,
+          "max_rel_err": 3.5745418358601455e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.862645149230957e-09,
+          "max_rel_err": 3.576187452836166e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.862645149230957e-09,
+          "max_rel_err": 3.572160380826972e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 197.0397,
+      "baseline_iqr_ms": 0.5892,
+      "candidate_median_ms": 65.9805,
+      "candidate_iqr_ms": 0.4858,
+      "speedup": 2.9863
+    },
+    {
+      "id": 40,
+      "name": "LayerNorm",
+      "filename": "40_LayerNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_040.py",
+      "cold_compile_ms": 3209.9142,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 0.5000000596046448,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 0.5,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 20.6500301361084,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 8.9779,
+      "baseline_iqr_ms": 0.0999,
+      "candidate_median_ms": 4.0261,
+      "candidate_iqr_ms": 0.1657,
+      "speedup": 2.2299
+    },
+    {
+      "id": 41,
+      "name": "Max_Pooling_1D",
+      "filename": "41_Max_Pooling_1D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_041.py",
+      "cold_compile_ms": 2096.8223,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 143.975,
+      "baseline_iqr_ms": 0.2745,
+      "candidate_median_ms": 19.1993,
+      "candidate_iqr_ms": 0.1773,
+      "speedup": 7.499
+    },
+    {
+      "id": 42,
+      "name": "Max_Pooling_2D",
+      "filename": "42_Max_Pooling_2D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_042.py",
+      "cold_compile_ms": 900.3297,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 12.9208,
+      "baseline_iqr_ms": 0.1635,
+      "candidate_median_ms": 12.8296,
+      "candidate_iqr_ms": 0.1538,
+      "speedup": 1.0071
+    },
+    {
+      "id": 43,
+      "name": "Max_Pooling_3D",
+      "filename": "43_Max_Pooling_3D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_043.py",
+      "cold_compile_ms": 879.0851,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 42.395,
+      "baseline_iqr_ms": 0.1849,
+      "candidate_median_ms": 33.0402,
+      "candidate_iqr_ms": 0.0534,
+      "speedup": 1.2831
+    },
+    {
+      "id": 44,
+      "name": "Average_Pooling_1D",
+      "filename": "44_Average_Pooling_1D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_044.py",
+      "cold_compile_ms": 803.8199,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 51.4892,
+      "baseline_iqr_ms": 0.191,
+      "candidate_median_ms": 12.1969,
+      "candidate_iqr_ms": 0.1153,
+      "speedup": 4.2215
+    },
+    {
+      "id": 45,
+      "name": "Average_Pooling_2D",
+      "filename": "45_Average_Pooling_2D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_045.py",
+      "cold_compile_ms": 1608.4922,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 188.0152,
+      "baseline_iqr_ms": 0.4465,
+      "candidate_median_ms": 156.1669,
+      "candidate_iqr_ms": 0.6447,
+      "speedup": 1.2039
+    },
+    {
+      "id": 46,
+      "name": "Average_Pooling_3D",
+      "filename": "46_Average_Pooling_3D.py",
+      "status": "passed",
+      "baseline_backend": "cpu_fallback_mps_unsupported",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "mps_unsupported_reason": "avg_pool3d: MPS does not support tensors that require 64-bit indexing",
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_046.py",
+      "cold_compile_ms": 1070.867,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 591.9207,
+      "baseline_iqr_ms": 11.3492,
+      "candidate_median_ms": 61.6425,
+      "candidate_iqr_ms": 138.195,
+      "speedup": 9.6025
+    },
+    {
+      "id": 47,
+      "name": "Sum_reduction_over_a_dimension",
+      "filename": "47_Sum_reduction_over_a_dimension.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_047.py",
+      "cold_compile_ms": 2372.9821,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0087890625,
+          "max_rel_err": 4.258585249772295e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0087890625,
+          "max_rel_err": 4.248329787515104e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.008056640625,
+          "max_rel_err": 3.882874807459302e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 24.0677,
+      "baseline_iqr_ms": 0.2074,
+      "candidate_median_ms": 24.8853,
+      "candidate_iqr_ms": 0.9008,
+      "speedup": 0.9671
+    },
+    {
+      "id": 48,
+      "name": "Mean_reduction_over_a_dimension",
+      "filename": "48_Mean_reduction_over_a_dimension.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_048.py",
+      "cold_compile_ms": 1992.5121,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.1457672119140625e-06,
+          "max_rel_err": 4.258585249772295e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.1457672119140625e-06,
+          "max_rel_err": 4.248329787515104e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.9669532775878906e-06,
+          "max_rel_err": 3.882874807459302e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 24.0104,
+      "baseline_iqr_ms": 0.1651,
+      "candidate_median_ms": 25.0671,
+      "candidate_iqr_ms": 1.2929,
+      "speedup": 0.9578
+    },
+    {
+      "id": 49,
+      "name": "Max_reduction_over_a_dimension",
+      "filename": "49_Max_reduction_over_a_dimension.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_049.py",
+      "cold_compile_ms": 1916.3908,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 64.5144,
+      "baseline_iqr_ms": 10.0632,
+      "candidate_median_ms": 24.679,
+      "candidate_iqr_ms": 0.9109,
+      "speedup": 2.6141
+    },
+    {
+      "id": 50,
+      "name": "conv_standard_2D__square_input__square_kernel",
+      "filename": "50_conv_standard_2D__square_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_050.py",
+      "cold_compile_ms": 2006.478,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-06,
+          "max_rel_err": 8.381903648376465,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.6689300537109375e-06,
+          "max_rel_err": 7.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.0265579223632812e-06,
+          "max_rel_err": 10.058283805847168,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 27.8255,
+      "baseline_iqr_ms": 0.1547,
+      "candidate_median_ms": 21.7106,
+      "candidate_iqr_ms": 0.0782,
+      "speedup": 1.2817
+    },
+    {
+      "id": 51,
+      "name": "Argmax_over_a_dimension",
+      "filename": "51_Argmax_over_a_dimension.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_051.py",
+      "cold_compile_ms": 1889.5259,
+      "seed_reports": [
+        {
+          "exact": true,
+          "mismatches": 0,
+          "rtol": 0.0,
+          "atol": 0.0,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "exact": true,
+          "mismatches": 0,
+          "rtol": 0.0,
+          "atol": 0.0,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "exact": true,
+          "mismatches": 0,
+          "rtol": 0.0,
+          "atol": 0.0,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 38.0856,
+      "baseline_iqr_ms": 4.7915,
+      "candidate_median_ms": 26.0407,
+      "candidate_iqr_ms": 1.078,
+      "speedup": 1.4625
+    },
+    {
+      "id": 52,
+      "name": "Argmin_over_a_dimension",
+      "filename": "52_Argmin_over_a_dimension.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_052.py",
+      "cold_compile_ms": 1910.4455,
+      "seed_reports": [
+        {
+          "exact": true,
+          "mismatches": 0,
+          "rtol": 0.0,
+          "atol": 0.0,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "exact": true,
+          "mismatches": 0,
+          "rtol": 0.0,
+          "atol": 0.0,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "exact": true,
+          "mismatches": 0,
+          "rtol": 0.0,
+          "atol": 0.0,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 41.2463,
+      "baseline_iqr_ms": 7.797,
+      "candidate_median_ms": 26.0787,
+      "candidate_iqr_ms": 1.2348,
+      "speedup": 1.5816
+    },
+    {
+      "id": 53,
+      "name": "Min_reduction_over_a_dimension",
+      "filename": "53_Min_reduction_over_a_dimension.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_053.py",
+      "cold_compile_ms": 579.9206,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 62.7774,
+      "baseline_iqr_ms": 6.0497,
+      "candidate_median_ms": 24.7637,
+      "candidate_iqr_ms": 1.1862,
+      "speedup": 2.5351
+    },
+    {
+      "id": 54,
+      "name": "conv_standard_3D__square_input__square_kernel",
+      "filename": "54_conv_standard_3D__square_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_054.py",
+      "cold_compile_ms": 1917.3043,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 8.568167686462402,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.0728836059570312e-06,
+          "max_rel_err": 5.9604644775390625,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.0728836059570312e-06,
+          "max_rel_err": 3.5512967109680176,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 33.3971,
+      "baseline_iqr_ms": 0.071,
+      "candidate_median_ms": 11.8397,
+      "candidate_iqr_ms": 0.1669,
+      "speedup": 2.8208
+    },
+    {
+      "id": 55,
+      "name": "conv_standard_2D__asymmetric_input__square_kernel",
+      "filename": "55_conv_standard_2D__asymmetric_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 336,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_055.py",
+      "cold_compile_ms": 1639.045,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.0266900062561035e-05,
+          "max_rel_err": 48.428775787353516,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 112
+        },
+        {
+          "max_abs_err": 9.998679161071777e-06,
+          "max_rel_err": 60.16343688964844,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 112
+        },
+        {
+          "max_abs_err": 8.761882781982422e-06,
+          "max_rel_err": 80.06666564941406,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 112
+        }
+      ],
+      "baseline_median_ms": 57.0914,
+      "baseline_iqr_ms": 0.2067,
+      "candidate_median_ms": 61.7858,
+      "candidate_iqr_ms": 0.1607,
+      "speedup": 0.924
+    },
+    {
+      "id": 56,
+      "name": "conv_standard_2D__asymmetric_input__asymmetric_kernel",
+      "filename": "56_conv_standard_2D__asymmetric_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_056.py",
+      "cold_compile_ms": 1028.1404,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.245208740234375e-06,
+          "max_rel_err": 13.853423118591309,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 5.304813385009766e-06,
+          "max_rel_err": 74.55237579345703,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.887580871582031e-06,
+          "max_rel_err": 35.88047790527344,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 116.7296,
+      "baseline_iqr_ms": 0.6042,
+      "candidate_median_ms": 95.1308,
+      "candidate_iqr_ms": 0.4015,
+      "speedup": 1.227
+    },
+    {
+      "id": 57,
+      "name": "conv_transposed_2D__square_input__square_kernel",
+      "filename": "57_conv_transposed_2D__square_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_057.py",
+      "cold_compile_ms": 1781.003,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.364418029785156e-07,
+          "max_rel_err": 6.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 14.156103134155273,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 8.940696716308594,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 56.8105,
+      "baseline_iqr_ms": 0.1875,
+      "candidate_median_ms": 72.9338,
+      "candidate_iqr_ms": 0.3812,
+      "speedup": 0.7789
+    },
+    {
+      "id": 58,
+      "name": "conv_transposed_3D__asymmetric_input__asymmetric_kernel",
+      "filename": "58_conv_transposed_3D__asymmetric_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_058.py",
+      "cold_compile_ms": 949.6634,
+      "seed_reports": [
+        {
+          "max_abs_err": 6.4373016357421875e-06,
+          "max_rel_err": 19.9178466796875,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 6.556510925292969e-06,
+          "max_rel_err": 18.23302459716797,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.033348083496094e-06,
+          "max_rel_err": 4.016794681549072,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 81.6812,
+      "baseline_iqr_ms": 0.1636,
+      "candidate_median_ms": 23.8512,
+      "candidate_iqr_ms": 0.1545,
+      "speedup": 3.4246
+    },
+    {
+      "id": 59,
+      "name": "conv_standard_3D__asymmetric_input__square_kernel",
+      "filename": "59_conv_standard_3D__asymmetric_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_059.py",
+      "cold_compile_ms": 994.3991,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 10.43081283569336,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 4.47600793838501,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 5.215406894683838,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 126.7463,
+      "baseline_iqr_ms": 1.796,
+      "candidate_median_ms": 14.1412,
+      "candidate_iqr_ms": 0.1649,
+      "speedup": 8.9629
+    },
+    {
+      "id": 60,
+      "name": "conv_standard_3D__square_input__asymmetric_kernel",
+      "filename": "60_conv_standard_3D__square_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_060.py",
+      "cold_compile_ms": 1098.0972,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.2649765014648438e-06,
+          "max_rel_err": 24.400651931762695,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.1457672119140625e-06,
+          "max_rel_err": 9.562063217163086,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.1457672119140625e-06,
+          "max_rel_err": 15.785917282104492,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 307.2378,
+      "baseline_iqr_ms": 1.4535,
+      "candidate_median_ms": 32.2086,
+      "candidate_iqr_ms": 0.0754,
+      "speedup": 9.539
+    },
+    {
+      "id": 61,
+      "name": "conv_transposed_3D__square_input__square_kernel",
+      "filename": "61_conv_transposed_3D__square_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_061.py",
+      "cold_compile_ms": 2173.934,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.516674041748047e-06,
+          "max_rel_err": 17.67345428466797,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.635883331298828e-06,
+          "max_rel_err": 7.260008811950684,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.4570693969726562e-06,
+          "max_rel_err": 15.759452819824219,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 300.3615,
+      "baseline_iqr_ms": 0.5578,
+      "candidate_median_ms": 63.8413,
+      "candidate_iqr_ms": 0.1113,
+      "speedup": 4.7048
+    },
+    {
+      "id": 62,
+      "name": "conv_standard_2D__square_input__asymmetric_kernel",
+      "filename": "62_conv_standard_2D__square_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_062.py",
+      "cold_compile_ms": 974.7144,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.2186508178710938e-06,
+          "max_rel_err": 15.180558204650879,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.814697265625e-06,
+          "max_rel_err": 14.344598770141602,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.4570693969726562e-06,
+          "max_rel_err": 43.03874588012695,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 66.2667,
+      "baseline_iqr_ms": 0.2222,
+      "candidate_median_ms": 57.2221,
+      "candidate_iqr_ms": 0.1447,
+      "speedup": 1.1581
+    },
+    {
+      "id": 63,
+      "name": "conv_standard_2D__square_input__square_kernel",
+      "filename": "63_conv_standard_2D__square_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_063.py",
+      "cold_compile_ms": 1893.1348,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 11.920928955078125,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 8.940696716308594,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 8.940696716308594,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 74.1692,
+      "baseline_iqr_ms": 0.2195,
+      "candidate_median_ms": 83.6812,
+      "candidate_iqr_ms": 0.4247,
+      "speedup": 0.8863
+    },
+    {
+      "id": 64,
+      "name": "conv_transposed_1D",
+      "filename": "64_conv_transposed_1D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_064.py",
+      "cold_compile_ms": 1127.2975,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.0265579223632812e-06,
+          "max_rel_err": 17.785598754882812,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.1457672119140625e-06,
+          "max_rel_err": 21.53965187072754,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.0265579223632812e-06,
+          "max_rel_err": 16.12508773803711,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 109.2734,
+      "baseline_iqr_ms": 0.7915,
+      "candidate_median_ms": 77.6173,
+      "candidate_iqr_ms": 0.4893,
+      "speedup": 1.4078
+    },
+    {
+      "id": 65,
+      "name": "conv_transposed_2D__square_input__asymmetric_kernel",
+      "filename": "65_conv_transposed_2D__square_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_065.py",
+      "cold_compile_ms": 935.8966,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.291534423828125e-06,
+          "max_rel_err": 21.395036697387695,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-06,
+          "max_rel_err": 49.21122360229492,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.172325134277344e-06,
+          "max_rel_err": 21.780399322509766,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 216.9733,
+      "baseline_iqr_ms": 6.5272,
+      "candidate_median_ms": 58.8149,
+      "candidate_iqr_ms": 0.2135,
+      "speedup": 3.6891
+    },
+    {
+      "id": 66,
+      "name": "conv_standard_3D__asymmetric_input__asymmetric_kernel",
+      "filename": "66_conv_standard_3D__asymmetric_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_066.py",
+      "cold_compile_ms": 1193.3587,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-06,
+          "max_rel_err": 23.35291290283203,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.0265579223632812e-06,
+          "max_rel_err": 10.058283805847168,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.0265579223632812e-06,
+          "max_rel_err": 20.535663604736328,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 151.3171,
+      "baseline_iqr_ms": 0.8586,
+      "candidate_median_ms": 14.5367,
+      "candidate_iqr_ms": 0.173,
+      "speedup": 10.4093
+    },
+    {
+      "id": 67,
+      "name": "conv_standard_1D",
+      "filename": "67_conv_standard_1D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_067.py",
+      "cold_compile_ms": 911.2763,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.6689300537109375e-06,
+          "max_rel_err": 13.41104507446289,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.5497207641601562e-06,
+          "max_rel_err": 10.291114807128906,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.5497207641601562e-06,
+          "max_rel_err": 13.016225814819336,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 524.907,
+      "baseline_iqr_ms": 3.9969,
+      "candidate_median_ms": 52.5811,
+      "candidate_iqr_ms": 1.254,
+      "speedup": 9.9828
+    },
+    {
+      "id": 68,
+      "name": "conv_transposed_3D__square_input__asymmetric_kernel",
+      "filename": "68_conv_transposed_3D__square_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_068.py",
+      "cold_compile_ms": 1130.9614,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.4570693969726562e-06,
+          "max_rel_err": 37.10086441040039,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.516674041748047e-06,
+          "max_rel_err": 23.736066818237305,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.6656856536865234e-06,
+          "max_rel_err": 19.49795913696289,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 1481.5465,
+      "baseline_iqr_ms": 3.0105,
+      "candidate_median_ms": 299.0176,
+      "candidate_iqr_ms": 0.372,
+      "speedup": 4.9547
+    },
+    {
+      "id": 69,
+      "name": "conv_transposed_2D__asymmetric_input__asymmetric_kernel",
+      "filename": "69_conv_transposed_2D__asymmetric_input__asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_069.py",
+      "cold_compile_ms": 2359.9762,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.3245811462402344e-06,
+          "max_rel_err": 13.792404174804688,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.205371856689453e-06,
+          "max_rel_err": 26.803770065307617,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.384185791015625e-06,
+          "max_rel_err": 20.69594955444336,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 112.8837,
+      "baseline_iqr_ms": 25.3497,
+      "candidate_median_ms": 105.8612,
+      "candidate_iqr_ms": 31.1783,
+      "speedup": 1.0663
+    },
+    {
+      "id": 70,
+      "name": "conv_transposed_3D__asymmetric_input__square_kernel",
+      "filename": "70_conv_transposed_3D__asymmetric_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_070.py",
+      "cold_compile_ms": 925.6719,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.602836608886719e-06,
+          "max_rel_err": 25.197080612182617,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.5299530029296875e-06,
+          "max_rel_err": 21.967561721801758,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.470348358154297e-06,
+          "max_rel_err": 23.51047134399414,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 530.2623,
+      "baseline_iqr_ms": 12.3244,
+      "candidate_median_ms": 168.0212,
+      "candidate_iqr_ms": 2.7311,
+      "speedup": 3.1559
+    },
+    {
+      "id": 71,
+      "name": "conv_transposed_2D__asymmetric_input__square_kernel",
+      "filename": "71_conv_transposed_2D__asymmetric_input__square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_071.py",
+      "cold_compile_ms": 807.8202,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 8.870847702026367,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 5.9604644775390625,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 4.470348358154297,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 8.3634,
+      "baseline_iqr_ms": 0.1173,
+      "candidate_median_ms": 11.0205,
+      "candidate_iqr_ms": 0.0913,
+      "speedup": 0.7589
+    },
+    {
+      "id": 72,
+      "name": "conv_transposed_3D_asymmetric_input_asymmetric_kernel___strided_padded_grouped",
+      "filename": "72_conv_transposed_3D_asymmetric_input_asymmetric_kernel___strided_padded_grouped_.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_072.py",
+      "cold_compile_ms": 781.5192,
+      "seed_reports": [
+        {
+          "max_abs_err": 8.344650268554688e-07,
+          "max_rel_err": 0.4613563120365143,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.748603820800781e-07,
+          "max_rel_err": 1.7035539150238037,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 8.344650268554688e-07,
+          "max_rel_err": 5.6916728019714355,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 120.3591,
+      "baseline_iqr_ms": 21.6134,
+      "candidate_median_ms": 5.1133,
+      "candidate_iqr_ms": 0.7188,
+      "speedup": 23.5386
+    },
+    {
+      "id": 73,
+      "name": "conv_transposed_3D_asymmetric_input_square_kernel__strided_padded__grouped",
+      "filename": "73_conv_transposed_3D_asymmetric_input_square_kernel__strided_padded__grouped.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_073.py",
+      "cold_compile_ms": 834.8542,
+      "seed_reports": [
+        {
+          "max_abs_err": 8.940696716308594e-07,
+          "max_rel_err": 3.989762783050537,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.748603820800781e-07,
+          "max_rel_err": 3.310197591781616,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 3.560450792312622,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 389.2711,
+      "baseline_iqr_ms": 22.3955,
+      "candidate_median_ms": 28.375,
+      "candidate_iqr_ms": 1.576,
+      "speedup": 13.7188
+    },
+    {
+      "id": 74,
+      "name": "conv_transposed_1D_dilated",
+      "filename": "74_conv_transposed_1D_dilated.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_074.py",
+      "cold_compile_ms": 823.9968,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 7.509213924407959,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 8.940696716308594e-07,
+          "max_rel_err": 11.607077598571777,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 7.5463666915893555,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 19.1214,
+      "baseline_iqr_ms": 0.19,
+      "candidate_median_ms": 17.7468,
+      "candidate_iqr_ms": 0.1857,
+      "speedup": 1.0775
+    },
+    {
+      "id": 75,
+      "name": "conv_transposed_2D_asymmetric_input_asymmetric_kernel_strided__grouped____padded____dilated",
+      "filename": "75_conv_transposed_2D_asymmetric_input_asymmetric_kernel_strided__grouped____padded____dilated__.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_075.py",
+      "cold_compile_ms": 787.0135,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 2.5493721961975098,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 2.9900519847869873,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 2.1801178455352783,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 14.3484,
+      "baseline_iqr_ms": 0.0923,
+      "candidate_median_ms": 7.6841,
+      "candidate_iqr_ms": 0.0788,
+      "speedup": 1.8673
+    },
+    {
+      "id": 76,
+      "name": "conv_standard_1D_dilated_strided",
+      "filename": "76_conv_standard_1D_dilated_strided__.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_076.py",
+      "cold_compile_ms": 2939.989,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.6689300537109375e-06,
+          "max_rel_err": 14.808029174804688,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.5497207641601562e-06,
+          "max_rel_err": 23.376197814941406,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-06,
+          "max_rel_err": 14.528632164001465,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 143.612,
+      "baseline_iqr_ms": 0.538,
+      "candidate_median_ms": 92.0956,
+      "candidate_iqr_ms": 0.2637,
+      "speedup": 1.5594
+    },
+    {
+      "id": 77,
+      "name": "conv_transposed_3D_square_input_square_kernel___padded____dilated____strided",
+      "filename": "77_conv_transposed_3D_square_input_square_kernel___padded____dilated____strided__.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_077.py",
+      "cold_compile_ms": 1086.5105,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 1.1659083366394043,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.6689300537109375e-06,
+          "max_rel_err": 1.8906056880950928,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.7583370208740234e-06,
+          "max_rel_err": 5.007820129394531,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 224.8668,
+      "baseline_iqr_ms": 0.852,
+      "candidate_median_ms": 11.6522,
+      "candidate_iqr_ms": 0.1709,
+      "speedup": 19.2983
+    },
+    {
+      "id": 78,
+      "name": "conv_transposed_2D_asymmetric_input_asymmetric_kernel___padded",
+      "filename": "78_conv_transposed_2D_asymmetric_input_asymmetric_kernel___padded__.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_078.py",
+      "cold_compile_ms": 991.9684,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 24.360164642333984,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 17.231233596801758,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 12.616476058959961,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 36.1471,
+      "baseline_iqr_ms": 0.1513,
+      "candidate_median_ms": 38.2346,
+      "candidate_iqr_ms": 0.2591,
+      "speedup": 0.9454
+    },
+    {
+      "id": 79,
+      "name": "conv_transposed_1D_asymmetric_input_square_kernel___padded____strided____dilated",
+      "filename": "79_conv_transposed_1D_asymmetric_input_square_kernel___padded____strided____dilated__.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_079.py",
+      "cold_compile_ms": 823.6734,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 4.650393009185791,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 8.344650268554688e-07,
+          "max_rel_err": 5.617770671844482,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 6.556510925292969e-07,
+          "max_rel_err": 11.055636405944824,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 20.6971,
+      "baseline_iqr_ms": 0.2368,
+      "candidate_median_ms": 10.5127,
+      "candidate_iqr_ms": 0.3483,
+      "speedup": 1.9688
+    },
+    {
+      "id": 80,
+      "name": "conv_standard_2D_square_input_asymmetric_kernel___dilated____padded",
+      "filename": "80_conv_standard_2D_square_input_asymmetric_kernel___dilated____padded__.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_080.py",
+      "cold_compile_ms": 1214.4103,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.933906555175781e-06,
+          "max_rel_err": 27.19462013244629,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.6954879760742188e-06,
+          "max_rel_err": 21.46698570251465,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.814697265625e-06,
+          "max_rel_err": 16.298145294189453,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 66.7842,
+      "baseline_iqr_ms": 0.1927,
+      "candidate_median_ms": 63.0935,
+      "candidate_iqr_ms": 0.1569,
+      "speedup": 1.0585
+    },
+    {
+      "id": 81,
+      "name": "conv_transposed_2D_asymmetric_input_square_kernel___dilated____padded____strided",
+      "filename": "81_conv_transposed_2D_asymmetric_input_square_kernel___dilated____padded____strided__.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_081.py",
+      "cold_compile_ms": 758.0454,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 15.4789,
+      "baseline_iqr_ms": 0.1467,
+      "candidate_median_ms": 6.1554,
+      "candidate_iqr_ms": 0.0988,
+      "speedup": 2.5147
+    },
+    {
+      "id": 82,
+      "name": "conv_depthwise_2D_square_input_square_kernel",
+      "filename": "82_conv_depthwise_2D_square_input_square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_082.py",
+      "cold_compile_ms": 2219.6009,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 1.9991294145584106,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 1.16867196559906,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 2.858497381210327,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 6.5831,
+      "baseline_iqr_ms": 0.0853,
+      "candidate_median_ms": 6.6027,
+      "candidate_iqr_ms": 0.1085,
+      "speedup": 0.997
+    },
+    {
+      "id": 83,
+      "name": "conv_depthwise_2D_square_input_asymmetric_kernel",
+      "filename": "83_conv_depthwise_2D_square_input_asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_083.py",
+      "cold_compile_ms": 801.737,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 3.4679,
+      "baseline_iqr_ms": 0.1083,
+      "candidate_median_ms": 3.4775,
+      "candidate_iqr_ms": 0.1403,
+      "speedup": 0.9972
+    },
+    {
+      "id": 84,
+      "name": "conv_depthwise_2D_asymmetric_input_square_kernel",
+      "filename": "84_conv_depthwise_2D_asymmetric_input_square_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_084.py",
+      "cold_compile_ms": 174.488,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 4.881528854370117,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 3.419874429702759,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 5.388824462890625,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 24.7512,
+      "baseline_iqr_ms": 0.265,
+      "candidate_median_ms": 24.734,
+      "candidate_iqr_ms": 0.2387,
+      "speedup": 1.0007
+    },
+    {
+      "id": 85,
+      "name": "conv_depthwise_2D_asymmetric_input_asymmetric_kernel",
+      "filename": "85_conv_depthwise_2D_asymmetric_input_asymmetric_kernel.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_085.py",
+      "cold_compile_ms": 960.7062,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 7.1089,
+      "baseline_iqr_ms": 0.1292,
+      "candidate_median_ms": 3.527,
+      "candidate_iqr_ms": 0.1163,
+      "speedup": 2.0156
+    },
+    {
+      "id": 86,
+      "name": "conv_depthwise_separable_2D",
+      "filename": "86_conv_depthwise_separable_2D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_086.py",
+      "cold_compile_ms": 1672.8112,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 5.21540641784668,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.2782554626464844e-07,
+          "max_rel_err": 5.713636875152588,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 4.309009075164795,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 72.0528,
+      "baseline_iqr_ms": 3.9995,
+      "candidate_median_ms": 38.7066,
+      "candidate_iqr_ms": 0.2149,
+      "speedup": 1.8615
+    },
+    {
+      "id": 87,
+      "name": "conv_pointwise_2D",
+      "filename": "87_conv_pointwise_2D.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_087.py",
+      "cold_compile_ms": 1556.9614,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 266.9299,
+      "baseline_iqr_ms": 9.0961,
+      "candidate_median_ms": 126.209,
+      "candidate_iqr_ms": 0.7334,
+      "speedup": 2.115
+    },
+    {
+      "id": 88,
+      "name": "MinGPTNewGelu",
+      "filename": "88_MinGPTNewGelu.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_088.py",
+      "cold_compile_ms": 2463.422,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.361692565955309e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.361692565955309e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.361692565955309e-07,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 14.6006,
+      "baseline_iqr_ms": 0.0563,
+      "candidate_median_ms": 1.9072,
+      "candidate_iqr_ms": 0.1384,
+      "speedup": 7.6556
+    },
+    {
+      "id": 89,
+      "name": "cumsum",
+      "filename": "89_cumsum.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_089.py",
+      "cold_compile_ms": 716.6803,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0078125,
+          "max_rel_err": 5.433825549516769e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.005859375,
+          "max_rel_err": 5.166520509192196e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0068359375,
+          "max_rel_err": 4.6828603217363707e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 23.7605,
+      "baseline_iqr_ms": 0.1624,
+      "candidate_median_ms": 23.6913,
+      "candidate_iqr_ms": 0.2408,
+      "speedup": 1.0029
+    },
+    {
+      "id": 90,
+      "name": "cumprod",
+      "filename": "90_cumprod.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_090.py",
+      "cold_compile_ms": 879.0366,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.401298464324817e-45,
+          "max_rel_err": 1.401298464324817e-37,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 23.7248,
+      "baseline_iqr_ms": 0.1654,
+      "candidate_median_ms": 23.7047,
+      "candidate_iqr_ms": 0.1607,
+      "speedup": 1.0008
+    },
+    {
+      "id": 91,
+      "name": "cumsum_reverse",
+      "filename": "91_cumsum_reverse.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_091.py",
+      "cold_compile_ms": 2563.9792,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.017578125,
+          "max_rel_err": 1.0726413393058465e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.017578125,
+          "max_rel_err": 1.1582205843296833e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.017578125,
+          "max_rel_err": 1.1765481531256228e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 70.6176,
+      "baseline_iqr_ms": 0.2677,
+      "candidate_median_ms": 24.2729,
+      "candidate_iqr_ms": 0.2819,
+      "speedup": 2.9093
+    },
+    {
+      "id": 92,
+      "name": "cumsum_exclusive",
+      "filename": "92_cumsum_exclusive.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_092.py",
+      "cold_compile_ms": 894.7536,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.015625,
+          "max_rel_err": 1.2260201174285612e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.017578125,
+          "max_rel_err": 1.07280084193917e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.015625,
+          "max_rel_err": 1.1845048675240832e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 96.3454,
+      "baseline_iqr_ms": 0.49,
+      "candidate_median_ms": 24.1267,
+      "candidate_iqr_ms": 0.1397,
+      "speedup": 3.9933
+    },
+    {
+      "id": 93,
+      "name": "masked_cumsum",
+      "filename": "93_masked_cumsum.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_093.py",
+      "cold_compile_ms": 2506.4432,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0087890625,
+          "max_rel_err": 1.0728538200055482e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0078125,
+          "max_rel_err": 1.0930950793408556e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0078125,
+          "max_rel_err": 1.0598552080409718e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 49.73,
+      "baseline_iqr_ms": 0.2814,
+      "candidate_median_ms": 27.3431,
+      "candidate_iqr_ms": 0.2272,
+      "speedup": 1.8187
+    },
+    {
+      "id": 94,
+      "name": "MSELoss",
+      "filename": "94_MSELoss.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_094.py",
+      "cold_compile_ms": 3337.6949,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.9802322387695312e-08,
+          "max_rel_err": 1.434356562413086e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 71.0638,
+      "baseline_iqr_ms": 0.3027,
+      "candidate_median_ms": 25.4421,
+      "candidate_iqr_ms": 0.3938,
+      "speedup": 2.7932
+    },
+    {
+      "id": 95,
+      "name": "CrossEntropyLoss",
+      "filename": "95_CrossEntropyLoss.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_095.py",
+      "cold_compile_ms": 839.9593,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 1.1407818334419062e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 3.7806,
+      "baseline_iqr_ms": 0.083,
+      "candidate_median_ms": 1.9237,
+      "candidate_iqr_ms": 0.2357,
+      "speedup": 1.9653
+    },
+    {
+      "id": 96,
+      "name": "HuberLoss",
+      "filename": "96_HuberLoss.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": false,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_096.py",
+      "cold_compile_ms": 802.0933,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.450580596923828e-09,
+          "max_rel_err": 7.17178281206543e-08,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 24.458,
+      "baseline_iqr_ms": 0.2114,
+      "candidate_median_ms": 25.4702,
+      "candidate_iqr_ms": 0.3808,
+      "speedup": 0.9603
+    },
+    {
+      "id": 97,
+      "name": "ScaledDotProductAttention",
+      "filename": "97_ScaledDotProductAttention.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_097.py",
+      "cold_compile_ms": 2175.0659,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 1.1882883654834586e-06,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 1.270571374334395e-06,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 1.2037673968734453e-06,
+          "rtol": 0.0001,
+          "atol": 0.0001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 147.471,
+      "baseline_iqr_ms": 0.3517,
+      "candidate_median_ms": 142.2919,
+      "candidate_iqr_ms": 3.1725,
+      "speedup": 1.0364
+    },
+    {
+      "id": 98,
+      "name": "KLDivLoss",
+      "filename": "98_KLDivLoss.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_098.py",
+      "cold_compile_ms": 719.45,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.725290298461914e-09,
+          "max_rel_err": 8.29949442504585e-08,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 7.450580596923828e-09,
+          "max_rel_err": 1.579988264666099e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.3527612686157227e-08,
+          "max_rel_err": 8.243941351793183e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 32.8767,
+      "baseline_iqr_ms": 0.1088,
+      "candidate_median_ms": 6.6698,
+      "candidate_iqr_ms": 0.1549,
+      "speedup": 4.9292
+    },
+    {
+      "id": 99,
+      "name": "TripletMarginLoss",
+      "filename": "99_TripletMarginLoss.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_099.py",
+      "cold_compile_ms": 1643.1075,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.960464477539063e-08,
+          "max_rel_err": 5.968153971025458e-08,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 35.8456,
+      "baseline_iqr_ms": 0.3284,
+      "candidate_median_ms": 9.65,
+      "candidate_iqr_ms": 0.1574,
+      "speedup": 3.7146
+    },
+    {
+      "id": 100,
+      "name": "HingeLoss",
+      "filename": "100_HingeLoss.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels/task_100.py",
+      "cold_compile_ms": 792.5458,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 214.7252,
+      "baseline_iqr_ms": 0.6459,
+      "candidate_median_ms": 12.8995,
+      "candidate_iqr_ms": 0.31,
+      "speedup": 16.6461
+    }
+  ],
+  "roofline": {
+    "device_name": "Apple M1 Max",
+    "max_threads_per_threadgroup": 1024,
+    "max_threadgroup_memory_bytes": 32768,
+    "recommended_max_working_set_gb": 24.96,
+    "has_unified_memory": true,
+    "trials": 21,
+    "stream_copy": {
+      "bytes": 536870912,
+      "median_ms": 1.4361,
+      "iqr_ms": 0.0114,
+      "bandwidth_gbs": 373.83
+    },
+    "stream_triad": {
+      "bytes": 805306368,
+      "median_ms": 2.1832,
+      "iqr_ms": 0.048,
+      "bandwidth_gbs": 368.86,
+      "verified": true
+    },
+    "sgmm_fp32": {
+      "flops": 274877906944,
+      "median_ms": 27.0265,
+      "iqr_ms": 0.8243,
+      "tflops": 10.171,
+      "sample_out": 121.18
+    },
+    "sgmm_fp16": {
+      "flops": 549755813888,
+      "median_ms": 57.0615,
+      "iqr_ms": 4.8153,
+      "tflops": 9.634,
+      "sample_out": 24.0
+    },
+    "host_platform": "macOS-26.6-arm64-arm-64bit",
+    "host_machine": "arm64",
+    "loadavg_1m": 6.44
+  }
+}
