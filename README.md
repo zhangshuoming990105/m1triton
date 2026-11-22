@@ -142,6 +142,7 @@ node tools/check-guardrails.mjs
 
 ## Documentation
 
+- **Interactive Performance & Co-Design Report**: [docs/PERFORMANCE_REPORT.html](docs/PERFORMANCE_REPORT.html) — Self-contained offline HTML dashboard covering all 210 verified cases (`L1` + `L2` + `L3`), Apple M1 Max Roofline & `% SOL` audit, 16 Agent kernel deep-dives, and Compiler/DSL/Kernel Co-Design headroom analysis (`open docs/PERFORMANCE_REPORT.html`; regenerate via `python3 tools/generate_perf_report.py`)
 - **User Tutorials**: [01 Installation](docs/tutorials/01_installation.md) · [02 Getting Started](docs/tutorials/02_getting_started.md) · [03 Advanced Guide](docs/tutorials/03_advanced.md)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Layered compiler architecture, mechanical boundaries, and UMA runtime
 - [docs/FUSION_ARCHITECTURE.md](docs/FUSION_ARCHITECTURE.md) — v2.0 Epilogue DAG fusion, producer-consumer tails, `torch.compile`, concurrent batching & Compute ICB graphs

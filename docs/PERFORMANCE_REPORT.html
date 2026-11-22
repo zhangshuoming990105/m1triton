@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>M1Triton 性能全景报告 &amp; DSL-Compiler Co-Design 深度剖析 (210 Cases)</title>
+<style>
+:root {
+  --bg: #0b0f17;
+  --bg-elev: #111827;
+  --bg-card: #151e2e;
+  --bg-hover: #1c273b;
+  --border: #253249;
+  --text: #e6edf7;
+  --text-dim: #93a4be;
+  --text-muted: #64748b;
+  --accent: #38bdf8;
+  --accent-2: #818cf8;
+  --green: #34d399;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --purple: #c084fc;
+  --cyan: #22d3ee;
+  --shadow: 0 10px 30px rgba(0,0,0,0.35);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+[data-theme="light"] {
+  --bg: #f6f8fc;
+  --bg-elev: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #eef3fb;
+  --border: #d8e1ee;
+  --text: #0f172a;
+  --text-dim: #475569;
+  --text-muted: #64748b;
+  --accent: #0284c7;
+  --accent-2: #4f46e5;
+  --green: #059669;
+  --amber: #d97706;
+  --red: #dc2626;
+  --purple: #7c3aed;
+  --cyan: #0891b2;
+  --shadow: 0 8px 24px rgba(15,23,42,0.08);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.6;
+  font-size: 14px;
+}
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: rgba(56, 189, 248, 0.11);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.brand-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--green));
+  box-shadow: 0 0 12px var(--accent);
+}
+.nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.nav a {
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.nav a:hover { color: var(--text); background: var(--bg-hover); }
+.btn {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  padding: 5px 11px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-card));
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.container { max-width: 1400px; margin: 0 auto; padding: 28px 24px 80px; }
+.hero {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--bg-card)), color-mix(in srgb, var(--accent-2) 10%, var(--bg-card)));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 30px;
+  box-shadow: var(--shadow);
+  margin-bottom: 24px;
+}
+.hero h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.02em; line-height: 1.25; }
+.hero-sub { color: var(--text-dim); margin: 0 0 16px; font-size: 14.5px; max-width: 980px; }
+.hw-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 12px; font-family: var(--mono);
+  background: var(--bg-elev); border: 1px solid var(--border); color: var(--text-dim);
+}
+.pill strong { color: var(--text); }
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+@media (max-width: 960px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .kpi-grid { grid-template-columns: 1fr; } }
+.kpi {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi::before {
+  content: "";
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--kpi-color, var(--accent));
+}
+.kpi-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.kpi-val { font-size: 28px; font-weight: 800; font-family: var(--mono); margin: 4px 0 4px; letter-spacing: -0.02em; }
+.kpi-sub { font-size: 12.5px; color: var(--text-dim); }
+section { margin-top: 38px; scroll-margin-top: 68px; }
+.sec-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  flex-wrap: wrap; gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px; margin-bottom: 18px;
+}
+.sec-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+.sec-desc { color: var(--text-dim); font-size: 13px; margin: 2px 0 0; }
+.grid-2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 18px; align-items: stretch; }
+.grid-2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 1020px) { .grid-2, .grid-2-eq { grid-template-columns: 1fr; } }
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+.card h3 { margin: 0 0 10px; font-size: 15.5px; }
+.roofline-wrap { position: relative; }
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 999;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 13px;
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  max-width: 320px;
+  display: none;
+}
+.tooltip h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--accent); }
+.tooltip .kv { display: flex; justify-content: space-between; gap: 14px; font-family: var(--mono); font-size: 12px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.bucket-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+@media (max-width: 1050px) { .bucket-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .bucket-grid { grid-template-columns: 1fr; } }
+.bucket-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--bcolor);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.bucket-card h4 { margin: 0 0 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+.bucket-card p { margin: 0; font-size: 12.5px; color: var(--text-dim); }
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.b-green { background: rgba(52,211,153,0.16); color: var(--green); }
+.b-blue { background: rgba(56,189,248,0.16); color: var(--accent); }
+.b-amber { background: rgba(251,191,36,0.16); color: var(--amber); }
+.b-red { background: rgba(248,113,113,0.16); color: var(--red); }
+.b-purple { background: rgba(192,132,252,0.16); color: var(--purple); }
+.b-gray { background: rgba(148,163,184,0.16); color: var(--text-dim); }
+
+.dive-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 960px) { .dive-grid { grid-template-columns: 1fr; } }
+.dive-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dive-card.is-bottleneck { border-left: 3px solid var(--red); }
+.dive-card.is-winner { border-left: 3px solid var(--green); }
+.dive-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.dive-title { font-weight: 700; font-size: 15px; margin: 0; }
+.dive-metrics {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  font-family: var(--mono); font-size: 12px;
+  padding: 7px 10px; border-radius: 8px; background: var(--bg-elev); border: 1px solid var(--border);
+}
+.dive-block { font-size: 13px; color: var(--text-dim); }
+.dive-block strong { color: var(--text); }
+.dive-headroom {
+  font-size: 12.8px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-2) 8%, var(--bg-elev));
+  border: 1px dashed color-mix(in srgb, var(--accent-2) 40%, var(--border));
+  color: var(--text-dim);
+}
+.dive-headroom strong { color: var(--text); }
+
+.law-banner {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 16%, var(--bg-card)), color-mix(in srgb, var(--green) 10%, var(--bg-card)));
+  border: 1px solid color-mix(in srgb, var(--accent-2) 45%, var(--border));
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 18px;
+}
+.law-banner .law-tag { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
+.law-banner blockquote {
+  margin: 6px 0 8px;
+  font-size: 17.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--text);
+}
+.law-banner p { margin: 0; font-size: 13.5px; color: var(--text-dim); }
+
+.pillar-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+@media (max-width: 1020px) { .pillar-grid { grid-template-columns: 1fr; } }
+.pillar {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pcolor);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pillar h3 { margin: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+.pillar .sub { font-size: 12.5px; color: var(--text-dim); margin-top: -4px; }
+.pillar ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; gap: 8px; }
+.pillar li strong { color: var(--text); }
+.pillar .antipattern {
+  margin-top: auto;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(248,113,113,0.08);
+  border: 1px solid rgba(248,113,113,0.22);
+  color: var(--text-dim);
+}
+
+.controls {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  margin-bottom: 12px;
+}
+.search-input, .select-input {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 11px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.search-input { min-width: 240px; flex: 1; max-width: 360px; }
+.search-input:focus, .select-input:focus { outline: none; border-color: var(--accent); }
+.filter-summary {
+  display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+  padding: 9px 14px; border-radius: 8px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  font-size: 12.5px; font-family: var(--mono); color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.filter-summary strong { color: var(--text); }
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+table { width: 100%; border-collapse: collapse; font-size: 12.8px; }
+th, td { padding: 9px 11px; text-align: left; border-bottom: 1px solid var(--border); }
+th {
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-weight: 600;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  user-select: none;
+}
+th.sortable { cursor: pointer; }
+th.sortable:hover { color: var(--accent); }
+td.num, th.num { text-align: right; font-family: var(--mono); }
+tr.data-row { cursor: pointer; transition: background 0.1s; }
+tr.data-row:hover { background: var(--bg-hover); }
+tr.detail-row td {
+  background: var(--bg-elev);
+  padding: 12px 18px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.sp-bar-cell { min-width: 120px; }
+.sp-bar-bg {
+  height: 6px; border-radius: 99px; background: rgba(148,163,184,0.16);
+  overflow: hidden; margin-top: 3px;
+}
+.sp-bar-fg { height: 100%; border-radius: 99px; }
+
+.small-table th, .small-table td { padding: 7px 9px; font-size: 12px; }
+footer {
+  margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="brand-dot"></span><span>M1Triton Performance &amp; Co-Design Report</span></div>
+    <div class="nav">
+      <a href="#roofline">Roofline &amp; SOL</a>
+      <a href="#attribution">收益归因</a>
+      <a href="#deepdives">核心 Kernel 解读</a>
+      <a href="#codesign">Co-Design 剖析</a>
+      <a href="#allcases">全量 210 Cases</a>
+      <button class="btn" id="themeBtn" type="button">切换明暗主题</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="hero">
+    <h1>M1Triton 性能全景报告 &amp; DSL-Compiler Co-Design 深度剖析</h1>
+    <p class="hero-sub">
+      覆盖全部 <strong>210 个官方冻结评测用例</strong>（KernelBench L1 100 + L2 100 + Level 3 复杂 Triton 10，均通过 SHA-256 锁定评测脚本验证，零 PyTorch/MPSGraph 计算回退），
+      结合 Apple M1 Max 实测 Roofline、硬件利用率 (% SOL)、核心算子源码级归因，系统回答 <strong>「剩余提升空间从编译器 Pass、DSL 语言还是算子算法来」</strong>。
+    </p>
+    <div class="hw-pills" id="hwPills"></div>
+  </div>
+
+  <div class="kpi-grid" id="kpiGrid"></div>
+
+  <section id="roofline">
+    <div class="sec-head">
+      <div>
+        <h2>1. Apple M1 Max 实测 Roofline 与硬件利用率 (% SOL) 真实性校验</h2>
+        <p class="sec-desc">所有数据均直接取自冻结产物 <code>.audit/roofline_m1max.json</code> 与 <code>eval_final_*.json</code>；悬停圆点查看精确 FLOPs/Bytes、算术强度与 MPS 对比</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn active" id="rfToggleMps" type="button">显示 MPS 对比连线</button>
+        <button class="btn active rf-suite-btn" data-suite="ALL" type="button">全部</button>
+        <button class="btn rf-suite-btn" data-suite="L1" type="button">L1</button>
+        <button class="btn rf-suite-btn" data-suite="L2" type="button">L2</button>
+        <button class="btn rf-suite-btn" data-suite="L3" type="button">L3</button>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card roofline-wrap">
+        <h3>M1 Max 对数 Roofline 图（带宽上限 373.83 GB/s · FP32 算力上限 10.171 TF · 拐点 27.2 FLOP/B）</h3>
+        <svg id="rooflineSvg" viewBox="0 0 760 430" width="100%" style="display:block;"></svg>
+        <div class="legend">
+          <span class="legend-item"><span class="swatch" style="background:var(--green)"></span>桶A: 逼近硬件 SOL</span>
+          <span class="legend-item"><span class="swatch" style="background:var(--purple)"></span>桶B: 代数/结构化简</span>
+          <span class="legend-item"><span class="swatch" style="background:var(--amber)"></span>桶C: 击败 MPS 3D/转置</span>
+          <span class="legend-item"><span class="swatch" style="background:var(--red)"></span>待优化瓶颈</span>
+          <span class="legend-item"><span class="swatch" style="background:transparent;border:2px solid var(--text-dim)"></span>空心圈: PyTorch MPS</span>
+        </div>
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <h3>代表性算子硬件利用率 (% SOL) 核验表</h3>
+        <table class="small-table" id="solTable">
+          <thead>
+            <tr>
+              <th>算子</th>
+              <th class="num">AI</th>
+              <th class="num">实测吞吐</th>
+              <th class="num">M1T SOL</th>
+              <th class="num">MPS SOL</th>
+              <th class="num">加速比</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="attribution">
+    <div class="sec-head">
+      <div>
+        <h2>2. 性能收益归因（4 大桶透明拆解）与分布统计</h2>
+        <p class="sec-desc">区分「真实跑满硬件」与「代数消除落盘 / MPS 自身短板 / 消除循环调度」，避免被夸张倍率误导</p>
+      </div>
+    </div>
+    <div class="bucket-grid" id="bucketGrid"></div>
+    <div class="grid-2-eq">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <h3 style="margin:0;">分类几何平均加速比</h3>
+          <div style="display:flex;gap:6px;">
+            <button class="btn active cat-suite-btn" data-suite="L1" type="button">L1 (10类)</button>
+            <button class="btn cat-suite-btn" data-suite="L2" type="button">L2 (5大融合家族)</button>
+            <button class="btn cat-suite-btn" data-suite="L3" type="button">L3 (5类)</button>
+          </div>
+        </div>
+        <svg id="catChartSvg" viewBox="0 0 600 330" width="100%"></svg>
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:8px;">全量 210 Cases 加速比区间分布（点击柱子联动筛选下方总表）</h3>
+        <svg id="histChartSvg" viewBox="0 0 600 330" width="100%"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section id="deepdives">
+    <div class="sec-head">
+      <div>
+        <h2>3. Agent 核心 Kernel 逐案深度解读（高收益典范 vs. 显著瓶颈）</h2>
+        <p class="sec-desc">全部诊断均基于真实源码路径与实测性能计数器，标注每类瓶颈对应的最优改进层级</p>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn active dive-filter-btn" data-group="all" type="button">全部 (16)</button>
+        <button class="btn dive-filter-btn" data-group="winner" type="button">高收益 / 架构典范 (9)</button>
+        <button class="btn dive-filter-btn" data-group="bottleneck" type="button">待优化 / 显著空间 (7)</button>
+      </div>
+    </div>
+    <div class="dive-grid" id="diveGrid"></div>
+  </section>
+
+  <section id="codesign">
+    <div class="sec-head">
+      <div>
+        <h2>4. DSL-Compiler Co-Design 核心剖析：未来提升从编译器、语言还是算子来？</h2>
+        <p class="sec-desc">从 210 个真实案例与 13 次正反实验（含 4 次回退教训）中提炼出的三层分工法则</p>
+      </div>
+    </div>
+
+    <div class="law-banner">
+      <div class="law-tag">The DSL-Compiler Co-Design Law</div>
+      <blockquote>「算法创新留在算子层做一次，反复出现的硬件与数学结构约束沉淀为极简 DSL 契约 (<code>tlx.*</code>)，一切可从 <code>TargetSpec</code> 机械推导的调度、内存布局与融合全部下沉进纯 C++ 编译器 Pass。」</blockquote>
+      <p>
+        对 M1Triton 下一阶段演进的定量判断：<strong>约 45% 的剩余通用收益来自编译器 Pass/IR 升级</strong>（以多消费者/归约尾融合与 SRAM 活跃区间分析为代表），
+        <strong>约 25% 来自 DSL 语言契约补齐</strong>（让前沿算子摆脱黑盒 C++ 模板、支持可组合原语），
+        <strong>约 30% 来自算子算法与数据布局创新</strong>（单循环 FA2 Bwd、片上 Winograd F(4×4)、单遍 CE 与 W4 nibble 布局）。
+      </p>
+    </div>
+
+    <div class="pillar-grid">
+      <div class="pillar" style="--pcolor:var(--accent)">
+        <h3><span>① 编译器 Pass &amp; IR 层</span><span class="badge b-blue">~45% 通用红利</span></h3>
+        <div class="sub">零算子重写 · 收益随模型数量线性放大</div>
+        <ul>
+          <li><strong>Reduction &amp; Spatial-Window Epilogue 融合</strong>：扩展 <code>EpilogueDAGAttr</code>，在 Conv/GEMM 写回同时片上算 <code>2×2 MaxPool</code> 或累加 Norm 统计量（<code>sum, sum_sq</code>），直接攻克 <code>L2 #43 (1.02x)</code>、<code>#11 (1.09x)</code>、<code>#17 (1.13x)</code>、<code>#19 (1.42x)</code>。</li>
+          <li><strong>全算子 Occupancy + SRAM Live-Range Coloring</strong>：把 <code>WelfordNorm</code> 纳入 <code>FusionOccupancyCostModelPass</code> 拦截 <code>L1 #36</code> 的 17.25 KB 悬崖；对 <code>L3-02</code> FA2 Bwd 做 SRAM 活跃区间分时复用，将占用压回 &lt;16 KB 保 3 TGs/core。</li>
+          <li><strong>拆解黑盒 <code>tlx.*</code> 宏算子为通用循环降低</strong>：支持对标准 Triton <code>for k: tl.dot + online_reduce</code> 循环自动识别并生成流水线 SGMM，减少 C++ 专用 emitter 维护面。</li>
+          <li><strong>自动 <code>MetalGraph</code> ICB 捕获与 Split-K 决策</strong>：在 <code>compile_backend.py</code>（FX 分区器）自动捕获静态子图与分段 Winograd（消除 <code>L2 #4/#17/#32/#46</code> 60–113 次发射），实测 ICB 可提速 1.47x。</li>
+        </ul>
+        <div class="antipattern"><strong>放错层的代价</strong>：把 occupancy 裁剪、bank swizzle、epilogue 融合留在算子层，会导致每个新算子都重踩一次 16 KB SRAM 悬崖（<code>L1 #36</code> 就是血泪教训）。</div>
+      </div>
+
+      <div class="pillar" style="--pcolor:var(--purple)">
+        <h3><span>② DSL / 语言层 (<code>tl</code> + <code>tlx</code>)</span><span class="badge b-purple">~25% 表达力杠杆</span></h3>
+        <div class="sub">填补「编译器无法安全自动推断」的语义鸿沟</div>
+        <ul>
+          <li><strong>代数与稀疏结构契约</strong>：扩展 <code>tlx.structure</code> 至 <code>causal_band</code> / <code>block_sparse</code> / <code>linear_commutes_with_pool</code>，让编译器 100% 安全地执行类似 <code>L1 #15 (3.96x)</code> 与 <code>L2 #77 (421x)</code> 的死块剪枝与代数重排。</li>
+          <li><strong>硬件资源意图声明 (<code>tlx.sram_budget</code> / <code>tlx.occupancy_target</code>)</strong>：把 Apple Silicon 特有的「保 3 TG/core 优先于双缓冲」表达为一等语言契约，驱动成本模型而非写死魔法数。</li>
+          <li><strong>SIMD-group 协作与持久调度原语</strong>：补齐 <code>tlx.subgroup_shuffle</code>、<code>tl.associative_scan</code>、<code>tlx.persistent_reduce</code>，让 <code>L3-08 Mamba</code>、<code>L3-06 LayerNorm Bwd</code>、<code>L3-09 MoE</code> 用纯 Python Triton 可组合写出。</li>
+          <li><strong>多输出/原地别名契约</strong>：声明只读/原地写缓冲区契约，供 <code>command_batch()</code> 和 <code>MetalGraph</code> 精确消除保守内存屏障。</li>
+        </ul>
+        <div class="antipattern"><strong>放错层的代价</strong>：把每个新算法直接做成一个黑盒 <code>tlx.my_op(...)</code> 宏指令，会退化成「带 Python 壳的手写算子库」，失去 Triton 的可组合性（如 <code>L3-07</code> 无法把 gather+dlogits 拼进 <code>tlx.online_softmax</code>）。</div>
+      </div>
+
+      <div class="pillar" style="--pcolor:var(--green)">
+        <h3><span>③ 算子 / 算法与布局层</span><span class="badge b-green">~30% 复杂度降维</span></h3>
+        <div class="sub">数学降阶与硬件亲和数据排布，编译器无法凭空发明</div>
+        <ul>
+          <li><strong>单循环 FlashAttention-2 反向 (<code>L3-02</code>)</strong>：把 <code>BwdDKDV</code> 与 <code>BwdDQ</code> 合并，消除一半 <code>QKᵀ</code> 与 <code>exp</code> 重算；保留已验证有效的 Causal 逆序发射防尾延迟。</li>
+          <li><strong>单遍 Logits→Loss+dLogits (<code>L3-07</code>) &amp; 单读 LayerNorm 反向 (<code>L3-06</code>)</strong>：分别消除 <code>[chunk_t, V]</code> 的 2 次多余 DRAM 扫盘与 <code>(x, dy)</code> 的双倍读取。</li>
+          <li><strong>片上变换 Winograd <code>F(4×4, 3×3)</code> &amp; 通道分块 RMSNorm</strong>：攻克 <code>L1 #57/#71/#63</code>（0.76x–0.89x）的 36-tile workspace 带宽墙与 <code>L1 #36</code>（0.66x）的 1 MB 步长 64 路 TLB 抖动。</li>
+          <li><strong>硬件亲和权重重排 (<code>L3-10</code>)</strong>：离线把 W4 nibble 交错排布成直接对齐 <code>simdgroup_half8x8</code> 寄存器 lane 的格式，榨干 LLM decode 带宽。</li>
+        </ul>
+        <div class="antipattern"><strong>客观硬件边界</strong>：Apple M1 Max 的闭源 AMX 协处理器在规整稠密大矩阵（<code>L1 #1 0.98x</code>, <code>#7 0.89x</code>）上有固定优势；死磕最后 5% 性价比低，主战场应锁定 L2 融合与 L3 算法。</div>
+      </div>
+    </div>
+
+    <div class="card" style="overflow-x:auto;">
+      <h3>实证账本：来自 <code>.audit/experiments.tsv</code> &amp; <code>experiments_v2.tsv</code> 的 13 次真实正反实验（含 4 次回退）</h3>
+      <table class="small-table" id="expTable">
+        <thead>
+          <tr>
+            <th>阶段</th>
+            <th>实验假设 / 改动</th>
+            <th class="num">基线 → 候选</th>
+            <th>结论</th>
+            <th>实测归因与架构启示</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="allcases">
+    <div class="sec-head">
+      <div>
+        <h2>5. 全量 210 Cases 完整交互式性能总表（L1 100 + L2 100 + L3 10）</h2>
+        <p class="sec-desc">点击任意列标题排序，点击任意行展开 3-Seed 误差详情、抖动 IQR、冷编译耗时与 Agent 诊断</p>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn active tbl-suite-btn" data-suite="ALL" type="button">全部 (210)</button>
+        <button class="btn tbl-suite-btn" data-suite="L1" type="button">L1 (100)</button>
+        <button class="btn tbl-suite-btn" data-suite="L2" type="button">L2 (100)</button>
+        <button class="btn tbl-suite-btn" data-suite="L3" type="button">L3 (10)</button>
+      </div>
+      <select class="select-input" id="catSelect"><option value="ALL">全部分类</option></select>
+      <select class="select-input" id="spSelect">
+        <option value="ALL">全部加速比</option>
+        <option value="lt090">&lt; 0.90x (重点瓶颈)</option>
+        <option value="090to098">0.90x – 0.98x (小幅落后)</option>
+        <option value="lt098">&lt; 0.98x (全部待优化)</option>
+        <option value="eq100">0.98x – 1.05x (持平)</option>
+        <option value="1to2">1.05x – 2.00x</option>
+        <option value="2to5">2.00x – 5.00x</option>
+        <option value="5to15">5.00x – 15.0x</option>
+        <option value="gt15">&gt; 15.0x</option>
+      </select>
+      <select class="select-input" id="bucketSelect">
+        <option value="ALL">全部收益归因桶</option>
+        <option value="A">桶A: 逼近硬件 SOL</option>
+        <option value="B">桶B: 代数/结构化简</option>
+        <option value="C">桶C: MPS 3D/转置短板</option>
+        <option value="D">桶D: 消除循环/Dispatch</option>
+      </select>
+      <input class="search-input" id="searchInput" type="search" placeholder="搜索 ID、算子名、分类或 Agent 解读..." />
+    </div>
+
+    <div class="filter-summary" id="filterSummary"></div>
+
+    <div class="table-wrap">
+      <table id="allTable">
+        <thead>
+          <tr>
+            <th class="sortable" data-col="suite">Suite</th>
+            <th class="sortable num" data-col="id">ID</th>
+            <th class="sortable" data-col="name">Task Name</th>
+            <th class="sortable" data-col="cat">分类</th>
+            <th class="sortable num" data-col="base_ms">Base MPS (ms)</th>
+            <th class="sortable num" data-col="cand_ms">M1Triton (ms)</th>
+            <th class="sortable num" data-col="speedup">Speedup</th>
+            <th class="sortable num" data-col="dpf">DPF</th>
+            <th class="sortable num" data-col="max_err">Max Err</th>
+            <th class="sortable" data-col="bucket">归因</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <div>Generated directly from frozen SHA-256 artifacts: <code>.audit/roofline_m1max.json</code>, <code>eval_final_100.json</code>, <code>eval_final_l2_100.json</code>, <code>eval_final_l3_10.json</code>.</div>
+    <div>M1Triton · Apple M1 Max · Zero External CDN · 100% Offline Reproducible</div>
+  </footer>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const REPORT = {"hardware":{"device":"Apple M1 Max","sram_kb":32,"max_tg":1024,"uma_gb":24.96,"bw_peak":373.83,"bw_triad":368.86,"fp32_peak":10.171,"fp16_peak":9.634,"ridge":27.21,"platform":"macOS-26.6-arm64-arm-64bit"},"summary":{"total":210,"beats":181,"ge98":195,"overall_gm":2.4661,"l1_gm":1.9268,"l1_beats":71,"l1_ge98":85,"l2_gm":3.013,"l2_beats":100,"l2_dpf_med":2,"l2_dpf1":24,"l3_gm":3.9235,"l3_beats":10,"bucket_counts":{"A":153,"B":5,"C":40,"D":12}},"roofline_points":[{"key":"L1 #25","suite":"L1","id":25,"label":"L1 #25 Swish","shape":"4096 × 393216 FP32","kind":"bw","bucket":"A","ai":0.5,"cand_tf":0.182,"base_tf":0.072,"cand_gbs":363.5,"base_gbs":144.9,"cand_ms":35.444,"base_ms":88.934,"speedup":2.51,"sol_pct":97.2,"base_sol_pct":38.8},{"key":"L1 #89","suite":"L1","id":89,"label":"L1 #89 Cumsum","shape":"32768 × 32768 FP32","kind":"bw","bucket":"A","ai":0.12,"cand_tf":0.045,"base_tf":0.045,"cand_gbs":362.6,"base_gbs":361.5,"cand_ms":23.691,"base_ms":23.761,"speedup":1.0,"sol_pct":97.0,"base_sol_pct":96.7},{"key":"L1 #88","suite":"L1","id":88,"label":"L1 #88 MinGPTNewGelu","shape":"8192 × 8192 FP32","kind":"bw","bucket":"A","ai":1.5,"cand_tf":0.422,"base_tf":0.055,"cand_gbs":281.5,"base_gbs":36.8,"cand_ms":1.907,"base_ms":14.601,"speedup":7.66,"sol_pct":75.3,"base_sol_pct":9.8},{"key":"L1 #36","suite":"L1","id":36,"label":"L1 #36 RMSNorm (瓶颈)","shape":"112 × 64 × 512 × 512 FP32","kind":"bw","bucket":"H","ai":0.38,"cand_tf":0.027,"base_tf":0.041,"cand_gbs":71.5,"base_gbs":108.5,"cand_ms":210.389,"base_ms":138.556,"speedup":0.66,"sol_pct":19.1,"base_sol_pct":29.0},{"key":"L2 #42","suite":"L2","id":42,"label":"L2 #42 ConvT2d+GAP+...","shape":"16 × 64→128 × 512² (最小代数I/O)","kind":"bw","bucket":"B","ai":0.5,"cand_tf":0.146,"base_tf":0.004,"cand_gbs":291.9,"base_gbs":9.0,"cand_ms":3.678,"base_ms":119.81,"speedup":32.57,"sol_pct":78.1,"base_sol_pct":2.4},{"key":"L1 #7","suite":"L1","id":7,"label":"L1 #7 Small-K Matmul (瓶颈)","shape":"32768 × 64 × 32768 FP32","kind":"compute","bucket":"H","ai":31.88,"cand_tf":6.614,"base_tf":7.44,"cand_gbs":207.5,"base_gbs":233.4,"cand_ms":20.78,"base_ms":18.473,"speedup":0.89,"sol_pct":65.0,"base_sol_pct":73.1},{"key":"L1 #72","suite":"L1","id":72,"label":"L1 #72 Grouped ConvT3d","shape":"8×32→32 G=4 K=3×5×7 s=2","kind":"compute","bucket":"C","ai":46.63,"cand_tf":1.163,"base_tf":0.049,"cand_gbs":24.9,"base_gbs":1.1,"cand_ms":5.113,"base_ms":120.359,"speedup":23.54,"sol_pct":11.4,"base_sol_pct":0.5},{"key":"L1 #6","suite":"L1","id":6,"label":"L1 #6 Large-K Split-K","shape":"256 × 524288 × 256 FP32","kind":"compute","bucket":"A","ai":63.98,"cand_tf":5.937,"base_tf":0.71,"cand_gbs":92.8,"base_gbs":11.1,"cand_ms":11.576,"base_ms":96.761,"speedup":8.36,"sol_pct":58.4,"base_sol_pct":7.0},{"key":"L2 #27","suite":"L2","id":27,"label":"L2 #27 Conv3d+HSwish+GN+Mean","shape":"1024×3→16 16×32×32 K=4","kind":"compute","bucket":"C","ai":74.94,"cand_tf":2.423,"base_tf":0.11,"cand_gbs":32.3,"base_gbs":1.5,"cand_ms":28.394,"base_ms":625.912,"speedup":22.04,"sol_pct":23.8,"base_sol_pct":1.1},{"key":"L1 #97","suite":"L1","id":97,"label":"L1 #97 FlashAttention","shape":"32×32×512×1024 FP32","kind":"compute","bucket":"A","ai":128.0,"cand_tf":7.727,"base_tf":7.456,"cand_gbs":60.4,"base_gbs":58.2,"cand_ms":142.292,"base_ms":147.471,"speedup":1.04,"sol_pct":76.0,"base_sol_pct":73.3},{"key":"L1 #66","suite":"L1","id":66,"label":"L1 #66 Conv3d Asym","shape":"8×3→64 16×128² K=3×5×7","kind":"compute","bucket":"C","ai":148.84,"cand_tf":4.7,"base_tf":0.451,"cand_gbs":31.6,"base_gbs":3.0,"cand_ms":14.537,"base_ms":151.317,"speedup":10.41,"sol_pct":46.2,"base_sol_pct":4.4},{"key":"L3-01","suite":"L3","id":1,"label":"L3-01 FA2 GQA Causal","shape":"B=4 Hq=16 Hkv=4 L=1024 D=64","kind":"compute","bucket":"A","ai":204.8,"cand_tf":3.056,"base_tf":0.941,"cand_gbs":14.9,"base_gbs":4.6,"cand_ms":2.811,"base_ms":9.124,"speedup":3.25,"sol_pct":30.0,"base_sol_pct":9.3},{"key":"L1 #15","suite":"L1","id":15,"label":"L1 #15 LowerTri (精确1/3N³)","shape":"4096 × 4096 LowerTri FP32","kind":"compute","bucket":"B","ai":227.56,"cand_tf":5.44,"base_tf":1.375,"cand_gbs":23.9,"base_gbs":6.0,"cand_ms":4.21,"base_ms":16.661,"speedup":3.96,"sol_pct":53.5,"base_sol_pct":13.5},{"key":"L3-07","suite":"L3","id":7,"label":"L3-07 Chunked Linear+CE (Fwd+Bwd)","shape":"BT=2048 H=1024 V=32768 (3×SGMM)","kind":"compute","bucket":"H","ai":501.55,"cand_tf":7.19,"base_tf":5.738,"cand_gbs":14.3,"base_gbs":11.4,"cand_ms":57.347,"base_ms":71.862,"speedup":1.25,"sol_pct":70.7,"base_sol_pct":56.4},{"key":"L1 #18","suite":"L1","id":18,"label":"L1 #18 Transposed-AB Matmul","shape":"2048 × 8192 × 4096 FP32","kind":"compute","bucket":"A","ai":585.14,"cand_tf":6.752,"base_tf":3.609,"cand_gbs":11.5,"base_gbs":6.2,"cand_ms":20.355,"base_ms":38.08,"speedup":1.87,"sol_pct":66.4,"base_sol_pct":35.5},{"key":"L3-10","suite":"L3","id":10,"label":"L3-10 W4A16 Dequant GEMM","shape":"256 × 4096 × 4096 (W4/FP16)","kind":"compute","bucket":"A","ai":655.36,"cand_tf":5.593,"base_tf":1.833,"cand_gbs":8.5,"base_gbs":2.8,"cand_ms":1.536,"base_ms":4.685,"speedup":3.05,"sol_pct":58.1,"base_sol_pct":19.0},{"key":"L1 #1","suite":"L1","id":1,"label":"L1 #1 Square Matmul","shape":"4096 × 4096 × 4096 FP32","kind":"compute","bucket":"A","ai":682.67,"cand_tf":8.22,"base_tf":8.378,"cand_gbs":12.0,"base_gbs":12.3,"cand_ms":16.72,"base_ms":16.404,"speedup":0.98,"sol_pct":80.8,"base_sol_pct":82.4}],"deep_dives":[{"group":"winner","key":"L1 #1","title":"Square Matmul 4096³ — 硬件算力标尺","suite":"L1","id":1,"bucket":"A · 逼近硬件极限","layer":"已逼近 SOL","layer_code":"sol","metric":"8.22 TF (80.8% FP32 SOL)","why":"使用 <code>mma2<\/code> 寄存器预取的 <code>simdgroup_float8x8<\/code> 乘加微核 + 直接 <code>simdgroup_store<\/code> 回写（省去 SRAM 尾声反弹）+ SRAM Bank Swizzle，实测 8.22 TFLOPS，达到 M1 Max 实测峰值 10.171 TF 的 80.8%，与苹果官方闭源 MPSGraph (8.38 TF) 仅差 1.9%。","headroom":"剩余空间极小（&lt;10%）。MPSGraph 在规整大矩阵上可调度苹果私有 AMX 协处理器与私有硬件微指令；单算子稠密 GEMM 已验证编译器底座不存在明显短板，真正高回报在融合（L2）与非标结构（L3）。","base_ms":16.404,"cand_ms":16.72,"speedup":0.98},{"group":"winner","key":"L1 #6","title":"Large-K Matmul (256×524288×256) — Split-K 救活并行度","suite":"L1","id":6,"bucket":"A · 逼近硬件极限","layer":"编译器 Pass","layer_code":"compiler","metric":"5.94 TF (58.4% SOL) vs MPS 7.0%","why":"输出矩阵仅 256×256，普通 64×64 分块只能生成 16 个 Threadgroup，M1 Max 32 核一半空转（MPS 仅跑到 0.71 TF / 7.0% SOL）。M1Triton 通过 <code>tlx.tile_spec(split_k=...)<\/code> 切分 K 维并发射向量化 <code>float4<\/code> 规约，将算力拉升至 5.94 TF（58.4% SOL），获得 8.36x 实打实的并行度收益。","headroom":"<strong>编译器 Pass 层<\/strong>：当前 Split-K 因子由 kernel 启发式决定；若在 <code>FusionOccupancyCostModelPass<\/code> 中增加基于 <code>grid_tiles &lt; 2 * num_cores<\/code> 的自动 Split-K 决策与原子/双阶段归约自动生成，所有窄输出 GEMM/Conv 无需手写双核。","base_ms":96.761,"cand_ms":11.576,"speedup":8.36},{"group":"winner","key":"L1 #15","title":"Lower-Triangular Matmul 4096³ — 结构感知死块剪枝","suite":"L1","id":15,"bucket":"B · 精确代数/结构化简","layer":"DSL / 语言","layer_code":"dsl","metric":"5.44 TF (精确 ⅓N³ FLOPs, 53.5% SOL)","why":"PyTorch MPS 将下三角矩阵乘法当作完整稠密 GEMM 计算 (2N³ 乘加后再 <code>tril<\/code>)，浪费 5/6 算力。M1Triton 通过语言层契约 <code>tlx.structure('lower_triangular')<\/code> 驱动 <code>StructureAwareDeadTilePruningPass<\/code> 直接跳过全零 k-tile 与死输出块，在精确有效 FLOPs 口径下依然达到 5.44 TF（53.5% SOL），实现 3.96x 加速。","headroom":"<strong>DSL 层<\/strong>：这是 Co-design 最经典的范例——编译器无法凭空证明任意输入矩阵是三角/块稀疏的，但只要语言提供 1 行结构契约，Pass 即可零风险剪枝。可扩展到 <code>block_sparse<\/code> / <code>causal_band<\/code> / <code>symmetric_output<\/code>。","base_ms":16.661,"cand_ms":4.21,"speedup":3.96},{"group":"winner","key":"L1 #25","title":"Swish (1.61B FP32) & L1 #88 MinGPTNewGelu — 贴近 STREAM 天花板","suite":"L1","id":25,"bucket":"A · 逼近硬件极限","layer":"已逼近 SOL","layer_code":"sol","metric":"363.5 GB/s (97.2% BW SOL)","why":"<code>tlx.vec_width(4)<\/code> + <code>ContiguityAndAlignmentAnalysis<\/code> 证明 16B 对齐后发射 128-bit <code>float4<\/code> 4x-ILP 访存，将多步 <code>x * sigmoid(x)<\/code> 与 <code>MinGPTNewGelu<\/code> (7.66x, 281.5 GB/s) 全部锁死在寄存器内完成，单遍读写直接跑到 363.5 GB/s（97.2% 实测 STREAM 极限）。","headroom":"单算子已触碰硬件带宽墙（&lt;3% 空间）。此类逐元素算子唯一有意义的新增收益来自 <strong>L2 级跨算子 Epilogue 融合<\/strong>，将其吞进上游 GEMM/Conv，直接消灭整次 12.9 GB 读写。","base_ms":88.934,"cand_ms":35.444,"speedup":2.51},{"group":"winner","key":"L1 #66","title":"Conv3D Asymmetric (K=3×5×7) — 隐式 GEMM 击穿 MPS 3D 短板","suite":"L1","id":66,"bucket":"C · MPS 3D/转置短板 + 高 SOL SGMM","layer":"编译器 + 算子","layer_code":"compiler","metric":"4.70 TF (46.2% SOL) vs MPS 0.45 TF","why":"MPS 在 3D 卷积尤其是大非对称核 (3×5×7) 上缺乏针对性 SGMM 调度，仅跑出 0.45 TF（4.4% SOL）。M1Triton <code>ConvLoweringPass<\/code> 将 3D 卷积展平为隐式 GEMM，使用 BK=16 流水线 <code>simdgroup_float8x8<\/code> 算子直接拉到 4.70 TF（46.2% SOL），实现 10.41x 加速。","headroom":"46.2% → 65%+ SOL 仍有 ~1.4x 提升空间：受限于小输入通道 <code>C_in=3<\/code> 下按 <code>(C_in·K_d·K_h·K_w)<\/code> 展开的坐标取模除法开销，可在 <strong>编译器 Pass<\/strong> 中引入定点数快速除模 (magic-number divmod) 与 3D 空间 Halo 复用。","base_ms":151.317,"cand_ms":14.537,"speedup":10.41},{"group":"winner","key":"L1 #97","title":"ScaledDotProductAttention (32×32×512×1024) — 复用空闲 SRAM 达 76% SOL","suite":"L1","id":97,"bucket":"A · 逼近硬件极限","layer":"算子 / 算法","layer_code":"kernel","metric":"7.73 TF (76.0% SOL) vs MPS 73.3%","why":"Two-Wave <code>BM=32, BN=512<\/code> 交换 <code>K@Qᵀ<\/code>，并巧妙利用空闲的 32 KB SRAM 双缓冲存放转置后的 <code>Qᵀ<\/code>，消除 <code>transpose_matrix=true<\/code> 硬件惩罚，使 <code>K@Qᵀ<\/code> 达 7.6 TF、<code>P@V<\/code> 达 8.35 TF，端到端 7.73 TF（76.0% SOL），正面击败 PyTorch MPS SDPA。","headroom":"在 FP32 下已逼近 16-SG 寄存器压力上限；若面向 LLM 推理切换 FP16/BF16 并扩展至 GQA 共享 KV（如 <code>L3-01<\/code> 3.25x），可进一步释放带宽和容量红利。","base_ms":147.471,"cand_ms":142.292,"speedup":1.04},{"group":"winner","key":"L2 #77","title":"ConvT3d+Scale+BN+GAP (421.37x) & L2 #42 (32.57x) — 代数重排消灭巨型 5D 张量","suite":"L2","id":77,"bucket":"B · 精确代数/结构化简","layer":"编译器 + DSL","layer_code":"dsl","metric":"967.45ms → 2.30ms (421.37x) · L2 #42 291.9 GB/s (78.1% SOL)","why":"<strong>必须透明披露<\/strong>：421x 并非把 5D ConvT3d 算出了超光速，而是利用了零填充转置卷积 + 仿射缩放/BN + 全局平均池化 (GAP) 的严格线性可交换性——先对输入空间规约再做权重折叠矩阵乘，把原本数 GB 的 5D 中间张量直接化为 0 落盘！<code>L2 #42<\/code> 按最小代数 I/O (1.074 GB) 计也达到 291.9 GB/s（78.1% 带宽 SOL）。","headroom":"<strong>编译器 Pass + DSL 契约<\/strong>：当前此类代数折叠通过 <code>AlgebraicNormFoldingPass<\/code> 与特定任务触发；若在 FX 图分区器 (<code>compile_backend.py<\/code>) 中做通用的线性算子交换重写（检测 <code>padding==0 && linear_chain && GAP<\/code>），可让任意 PyTorch 模型零改代码自动获得数量级收益。","base_ms":967.452,"cand_ms":2.296,"speedup":421.37},{"group":"winner","key":"L3-08","title":"Mamba Selective SSM Scan (66.58x) & L3-03 PagedAttn (12.42x) — 消灭 Python 步进循环","suite":"L3","id":8,"bucket":"D · 消除循环与碎片化 Dispatch","layer":"DSL / 语言","layer_code":"dsl","metric":"55.69ms → 0.84ms (66.58x) · 1 Dispatch","why":"PyTorch Eager 对 Mamba 的 512 步状态递推只能写 Python <code>for t in range(L)<\/code>（发起上千次小 kernel launch，CPU 调度与中间激活读写完全淹没 GPU）。M1Triton 用单核分块并行关联扫描 (Blelloch associative scan) 将全部 <code>N_state=16<\/code> 隐状态锁在 SIMD 寄存器与 SRAM 中，单次 dispatch 仅需 0.84 ms。","headroom":"<strong>DSL 层<\/strong>：当前底层依赖 <code>tlx.row_scan<\/code> / 专用 emitter；若 DSL 原生暴露 <code>tl.associative_scan<\/code> + <code>tlx.subgroup_shuffle<\/code>，用户可直接用 30 行 Python 编写任意线性注意力 / Mamba-2 / RWKV 变体而无需改 C++ 后端。","base_ms":55.689,"cand_ms":0.837,"speedup":66.58},{"group":"winner","key":"L3-10","title":"W4A16 4-bit Group-Quantized GEMM — 寄存器位解包 + 8x 显存压缩","suite":"L3","id":10,"bucket":"A · 逼近硬件极限","layer":"算子 / 算法","layer_code":"kernel","metric":"5.59 TF (58.1% FP16 SOL, 3.05x)","why":"PyTorch MPS 参考实现必须先把 4-bit 权重完整反量化成 32 MB FP16/64 MB FP32 写回内存再调 GEMM。M1Triton <code>tlx.quant_dot<\/code> 在寄存器内用位运算将 <code>uint32<\/code>（8 个 int4）实时解包并乘以 group-128 scale/zero，直接喂给 <code>simdgroup_half8x8<\/code> MMA，将权重显存从 64 MB 压到 8.5 MB，实测 5.59 TF（58.1% FP16 峰值），加速 3.05x。","headroom":"<strong>算子 + 数据排布层<\/strong>：在 decode 阶段 (<code>M=1..16<\/code>) 转入带宽受限时，将权重离线交错重排为匹配 <code>simdgroup_half8x8<\/code> lane 映射的 nibble 布局，可把位提取指令减少一半并逼近 350+ GB/s 带宽极限。","base_ms":4.685,"cand_ms":1.536,"speedup":3.05},{"group":"bottleneck","key":"L1 #36","title":"RMSNorm (0.66x) — 全库最大瓶颈：17.25 KB SRAM 悬崖 + 64 路 TLB 抖动","suite":"L1","id":36,"bucket":"H · 显著提升空间","layer":"编译器 Pass + 算子","layer_code":"compiler","metric":"210.39ms vs 138.56ms · 仅 71.5 GB/s (19.1% SOL)","why":"<strong>源码级根因诊断<\/strong>（<code>norm_softmax_emitter.cpp:713<\/code>）：输入形状为 <code>(112, 64, 512, 512)<\/code>（7.52 GB），规约轴 <code>C=64<\/code> 在中间维（相邻通道步长 <code>HW = 1 MB<\/code>）。当前 1-read SRAM 微核分配 <code>m1_tile[64×16] float4 = 16 KB<\/code> + <code>m1_part/m1_scl = 1.25 KB<\/code> = <strong>17.25 KB &gt; 16 KB<\/strong>！这精确踩中了 M1 Max 32 KB SRAM 半线悬崖，导致每核驻留 TG 数跌至 <strong>1 TG/core<\/strong>，同时每个 TG 跨 64 个 1 MB 虚拟页并发取数，造成严重 TLB miss 且毫无延迟隐藏！","headroom":"<strong>极高空间（预计 0.66x → 1.5x–2.2x）<\/strong>：<br>① <strong>编译器 Pass<\/strong>：将 <code>WelfordNorm<\/code> 纳入 <code>FusionOccupancyCostModelPass<\/code>，当 <code>sram &gt; 16 KB<\/code> 时自动将 <code>TILE_HW<\/code> 从 64 折半至 32（SRAM 降至 ~8.8 KB，恢复 3 TGs/core）。<br>② <strong>算子算法<\/strong>：对 <code>HW ≥ 64K<\/code> 的中间维规约改用 0-SRAM 寄存器分块 2-pass（每次流式扫 8–16 个通道，消除 64 路 TLB 抖动，4+ TGs/core）。","base_ms":138.556,"cand_ms":210.389,"speedup":0.66},{"group":"bottleneck","key":"L1 #57/#71","title":"ConvTranspose2d #57 (0.78x) / #71 (0.76x) & Conv2d #63 (0.89x) — 大图小通道 Winograd 选型缺口","suite":"L1","id":71,"bucket":"H · 显著提升空间","layer":"算子算法 + Runtime","layer_code":"kernel","metric":"#71: 11.02ms vs 8.36ms (0.76x) · #57: 72.93ms vs 56.81ms (0.78x)","why":"三者共同特征：<code>3×3, stride=1<\/code>、超大空间分辨率 (<code>1024×1024<\/code> / <code>512×1024<\/code>)、偏小通道数 (<code>C=16..64<\/code>)。实测它们仍停留在 2-dispatch 的 <code>Winograd F(2×2, 3×3)<\/code>（MAC 仅降 2.25x），而分段 <code>F(4×4, 3×3)<\/code>（如 <code>L1 #55<\/code> 0.92x, 112 dispatches）虽能把 MAC 再降 1.78x，却必须把 36 个变换矩阵中间落盘到 DRAM workspace，通道小时变换读写带宽反超计算收益。","headroom":"<strong>中高空间（预计 0.76x–0.89x → 1.15x–1.40x）<\/strong>：<br>① <strong>算子算法<\/strong>：实现片上 SRAM 融合变换的 <code>F(4×4, 3×3)<\/code>（避免 36-tile DRAM workspace）或对 <code>C ≤ 32<\/code> 走寄存器滑窗直接卷积。<br>② <strong>Runtime / Compiler<\/strong>：对分段 Winograd（同时影响 <code>L2 #4/#17/#32/#46<\/code> 的 59–113 次 dispatch）用 <code>MetalGraph<\/code> ICB 合并发射。","base_ms":8.363,"cand_ms":11.021,"speedup":0.76},{"group":"bottleneck","key":"L1 #7","title":"Small-K Matmul 32768×64×32768 (0.89x) & BMM #3 (0.93x) — Ridge Point 写带宽与硬件边界","suite":"L1","id":7,"bucket":"H · 显著提升空间","layer":"编译器 Pass","layer_code":"compiler","metric":"6.61 TF (65.0% SOL) vs MPS 7.44 TF","why":"<code>K=64<\/code> 时仅需 4 步 K 迭代便要写回高达 <strong>4.29 GB<\/strong> 的输出矩阵 C，算术强度 <code>AI = 31.9 FLOP/B<\/code> 紧贴 M1 Max 拐点 (27.2)。当前 K 维循环极短，难以靠长流水线掩盖启动与写回延迟，且 4-SG/8-SG 驻留度受寄存器与 SRAM 占用制约。","headroom":"<strong>小到中等空间（0.89x → ~1.00x）<\/strong>：<br><strong>编译器 Pass<\/strong>：在 <code>TileAndLayoutAssignmentPass<\/code> 针对小 K（<code>K ≤ 128<\/code>）自动启用更大输出 tile (<code>128×128<\/code>) 降写事务数、开启 K=64 全展开免循环分支与非临时流式写回。剩余 3–5% 属于苹果私有 AMX 硬件差异边界。","base_ms":18.473,"cand_ms":20.78,"speedup":0.89},{"group":"bottleneck","key":"L2 #43","title":"Conv3d+MaxPool3d+LSE+ReLU (1.02x) & L2 #11 (1.09x) / #17 (1.13x) — 跨算子 Reduction/Window 融合缺口","suite":"L2","id":43,"bucket":"H · 显著提升空间","layer":"编译器 Pass / IR","layer_code":"compiler","metric":"#43: 81.02ms (dpf=3) · #17: 39.53ms (dpf=60) · #11: 71.90ms (dpf=5)","why":"<strong>源码级根因<\/strong>：当前 <code>EpilogueDAGAttr<\/code> 只能融合<strong>逐元素<\/strong>后处理（如 <code>L2 #11<\/code> 融合了 BN+Tanh），但无法融合<strong>空间窗口消费<\/strong>（<code>Conv → MaxPool2d/3d<\/code>）或<strong>归约统计量收集<\/strong>（<code>Conv → InstanceNorm/GroupNorm<\/code> 的 <code>sum / sum_sq<\/code>）。因此 <code>L2 #43<\/code> 必须把整张 5D 卷积输出写回 DRAM，再读回来做 MaxPool3d；<code>L2 #17<\/code> 写回 4D 特征图后再被 InstanceNorm 读两遍！","headroom":"<strong>最大通用编译器红利（预计 1.02x–1.13x → 1.5x–2.2x）<\/strong>：<br><strong>编译器 IR &amp; Pass 层<\/strong>：将 <code>EpilogueDAG<\/code> 升级为两类新尾融合原语——① <em>Reduction Epilogue<\/em>（在 Conv/GEMM 写回的同时顺手原子/分段累加通道 <code>sum, sum_sq<\/code>，把 InstanceNorm/GroupNorm 砍成 1-pass）；② <em>Spatial-Window Consumer Epilogue<\/em>（2×2/2×2×2 输出 tile 在 SRAM 内直接取 Max/Avg 后写回，直接砍掉 4x–8x DRAM 写回流量）。","base_ms":82.687,"cand_ms":81.02,"speedup":1.02},{"group":"bottleneck","key":"L3-02","title":"FlashAttention-2 Fwd+Bwd (1.05x) — 双核反向重算 + 前向同步开销","suite":"L3","id":2,"bucket":"H · 显著提升空间","layer":"算子 + 编译器 + Runtime","layer_code":"compiler","metric":"1.880ms vs 1.973ms (1.05x) · ICB 实测 Bwd 可再快 1.47x","why":"源码 <code>l3_02_flash_attn2_bwd.py<\/code> 显示两大瓶颈：① Backward 拆分为 <code>BwdDKDV<\/code> 与 <code>BwdDQ<\/code> 两个独立 kernel（虽在并发 <code>command_batch<\/code> 中并行），但 <code>Q, K, V, dO<\/code> 被读两遍且 <code>S=QKᵀ, P=exp(S-LSE)<\/code> 被重算两遍；② <code>B=2, H=8, L=512<\/code> 规模小，单次前向 <code>waitUntilCompleted<\/code> 往返占比极高。且实验账本证明直接把 SRAM 翻倍到 17.6 KB 做双缓冲会掉 occupancy（0.94x → 0.90x）。","headroom":"<strong>高空间（预计 1.05x → 1.45x–1.80x）<\/strong>：<br>① <strong>编译器 Pass<\/strong>：SRAM 活跃区间着色复用（<code>Q/K<\/code> 与 <code>P/dS<\/code> 分时共享同一块 &lt;12 KB SRAM），在保持 3 TGs/core 下消除冲突。<br>② <strong>算子算法<\/strong>：单循环 fused backward（计算 dK/dV 时同步用原子或分块归约累加 dQ，省去一半 QKᵀ/exp 重算）。<br>③ <strong>Runtime / Autograd<\/strong>：利用已验证快 1.47x 的 <code>MetalGraph<\/code> Compute ICB（0.921ms vs 1.354ms）配合异步跨队事件消除前向强制同步。","base_ms":1.973,"cand_ms":1.88,"speedup":1.05},{"group":"bottleneck","key":"L3-06","title":"Fused LayerNorm Fwd+Bwd (1.18x) — 反向双读 X/dY + 独立清零核","suite":"L3","id":6,"bucket":"H · 显著提升空间","layer":"算子 + DSL","layer_code":"dsl","metric":"1.626ms vs 1.913ms (1.18x) · Bwd 3 Dispatches","why":"查看 <code>l3_06_fused_layernorm_fwd_bwd.py:445-478<\/code>：反向共发 3 个 kernel——<code>zero_dwdb<\/code> 清零、<code>bwd_dx<\/code> 完整读一遍 <code>(x, dy)<\/code> 算 <code>dx<\/code>、<code>bwd_dwdb_atomic<\/code> <strong>再完整读一遍 <code>(x, dy)<\/code><\/strong> 用 <code>atomic_float<\/code> 累参数梯度，带宽流量直接翻倍！","headroom":"<strong>中高空间（预计 1.18x → 1.55x–1.85x）<\/strong>：<br><strong>算子算法 + DSL 原语<\/strong>：采用经典 Triton 持久化分组融合（每个 TG 负责 <code>GROUP_SIZE_M<\/code> 行：一次读入 <code>(x, dy)<\/code>，算完 <code>dx<\/code> 写回的同时把局部 <code>dw, db<\/code> 累在寄存器/片上缓冲，退出前只写一次部分和 + 轻量级阶段 2 规约）。在 DSL 中抽象 <code>tlx.persistent_reduce<\/code> 即可让 LayerNorm/RMSNorm/BatchNorm 反向通用复用。","base_ms":1.913,"cand_ms":1.626,"speedup":1.18},{"group":"bottleneck","key":"L3-07","title":"Chunked Linear + Cross-Entropy (1.25x) — 端到端已达 7.19 TF，切块内多扫 2 遍 Logits","suite":"L3","id":7,"bucket":"H · 显著提升空间","layer":"编译器 + 算子","layer_code":"compiler","metric":"7.19 TF (70.7% SOL 端到端!) · 零 [BT,V] 显存","why":"按 3 次 SGMM (<code>6·BT·H·V = 412.3 GFLOPs<\/code>) 折算，M1Triton 端到端已达 <strong>7.19 TF（70.7% FP32 峰值）<\/strong> 同时完全消除了 256 MB <code>[2048, 32768]<\/code> 巨型 logits 张量。剩余时间消耗在源码 <code>l3_07:491-520<\/code>：每个 chunk 内 <code>logits_c<\/code> 被写了读、读了写——先调 <code>online_log_softmax<\/code>、再 <code>gather<\/code>、再 <code>logp_to_dlogits<\/code> 扫一遍 <code>exp()<\/code>，且每 chunk 用 <code>ADD_RES=1<\/code> 重复读写 <code>dW [V, H]<\/code>！","headroom":"<strong>稳健空间（预计 1.25x → 1.45x–1.60x）<\/strong>：<br>① <strong>算子算法<\/strong>：将 <code>online_log_softmax + gather_nll + (exp - one_hot) * inv_bt<\/code> 合并为单遍 <code>[chunk_t, V]<\/code> 微核，直接省掉 2 次 64 MB 读写与重复 <code>exp<\/code>。<br>② <strong>编译器 Pass<\/strong>：支持可组合的 <em>Reduction-with-Epilogue<\/em> 融合，不再把 <code>tlx.online_softmax<\/code> 当作不可拼接的黑盒宏算子。","base_ms":71.862,"cand_ms":57.347,"speedup":1.25}],"cat_stats":{"L1":[{"cat":"Loss Functions","count":6,"beats":5,"ge98":5,"geomean":3.42,"min":0.96,"max":16.65},{"cat":"ConvTranspose (1D/2D/3D)","count":17,"beats":14,"ge98":14,"geomean":2.83,"min":0.76,"max":23.54},{"cat":"Pooling","count":6,"beats":6,"ge98":6,"geomean":2.79,"min":1.01,"max":9.6},{"cat":"Conv Standard / DW","count":18,"beats":14,"ge98":16,"geomean":2.07,"min":0.89,"max":10.41},{"cat":"Prefix Scan","count":5,"beats":5,"ge98":5,"geomean":1.84,"min":1.0,"max":3.99},{"cat":"Normalization","count":8,"beats":6,"ge98":6,"geomean":1.59,"min":0.66,"max":3.69},{"cat":"Axis Reduction","count":6,"beats":4,"ge98":4,"geomean":1.56,"min":0.96,"max":2.61},{"cat":"GEMM / Matmul","count":18,"beats":9,"ge98":13,"geomean":1.45,"min":0.89,"max":8.36},{"cat":"Activation & Softmax","count":15,"beats":7,"ge98":15,"geomean":1.41,"min":0.99,"max":7.66},{"cat":"Attention (SDPA)","count":1,"beats":1,"ge98":1,"geomean":1.04,"min":1.04,"max":1.04}],"L2":[{"cat":"ConvTranspose3d Fusion","count":19,"beats":19,"ge98":19,"geomean":11.13,"min":3.04,"max":421.37},{"cat":"Conv3d Fusion","count":12,"beats":12,"ge98":12,"geomean":3.98,"min":1.02,"max":22.04},{"cat":"ConvTranspose2d Fusion","count":11,"beats":11,"ge98":11,"geomean":3.28,"min":1.09,"max":32.57},{"cat":"Conv2d Fusion","count":21,"beats":21,"ge98":21,"geomean":2.09,"min":1.13,"max":4.63},{"cat":"GEMM / Matmul / BMM Fusion","count":37,"beats":37,"ge98":37,"geomean":1.69,"min":1.17,"max":2.15}],"L3":[{"cat":"SSM / Parallel Scan","count":1,"beats":1,"ge98":1,"geomean":66.58,"min":66.58,"max":66.58},{"cat":"Attention / Decode","count":4,"beats":4,"ge98":4,"geomean":4.12,"min":1.05,"max":12.42},{"cat":"Norm / RoPE / KV","count":2,"beats":2,"ge98":2,"geomean":3.01,"min":1.18,"max":7.68},{"cat":"MoE / Quantized GEMM","count":2,"beats":2,"ge98":2,"geomean":2.0,"min":1.31,"max":3.05},{"cat":"Fused Loss + Linear","count":1,"beats":1,"ge98":1,"geomean":1.25,"min":1.25,"max":1.25}]},"experiments":[{"phase":"v1.0 (L1)","premise":"m7-cluster-a-sgmm","hypothesis":"Register-prefetched mma2 SGMM + direct simdgroup_store + small-K N-major + Cast fix + 4x-ILP mat-scalar","baseline":"0.72","candidate":"0.962","direction":"higher","verdict":"keep","explanation":"Eliminated SRAM epilogue bounce, overlapped K-loads via mma2 register prefetch, N-major small-K cut #009 49.5->12.7ms (3.90x) and #007 52.4->20.8ms (2.52x); remaining limiter is 4-SG/8-SG peak occupancy vs MPSGraph AMX"},{"phase":"v1.0 (L1)","premise":"m7-cluster-b-dw-pool","hypothesis":"Barrier-free packed_float4 register-sliding-window DW2D & separable MaxPool2D + SGMM pointwise for #086","baseline":"0.678","candidate":"1.242","direction":"higher","verdict":"keep","explanation":"Eliminated SRAM halo barriers with 4-col x 16-row packed_float4 streaming (>400 GB/s), flipping #042 0.59->1.01x, #085 0.95->2.02x, #086 0.72->1.79x, #082-#084 0.58-0.68->0.99x; remaining limiter is 374 GB/s DRAM STREAM"},{"phase":"v1.0 (L1)","premise":"m7-cluster-c-conv-wino","hypothesis":"Winograd F(2x2)/F(4x4) 3x3 conv/conv_transpose + active-phase FUSE_SW ConvTranspose + BK=16 pipelined ConvStd","baseline":"0.619","candidate":"1.258","direction":"higher","verdict":"keep","explanation":"2.25x-4x Winograd FLOP reduction and active-phase compaction cut #081 0.52->2.68x, #079 0.85->2.11x, #075 0.66->1.97x, #076 0.98->1.56x, #056 0.91->1.18x, #055 0.43->0.93x; remaining limiter is transform/workspace DRAM traffic on large 3x3 F(2x2)"},{"phase":"v1.0 (L1)","premise":"m7-cluster-d-flashattn","hypothesis":"Two-Wave BM=32 BN=512 SWAP K@Q^T double-buffered Q^T in idle 32KB SRAM + FAST_ONLY + static strides","baseline":"0.77","candidate":"1.036","direction":"higher","verdict":"keep","explanation":"Reusing idle 32KB SRAM for transposed Q^T eliminates transpose_matrix=true overhead (K@Q^T 7.6 TF, P@V 8.35 TF) and FAST_ONLY removes fallback register bloat, cutting #097 198.5->142.3ms (1.04x live MPS, 1.82x pinned); remaining limiter is 16-SG register pressure"},{"phase":"v1.0 (L1)","premise":"m7-cluster-e-scan-loss-act","hypothesis":"1-row/TG cooperative row_scan + tiled 2x-unrolled flat loss + unmasked 4x-ILP fast4 activations","baseline":"0.946","candidate":"0.995","direction":"higher","verdict":"keep","explanation":"1-row/TG scan cut TLB footprint 8x flipping #089/#090 0.86/0.88->1.01/1.00x (371 GB/s); tiled grid-stride flat loss cut #096 27.9->25.3ms; fast4 cut activations to ~35.3ms (99-100% STREAM); remaining limiter is 374 GB/s DRAM"},{"phase":"v1.0 (L1)","premise":"m7-cluster-e-axis-reduce-4col","hypothesis":"4-col strided axis sum/mean kernel in _axis_reduce_common.py","baseline":"0.93","candidate":"0.835","direction":"higher","verdict":"reject","explanation":"4-col unroll regressed full-size (128,4096,4095) #047/#048 from 26.3/27.7ms to 28.5/28.8ms due to strided cache line thrashing; reverted _axis_reduce_common.py to 053c32e"},{"phase":"v2.0 (L2/L3)","premise":"l3-02-bwd-memory-layout","hypothesis":"Remove threadgroup m1_shm staging in FlashAttn BwdDKDV/BwdDQ and load Q/dO/K/V directly from device L1 via simdgroup_load","baseline":"2.05","candidate":"2.6701","direction":"lower","verdict":"reject","explanation":"Direct device simdgroup_load doubled Q/dO/K/V device fetches per tile without SRAM reuse across simdgroups and regressed L3-02 from 2.05ms to 2.67ms; reverted."},{"phase":"v2.0 (L2/L3)","premise":"l3-02-bwd-memory-layout","hypothesis":"Stream K/V/Q/dO 1 fragment at a time from L1 device memory instead of holding K/V/Q/dO in SGMM registers to cut register pressure below 64 regs","baseline":"1.8726","candidate":"2.1184","direction":"lower","verdict":"reject","explanation":"Re-fetching K/V/Q/dO from device memory every outer tile multiplied memory traffic (BwdDQ jumped 0.279ms -> 0.741ms) outweighing occupancy gain; premise tripped and reverted."},{"phase":"v2.0 (L2/L3)","premise":"runtime-concurrent-batch-and-fast-dispatch","hypothesis":"Upgrade command_batch() to MTLDispatchTypeConcurrent with automatic buffers_overlap barriers, split m1_shm live ranges + log2(e) prescale, and add fast-path JIT/Autotune binding without inspect.Signature.bind","baseline":"2.2045","candidate":"1.8726","direction":"lower","verdict":"keep","explanation":"Concurrent command_batch overlaps independent BwdDKDV and BwdDQ kernels on M1 Max (bwd GPU 1.5ms -> 0.713ms), while fast JIT binding cuts Python dispatch overhead; remaining limiter is forward waitUntilCompleted roundtrip and BwdDKDV 0.50ms GPU time."},{"phase":"v2.0 (L2/L3)","premise":"l3-02-bwd-pingpong-sram","hypothesis":"Double-buffer BwdDKDV m1_shm (8.8KB -> 17.6KB) to halve threadgroup barriers from 64 to 32","baseline":"0.9391","candidate":"0.8978","direction":"higher","verdict":"reject","explanation":"17.6KB threadgroup SRAM exceeded half of M1 Max 32KB SRAM, dropping resident TGs/core from 3 to 1 and regressing L3-02 speedup 0.94x -> 0.90x; reverted."},{"phase":"v2.0 (L2/L3)","premise":"l3-02-bwd-causal-sched-and-delta","hypothesis":"Keep 8.8KB single-buffer m1_shm (3 TGs/core), reverse BwdDQ causal tgid.x launch order to eliminate tail effect, and vectorize delta to 4 rows/TG","baseline":"0.9391","candidate":"1.1432","direction":"higher","verdict":"keep","explanation":"Reversing causal BwdDQ block order removes long-row tail stalls while 4-row/TG delta cuts grid overhead 4x and 8.8KB SRAM preserves 3 TGs/core; L3-02 now beats PyTorch MPS (1.14x) even with wait=True on forward; remaining limiter is forward waitUntilCompleted roundtrip."},{"phase":"v2.0 (L2/L3)","premise":"l2-wino-fusion-sprint","hypothesis":"Fuse transposed Winograd F(2x2)+GELU on #19 (154->4 dispatches), unlock F(4x4,3x3) fused-epilogue Winograd for spatial_out>=15000 on #4/#17/#32/#46, and add vec4 channel_min for #32","baseline":"1.158","candidate":"1.2904","direction":"higher","verdict":"keep","explanation":"F(4x4,3x3) cuts Conv2d MACs 1.78x over F(2x2,3x3) with fused register epilogues (#4 1.25x->1.50x, #46 1.18x->1.38x, #17 1.01x->1.12x, #32 1.06x->1.13x) and #19 drops 154->4 dispatches while eliminating 13.6ms gelu_1d DRAM roundtrip (1.32x->1.38x); remaining limiter is Conv output + GroupNorm/InstanceNorm DRAM bandwidth."},{"phase":"v2.0 (L2/L3)","premise":"runtime-metalgraph-icb-vs-batch","hypothesis":"Capture and replay 3-kernel FlashAttention-2 backward chain via MetalGraph Compute ICB vs concurrent command_batch on static buffers","baseline":"1.354","candidate":"0.921","direction":"lower","verdict":"keep","explanation":"MetalGraph Compute ICB eliminates per-step Python arg binding and MTLComputeCommandEncoder re-encoding via optimizeIndirectCommandBuffer (wall 1.354ms -> 0.921ms, 1.471x faster; gpu 0.874ms -> 0.646ms); dynamic-buffer autograd uses concurrent command_batch while static-buffer loops use MetalGraph."}],"tasks":[{"suite":"L1","id":1,"name":"Square_matrix_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":16.4042,"cand_ms":16.7202,"base_iqr":0.2549,"cand_iqr":0.1125,"speedup":0.9811,"dpf":1,"total_disp":3,"cold_ms":1783.1,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_001.py","note":"使用 <code>mma2<\/code> 寄存器预取的 <code>simdgroup_float8x8<\/code> 乘加微核 + 直接 <code>simdgroup_store<\/code> 回写（省去 SRAM 尾声反弹）+ SRAM Bank Swizzle，实测 8.22 TFLOPS，达到 M1 Max 实测峰值 10.171 TF 的 80.8%，与苹果官方闭源 MPSGraph (8.38 TF) 仅差 1.9%。","headroom":"剩余空间极小（&lt;10%）。MPSGraph 在规整大矩阵上可调度苹果私有 AMX 协处理器与私有硬件微指令；单算子稠密 GEMM 已验证编译器底座不存在明显短板，真正高回报在融合（L2）与非标结构（L3）。","layer":"已逼近 SOL"},{"suite":"L1","id":2,"name":"Standard_matrix_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":16.6048,"cand_ms":16.7296,"base_iqr":0.2082,"cand_iqr":0.2525,"speedup":0.9925,"dpf":1,"total_disp":3,"cold_ms":26.0,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_002.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":3,"name":"Batched_matrix_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":31.4929,"cand_ms":33.8012,"base_iqr":0.0499,"cand_iqr":0.0528,"speedup":0.9317,"dpf":1,"total_disp":3,"cold_ms":763.6,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_003.py","note":"","headroom":"","layer":""},{"suite":"L1","id":4,"name":"Matrix_vector_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":26.5299,"cand_ms":25.2795,"base_iqr":0.6007,"cand_iqr":0.4523,"speedup":1.0495,"dpf":1,"total_disp":3,"cold_ms":766.5,"max_err":0.46875,"max_bwd_err":null,"bucket":"A","file":"task_004.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":5,"name":"Matrix_scalar_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":23.546,"cand_ms":23.7951,"base_iqr":0.1864,"cand_iqr":0.1353,"speedup":0.9895,"dpf":1,"total_disp":3,"cold_ms":886.3,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_005.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":6,"name":"Matmul_with_large_K_dimension","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":96.7615,"cand_ms":11.5757,"base_iqr":2.0667,"cand_iqr":0.3074,"speedup":8.359,"dpf":2,"total_disp":6,"cold_ms":1711.5,"max_err":11.5234375,"max_bwd_err":null,"bucket":"A","file":"task_006.py","note":"输出矩阵仅 256×256，普通 64×64 分块只能生成 16 个 Threadgroup，M1 Max 32 核一半空转（MPS 仅跑到 0.71 TF / 7.0% SOL）。M1Triton 通过 <code>tlx.tile_spec(split_k=...)<\/code> 切分 K 维并发射向量化 <code>float4<\/code> 规约，将算力拉升至 5.94 TF（58.4% SOL），获得 8.36x 实打实的并行度收益。","headroom":"<strong>编译器 Pass 层<\/strong>：当前 Split-K 因子由 kernel 启发式决定；若在 <code>FusionOccupancyCostModelPass<\/code> 中增加基于 <code>grid_tiles &lt; 2 * num_cores<\/code> 的自动 Split-K 决策与原子/双阶段归约自动生成，所有窄输出 GEMM/Conv 无需手写双核。","layer":"编译器 Pass"},{"suite":"L1","id":7,"name":"Matmul_with_small_K_dimension","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":18.4734,"cand_ms":20.7798,"base_iqr":0.1856,"cand_iqr":0.1498,"speedup":0.889,"dpf":1,"total_disp":3,"cold_ms":938.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_007.py","note":"<code>K=64<\/code> 时仅需 4 步 K 迭代便要写回高达 <strong>4.29 GB<\/strong> 的输出矩阵 C，算术强度 <code>AI = 31.9 FLOP/B<\/code> 紧贴 M1 Max 拐点 (27.2)。当前 K 维循环极短，难以靠长流水线掩盖启动与写回延迟，且 4-SG/8-SG 驻留度受寄存器与 SRAM 占用制约。","headroom":"<strong>小到中等空间（0.89x → ~1.00x）<\/strong>：<br><strong>编译器 Pass<\/strong>：在 <code>TileAndLayoutAssignmentPass<\/code> 针对小 K（<code>K ≤ 128<\/code>）自动启用更大输出 tile (<code>128×128<\/code>) 降写事务数、开启 K=64 全展开免循环分支与非临时流式写回。剩余 3–5% 属于苹果私有 AMX 硬件差异边界。","layer":"编译器 Pass"},{"suite":"L1","id":8,"name":"Matmul_with_irregular_shapes","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":39.618,"cand_ms":39.2717,"base_iqr":0.0757,"cand_iqr":0.2674,"speedup":1.0088,"dpf":1,"total_disp":3,"cold_ms":1238.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_008.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":9,"name":"Tall_skinny_matrix_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":12.0212,"cand_ms":12.6866,"base_iqr":0.3207,"cand_iqr":0.1771,"speedup":0.9476,"dpf":1,"total_disp":3,"cold_ms":173.6,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_009.py","note":"","headroom":"","layer":""},{"suite":"L1","id":10,"name":"3D_tensor_matrix_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":6.3209,"cand_ms":6.6557,"base_iqr":0.1035,"cand_iqr":0.0848,"speedup":0.9497,"dpf":1,"total_disp":3,"cold_ms":21.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_010.py","note":"","headroom":"","layer":""},{"suite":"L1","id":11,"name":"4D_tensor_matrix_multiplication","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":70.1449,"cand_ms":53.1562,"base_iqr":0.5961,"cand_iqr":0.1793,"speedup":1.3196,"dpf":1,"total_disp":3,"cold_ms":855.6,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_011.py","note":"","headroom":"","layer":""},{"suite":"L1","id":12,"name":"Matmul_with_diagonal_matrices","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":1.5474,"cand_ms":0.7036,"base_iqr":0.0464,"cand_iqr":0.0471,"speedup":2.1993,"dpf":1,"total_disp":3,"cold_ms":1807.8,"max_err":0.0,"max_bwd_err":null,"bucket":"B","file":"task_012.py","note":"","headroom":"","layer":""},{"suite":"L1","id":13,"name":"Matmul_for_symmetric_matrices","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":16.4431,"cand_ms":16.6941,"base_iqr":0.1379,"cand_iqr":0.0765,"speedup":0.985,"dpf":1,"total_disp":3,"cold_ms":28.5,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_013.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":14,"name":"Matmul_for_upper_triangular_matrices","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":16.639,"cand_ms":4.4115,"base_iqr":0.0809,"cand_iqr":0.109,"speedup":3.7717,"dpf":1,"total_disp":3,"cold_ms":786.9,"max_err":0.0,"max_bwd_err":null,"bucket":"B","file":"task_014.py","note":"","headroom":"","layer":""},{"suite":"L1","id":15,"name":"Matmul_for_lower_triangular_matrices","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":16.6612,"cand_ms":4.2105,"base_iqr":0.0974,"cand_iqr":0.0868,"speedup":3.9571,"dpf":1,"total_disp":3,"cold_ms":780.7,"max_err":0.0,"max_bwd_err":null,"bucket":"B","file":"task_015.py","note":"PyTorch MPS 将下三角矩阵乘法当作完整稠密 GEMM 计算 (2N³ 乘加后再 <code>tril<\/code>)，浪费 5/6 算力。M1Triton 通过语言层契约 <code>tlx.structure('lower_triangular')<\/code> 驱动 <code>StructureAwareDeadTilePruningPass<\/code> 直接跳过全零 k-tile 与死输出块，在精确有效 FLOPs 口径下依然达到 5.44 TF（53.5% SOL），实现 3.96x 加速。","headroom":"<strong>DSL 层<\/strong>：这是 Co-design 最经典的范例——编译器无法凭空证明任意输入矩阵是三角/块稀疏的，但只要语言提供 1 行结构契约，Pass 即可零风险剪枝。可扩展到 <code>block_sparse<\/code> / <code>causal_band<\/code> / <code>symmetric_output<\/code>。","layer":"DSL / 语言"},{"suite":"L1","id":16,"name":"Matmul_with_transposed_A","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":17.1092,"cand_ms":18.1582,"base_iqr":0.1623,"cand_iqr":0.4982,"speedup":0.9422,"dpf":1,"total_disp":3,"cold_ms":766.7,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_016.py","note":"","headroom":"","layer":""},{"suite":"L1","id":17,"name":"Matmul_with_transposed_B","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":37.4647,"cand_ms":23.3998,"base_iqr":0.9896,"cand_iqr":1.1343,"speedup":1.6011,"dpf":1,"total_disp":3,"cold_ms":783.3,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_017.py","note":"","headroom":"","layer":""},{"suite":"L1","id":18,"name":"Matmul_with_transposed_both","cat":"GEMM / Matmul","backend":"mps","bwd":false,"base_ms":38.0804,"cand_ms":20.3552,"base_iqr":1.9075,"cand_iqr":0.5993,"speedup":1.8708,"dpf":1,"total_disp":3,"cold_ms":812.8,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_018.py","note":"","headroom":"","layer":""},{"suite":"L1","id":19,"name":"ReLU","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.3827,"cand_ms":35.5674,"base_iqr":0.3143,"cand_iqr":0.3307,"speedup":0.9948,"dpf":1,"total_disp":3,"cold_ms":291.7,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_019.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":20,"name":"LeakyReLU","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.1927,"cand_ms":35.5055,"base_iqr":0.2005,"cand_iqr":0.4055,"speedup":0.9912,"dpf":1,"total_disp":3,"cold_ms":297.7,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_020.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":21,"name":"Sigmoid","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.3951,"cand_ms":35.4801,"base_iqr":0.3828,"cand_iqr":0.2005,"speedup":0.9976,"dpf":1,"total_disp":3,"cold_ms":2655.7,"max_err":1.1920928955078125e-07,"max_bwd_err":null,"bucket":"A","file":"task_021.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":22,"name":"Tanh","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":36.5236,"cand_ms":36.5139,"base_iqr":0.8917,"cand_iqr":0.9649,"speedup":1.0003,"dpf":1,"total_disp":3,"cold_ms":1203.6,"max_err":1.7881393432617188e-07,"max_bwd_err":null,"bucket":"A","file":"task_022.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":23,"name":"Softmax","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":73.7151,"cand_ms":54.7337,"base_iqr":0.6642,"cand_iqr":1.1316,"speedup":1.3468,"dpf":1,"total_disp":3,"cold_ms":1617.1,"max_err":2.5011104298755527e-12,"max_bwd_err":null,"bucket":"A","file":"task_023.py","note":"","headroom":"","layer":""},{"suite":"L1","id":24,"name":"LogSoftmax","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":73.4036,"cand_ms":54.9431,"base_iqr":0.8125,"cand_iqr":0.5934,"speedup":1.336,"dpf":1,"total_disp":3,"cold_ms":1587.6,"max_err":2.86102294921875e-06,"max_bwd_err":null,"bucket":"A","file":"task_024.py","note":"","headroom":"","layer":""},{"suite":"L1","id":25,"name":"Swish","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":88.9337,"cand_ms":35.4436,"base_iqr":0.7255,"cand_iqr":0.234,"speedup":2.5092,"dpf":1,"total_disp":3,"cold_ms":1456.0,"max_err":1.1920928955078125e-07,"max_bwd_err":null,"bucket":"A","file":"task_025.py","note":"<code>tlx.vec_width(4)<\/code> + <code>ContiguityAndAlignmentAnalysis<\/code> 证明 16B 对齐后发射 128-bit <code>float4<\/code> 4x-ILP 访存，将多步 <code>x * sigmoid(x)<\/code> 与 <code>MinGPTNewGelu<\/code> (7.66x, 281.5 GB/s) 全部锁死在寄存器内完成，单遍读写直接跑到 363.5 GB/s（97.2% 实测 STREAM 极限）。","headroom":"单算子已触碰硬件带宽墙（&lt;3% 空间）。此类逐元素算子唯一有意义的新增收益来自 <strong>L2 级跨算子 Epilogue 融合<\/strong>，将其吞进上游 GEMM/Conv，直接消灭整次 12.9 GB 读写。","layer":"已逼近 SOL"},{"suite":"L1","id":26,"name":"GELU","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.3909,"cand_ms":35.4596,"base_iqr":0.2597,"cand_iqr":0.2797,"speedup":0.9981,"dpf":1,"total_disp":3,"cold_ms":1187.3,"max_err":2.384185791015625e-07,"max_bwd_err":null,"bucket":"A","file":"task_026.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":27,"name":"SELU","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.2652,"cand_ms":35.4853,"base_iqr":0.2826,"cand_iqr":0.2478,"speedup":0.9938,"dpf":1,"total_disp":3,"cold_ms":287.0,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_027.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":28,"name":"HardSigmoid","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.4476,"cand_ms":35.577,"base_iqr":0.2295,"cand_iqr":0.1847,"speedup":0.9964,"dpf":1,"total_disp":3,"cold_ms":1261.4,"max_err":5.960464477539063e-08,"max_bwd_err":null,"bucket":"A","file":"task_028.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":29,"name":"Softplus","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":51.7131,"cand_ms":35.2814,"base_iqr":0.1943,"cand_iqr":0.065,"speedup":1.4657,"dpf":1,"total_disp":3,"cold_ms":1286.0,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_029.py","note":"","headroom":"","layer":""},{"suite":"L1","id":30,"name":"Softsign","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":123.8695,"cand_ms":35.3111,"base_iqr":1.0437,"cand_iqr":0.2601,"speedup":3.508,"dpf":1,"total_disp":3,"cold_ms":1247.1,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_030.py","note":"","headroom":"","layer":""},{"suite":"L1","id":31,"name":"ELU","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.2887,"cand_ms":35.4016,"base_iqr":0.2525,"cand_iqr":0.1941,"speedup":0.9968,"dpf":1,"total_disp":3,"cold_ms":1039.2,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_031.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":32,"name":"HardTanh","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":35.1054,"cand_ms":35.3392,"base_iqr":0.181,"cand_iqr":0.1393,"speedup":0.9934,"dpf":1,"total_disp":3,"cold_ms":1044.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_032.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":33,"name":"BatchNorm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":47.6764,"cand_ms":35.715,"base_iqr":0.2668,"cand_iqr":0.228,"speedup":1.3349,"dpf":2,"total_disp":6,"cold_ms":3234.3,"max_err":5.960464477539062e-07,"max_bwd_err":null,"bucket":"A","file":"task_033.py","note":"","headroom":"","layer":""},{"suite":"L1","id":34,"name":"InstanceNorm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":82.7182,"cand_ms":60.6302,"base_iqr":0.5393,"cand_iqr":0.4003,"speedup":1.3643,"dpf":1,"total_disp":3,"cold_ms":1097.8,"max_err":8.344650268554688e-07,"max_bwd_err":null,"bucket":"A","file":"task_034.py","note":"","headroom":"","layer":""},{"suite":"L1","id":35,"name":"GroupNorm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":93.4564,"cand_ms":62.0876,"base_iqr":2.8886,"cand_iqr":0.3273,"speedup":1.5052,"dpf":2,"total_disp":6,"cold_ms":3486.0,"max_err":1.5497207641601562e-06,"max_bwd_err":null,"bucket":"A","file":"task_035.py","note":"","headroom":"","layer":""},{"suite":"L1","id":36,"name":"RMSNorm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":138.5561,"cand_ms":210.3893,"base_iqr":0.456,"cand_iqr":0.4678,"speedup":0.6586,"dpf":1,"total_disp":3,"cold_ms":2998.0,"max_err":7.152557373046875e-07,"max_bwd_err":null,"bucket":"A","file":"task_036.py","note":"<strong>源码级根因诊断<\/strong>（<code>norm_softmax_emitter.cpp:713<\/code>）：输入形状为 <code>(112, 64, 512, 512)<\/code>（7.52 GB），规约轴 <code>C=64<\/code> 在中间维（相邻通道步长 <code>HW = 1 MB<\/code>）。当前 1-read SRAM 微核分配 <code>m1_tile[64×16] float4 = 16 KB<\/code> + <code>m1_part/m1_scl = 1.25 KB<\/code> = <strong>17.25 KB &gt; 16 KB<\/strong>！这精确踩中了 M1 Max 32 KB SRAM 半线悬崖，导致每核驻留 TG 数跌至 <strong>1 TG/core<\/strong>，同时每个 TG 跨 64 个 1 MB 虚拟页并发取数，造成严重 TLB miss 且毫无延迟隐藏！","headroom":"<strong>极高空间（预计 0.66x → 1.5x–2.2x）<\/strong>：<br>① <strong>编译器 Pass<\/strong>：将 <code>WelfordNorm<\/code> 纳入 <code>FusionOccupancyCostModelPass<\/code>，当 <code>sram &gt; 16 KB<\/code> 时自动将 <code>TILE_HW<\/code> 从 64 折半至 32（SRAM 降至 ~8.8 KB，恢复 3 TGs/core）。<br>② <strong>算子算法<\/strong>：对 <code>HW ≥ 64K<\/code> 的中间维规约改用 0-SRAM 寄存器分块 2-pass（每次流式扫 8–16 个通道，消除 64 路 TLB 抖动，4+ TGs/core）。","layer":"编译器 Pass + 算子"},{"suite":"L1","id":37,"name":"FrobeniusNorm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":62.2387,"cand_ms":66.2892,"base_iqr":0.4404,"cand_iqr":1.7294,"speedup":0.9389,"dpf":2,"total_disp":6,"cold_ms":3478.3,"max_err":3.637978807091713e-12,"max_bwd_err":null,"bucket":"A","file":"task_037.py","note":"","headroom":"","layer":""},{"suite":"L1","id":38,"name":"L1Norm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":243.4505,"cand_ms":65.9398,"base_iqr":1.0221,"cand_iqr":0.5838,"speedup":3.692,"dpf":1,"total_disp":3,"cold_ms":6793.5,"max_err":7.152557373046875e-07,"max_bwd_err":null,"bucket":"A","file":"task_038.py","note":"","headroom":"","layer":""},{"suite":"L1","id":39,"name":"L2Norm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":197.0397,"cand_ms":65.9805,"base_iqr":0.5892,"cand_iqr":0.4858,"speedup":2.9863,"dpf":1,"total_disp":3,"cold_ms":5993.4,"max_err":1.862645149230957e-09,"max_bwd_err":null,"bucket":"A","file":"task_039.py","note":"","headroom":"","layer":""},{"suite":"L1","id":40,"name":"LayerNorm","cat":"Normalization","backend":"mps","bwd":false,"base_ms":8.9779,"cand_ms":4.0261,"base_iqr":0.0999,"cand_iqr":0.1657,"speedup":2.2299,"dpf":2,"total_disp":6,"cold_ms":3209.9,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_040.py","note":"","headroom":"","layer":""},{"suite":"L1","id":41,"name":"Max_Pooling_1D","cat":"Pooling","backend":"mps","bwd":false,"base_ms":143.975,"cand_ms":19.1993,"base_iqr":0.2745,"cand_iqr":0.1773,"speedup":7.499,"dpf":1,"total_disp":3,"cold_ms":2096.8,"max_err":0.0,"max_bwd_err":null,"bucket":"C","file":"task_041.py","note":"","headroom":"","layer":""},{"suite":"L1","id":42,"name":"Max_Pooling_2D","cat":"Pooling","backend":"mps","bwd":false,"base_ms":12.9208,"cand_ms":12.8296,"base_iqr":0.1635,"cand_iqr":0.1538,"speedup":1.0071,"dpf":1,"total_disp":3,"cold_ms":900.3,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_042.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":43,"name":"Max_Pooling_3D","cat":"Pooling","backend":"mps","bwd":false,"base_ms":42.395,"cand_ms":33.0402,"base_iqr":0.1849,"cand_iqr":0.0534,"speedup":1.2831,"dpf":1,"total_disp":3,"cold_ms":879.1,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_043.py","note":"","headroom":"","layer":""},{"suite":"L1","id":44,"name":"Average_Pooling_1D","cat":"Pooling","backend":"mps","bwd":false,"base_ms":51.4892,"cand_ms":12.1969,"base_iqr":0.191,"cand_iqr":0.1153,"speedup":4.2215,"dpf":1,"total_disp":3,"cold_ms":803.8,"max_err":0.0,"max_bwd_err":null,"bucket":"C","file":"task_044.py","note":"","headroom":"","layer":""},{"suite":"L1","id":45,"name":"Average_Pooling_2D","cat":"Pooling","backend":"mps","bwd":false,"base_ms":188.0152,"cand_ms":156.1669,"base_iqr":0.4465,"cand_iqr":0.6447,"speedup":1.2039,"dpf":1,"total_disp":3,"cold_ms":1608.5,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_045.py","note":"","headroom":"","layer":""},{"suite":"L1","id":46,"name":"Average_Pooling_3D","cat":"Pooling","backend":"cpu_fallback_mps_unsupported","bwd":false,"base_ms":591.9207,"cand_ms":61.6425,"base_iqr":11.3492,"cand_iqr":138.195,"speedup":9.6025,"dpf":1,"total_disp":3,"cold_ms":1070.9,"max_err":0.0,"max_bwd_err":null,"bucket":"D","file":"task_046.py","note":"","headroom":"","layer":""},{"suite":"L1","id":47,"name":"Sum_reduction_over_a_dimension","cat":"Axis Reduction","backend":"mps","bwd":false,"base_ms":24.0677,"cand_ms":24.8853,"base_iqr":0.2074,"cand_iqr":0.9008,"speedup":0.9671,"dpf":1,"total_disp":3,"cold_ms":2373.0,"max_err":0.0087890625,"max_bwd_err":null,"bucket":"A","file":"task_047.py","note":"","headroom":"","layer":""},{"suite":"L1","id":48,"name":"Mean_reduction_over_a_dimension","cat":"Axis Reduction","backend":"mps","bwd":false,"base_ms":24.0104,"cand_ms":25.0671,"base_iqr":0.1651,"cand_iqr":1.2929,"speedup":0.9578,"dpf":1,"total_disp":3,"cold_ms":1992.5,"max_err":2.1457672119140625e-06,"max_bwd_err":null,"bucket":"A","file":"task_048.py","note":"","headroom":"","layer":""},{"suite":"L1","id":49,"name":"Max_reduction_over_a_dimension","cat":"Axis Reduction","backend":"mps","bwd":false,"base_ms":64.5144,"cand_ms":24.679,"base_iqr":10.0632,"cand_iqr":0.9109,"speedup":2.6141,"dpf":1,"total_disp":3,"cold_ms":1916.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_049.py","note":"","headroom":"","layer":""},{"suite":"L1","id":50,"name":"conv_standard_2D__square_input__square_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":27.8255,"cand_ms":21.7106,"base_iqr":0.1547,"cand_iqr":0.0782,"speedup":1.2817,"dpf":1,"total_disp":3,"cold_ms":2006.5,"max_err":2.0265579223632812e-06,"max_bwd_err":null,"bucket":"A","file":"task_050.py","note":"","headroom":"","layer":""},{"suite":"L1","id":51,"name":"Argmax_over_a_dimension","cat":"Axis Reduction","backend":"mps","bwd":false,"base_ms":38.0856,"cand_ms":26.0407,"base_iqr":4.7915,"cand_iqr":1.078,"speedup":1.4625,"dpf":1,"total_disp":3,"cold_ms":1889.5,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_051.py","note":"","headroom":"","layer":""},{"suite":"L1","id":52,"name":"Argmin_over_a_dimension","cat":"Axis Reduction","backend":"mps","bwd":false,"base_ms":41.2463,"cand_ms":26.0787,"base_iqr":7.797,"cand_iqr":1.2348,"speedup":1.5816,"dpf":1,"total_disp":3,"cold_ms":1910.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_052.py","note":"","headroom":"","layer":""},{"suite":"L1","id":53,"name":"Min_reduction_over_a_dimension","cat":"Axis Reduction","backend":"mps","bwd":false,"base_ms":62.7774,"cand_ms":24.7637,"base_iqr":6.0497,"cand_iqr":1.1862,"speedup":2.5351,"dpf":1,"total_disp":3,"cold_ms":579.9,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_053.py","note":"","headroom":"","layer":""},{"suite":"L1","id":54,"name":"conv_standard_3D__square_input__square_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":33.3971,"cand_ms":11.8397,"base_iqr":0.071,"cand_iqr":0.1669,"speedup":2.8208,"dpf":1,"total_disp":3,"cold_ms":1917.3,"max_err":1.0728836059570312e-06,"max_bwd_err":null,"bucket":"C","file":"task_054.py","note":"","headroom":"","layer":""},{"suite":"L1","id":55,"name":"conv_standard_2D__asymmetric_input__square_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":57.0914,"cand_ms":61.7858,"base_iqr":0.2067,"cand_iqr":0.1607,"speedup":0.924,"dpf":112,"total_disp":336,"cold_ms":1639.0,"max_err":1.0266900062561035e-05,"max_bwd_err":null,"bucket":"A","file":"task_055.py","note":"","headroom":"","layer":""},{"suite":"L1","id":56,"name":"conv_standard_2D__asymmetric_input__asymmetric_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":116.7296,"cand_ms":95.1308,"base_iqr":0.6042,"cand_iqr":0.4015,"speedup":1.227,"dpf":1,"total_disp":3,"cold_ms":1028.1,"max_err":5.304813385009766e-06,"max_bwd_err":null,"bucket":"A","file":"task_056.py","note":"","headroom":"","layer":""},{"suite":"L1","id":57,"name":"conv_transposed_2D__square_input__square_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":56.8105,"cand_ms":72.9338,"base_iqr":0.1875,"cand_iqr":0.3812,"speedup":0.7789,"dpf":2,"total_disp":6,"cold_ms":1781.0,"max_err":5.364418029785156e-07,"max_bwd_err":null,"bucket":"A","file":"task_057.py","note":"","headroom":"","layer":""},{"suite":"L1","id":58,"name":"conv_transposed_3D__asymmetric_input__asymmetric_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":81.6812,"cand_ms":23.8512,"base_iqr":0.1636,"cand_iqr":0.1545,"speedup":3.4246,"dpf":1,"total_disp":3,"cold_ms":949.7,"max_err":7.033348083496094e-06,"max_bwd_err":null,"bucket":"C","file":"task_058.py","note":"","headroom":"","layer":""},{"suite":"L1","id":59,"name":"conv_standard_3D__asymmetric_input__square_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":126.7463,"cand_ms":14.1412,"base_iqr":1.796,"cand_iqr":0.1649,"speedup":8.9629,"dpf":1,"total_disp":3,"cold_ms":994.4,"max_err":7.152557373046875e-07,"max_bwd_err":null,"bucket":"C","file":"task_059.py","note":"","headroom":"","layer":""},{"suite":"L1","id":60,"name":"conv_standard_3D__square_input__asymmetric_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":307.2378,"cand_ms":32.2086,"base_iqr":1.4535,"cand_iqr":0.0754,"speedup":9.539,"dpf":1,"total_disp":3,"cold_ms":1098.1,"max_err":2.2649765014648438e-06,"max_bwd_err":null,"bucket":"C","file":"task_060.py","note":"","headroom":"","layer":""},{"suite":"L1","id":61,"name":"conv_transposed_3D__square_input__square_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":300.3615,"cand_ms":63.8413,"base_iqr":0.5578,"cand_iqr":0.1113,"speedup":4.7048,"dpf":1,"total_disp":3,"cold_ms":2173.9,"max_err":3.635883331298828e-06,"max_bwd_err":null,"bucket":"C","file":"task_061.py","note":"","headroom":"","layer":""},{"suite":"L1","id":62,"name":"conv_standard_2D__square_input__asymmetric_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":66.2667,"cand_ms":57.2221,"base_iqr":0.2222,"cand_iqr":0.1447,"speedup":1.1581,"dpf":1,"total_disp":3,"cold_ms":974.7,"max_err":3.814697265625e-06,"max_bwd_err":null,"bucket":"A","file":"task_062.py","note":"","headroom":"","layer":""},{"suite":"L1","id":63,"name":"conv_standard_2D__square_input__square_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":74.1692,"cand_ms":83.6812,"base_iqr":0.2195,"cand_iqr":0.4247,"speedup":0.8863,"dpf":2,"total_disp":6,"cold_ms":1893.1,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_063.py","note":"","headroom":"","layer":""},{"suite":"L1","id":64,"name":"conv_transposed_1D","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":109.2734,"cand_ms":77.6173,"base_iqr":0.7915,"cand_iqr":0.4893,"speedup":1.4078,"dpf":1,"total_disp":3,"cold_ms":1127.3,"max_err":2.1457672119140625e-06,"max_bwd_err":null,"bucket":"A","file":"task_064.py","note":"","headroom":"","layer":""},{"suite":"L1","id":65,"name":"conv_transposed_2D__square_input__asymmetric_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":216.9733,"cand_ms":58.8149,"base_iqr":6.5272,"cand_iqr":0.2135,"speedup":3.6891,"dpf":1,"total_disp":3,"cold_ms":935.9,"max_err":4.76837158203125e-06,"max_bwd_err":null,"bucket":"A","file":"task_065.py","note":"","headroom":"","layer":""},{"suite":"L1","id":66,"name":"conv_standard_3D__asymmetric_input__asymmetric_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":151.3171,"cand_ms":14.5367,"base_iqr":0.8586,"cand_iqr":0.173,"speedup":10.4093,"dpf":1,"total_disp":3,"cold_ms":1193.4,"max_err":2.0265579223632812e-06,"max_bwd_err":null,"bucket":"C","file":"task_066.py","note":"MPS 在 3D 卷积尤其是大非对称核 (3×5×7) 上缺乏针对性 SGMM 调度，仅跑出 0.45 TF（4.4% SOL）。M1Triton <code>ConvLoweringPass<\/code> 将 3D 卷积展平为隐式 GEMM，使用 BK=16 流水线 <code>simdgroup_float8x8<\/code> 算子直接拉到 4.70 TF（46.2% SOL），实现 10.41x 加速。","headroom":"46.2% → 65%+ SOL 仍有 ~1.4x 提升空间：受限于小输入通道 <code>C_in=3<\/code> 下按 <code>(C_in·K_d·K_h·K_w)<\/code> 展开的坐标取模除法开销，可在 <strong>编译器 Pass<\/strong> 中引入定点数快速除模 (magic-number divmod) 与 3D 空间 Halo 复用。","layer":"编译器 + 算子"},{"suite":"L1","id":67,"name":"conv_standard_1D","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":524.907,"cand_ms":52.5811,"base_iqr":3.9969,"cand_iqr":1.254,"speedup":9.9828,"dpf":1,"total_disp":3,"cold_ms":911.3,"max_err":1.6689300537109375e-06,"max_bwd_err":null,"bucket":"C","file":"task_067.py","note":"","headroom":"","layer":""},{"suite":"L1","id":68,"name":"conv_transposed_3D__square_input__asymmetric_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":1481.5465,"cand_ms":299.0176,"base_iqr":3.0105,"cand_iqr":0.372,"speedup":4.9547,"dpf":1,"total_disp":3,"cold_ms":1131.0,"max_err":3.6656856536865234e-06,"max_bwd_err":null,"bucket":"C","file":"task_068.py","note":"","headroom":"","layer":""},{"suite":"L1","id":69,"name":"conv_transposed_2D__asymmetric_input__asymmetric_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":112.8837,"cand_ms":105.8612,"base_iqr":25.3497,"cand_iqr":31.1783,"speedup":1.0663,"dpf":1,"total_disp":3,"cold_ms":2360.0,"max_err":2.384185791015625e-06,"max_bwd_err":null,"bucket":"A","file":"task_069.py","note":"","headroom":"","layer":""},{"suite":"L1","id":70,"name":"conv_transposed_3D__asymmetric_input__square_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":530.2623,"cand_ms":168.0212,"base_iqr":12.3244,"cand_iqr":2.7311,"speedup":3.1559,"dpf":1,"total_disp":3,"cold_ms":925.7,"max_err":5.602836608886719e-06,"max_bwd_err":null,"bucket":"C","file":"task_070.py","note":"","headroom":"","layer":""},{"suite":"L1","id":71,"name":"conv_transposed_2D__asymmetric_input__square_kernel","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":8.3634,"cand_ms":11.0205,"base_iqr":0.1173,"cand_iqr":0.0913,"speedup":0.7589,"dpf":2,"total_disp":6,"cold_ms":807.8,"max_err":4.172325134277344e-07,"max_bwd_err":null,"bucket":"A","file":"task_071.py","note":"三者共同特征：<code>3×3, stride=1<\/code>、超大空间分辨率 (<code>1024×1024<\/code> / <code>512×1024<\/code>)、偏小通道数 (<code>C=16..64<\/code>)。实测它们仍停留在 2-dispatch 的 <code>Winograd F(2×2, 3×3)<\/code>（MAC 仅降 2.25x），而分段 <code>F(4×4, 3×3)<\/code>（如 <code>L1 #55<\/code> 0.92x, 112 dispatches）虽能把 MAC 再降 1.78x，却必须把 36 个变换矩阵中间落盘到 DRAM workspace，通道小时变换读写带宽反超计算收益。","headroom":"<strong>中高空间（预计 0.76x–0.89x → 1.15x–1.40x）<\/strong>：<br>① <strong>算子算法<\/strong>：实现片上 SRAM 融合变换的 <code>F(4×4, 3×3)<\/code>（避免 36-tile DRAM workspace）或对 <code>C ≤ 32<\/code> 走寄存器滑窗直接卷积。<br>② <strong>Runtime / Compiler<\/strong>：对分段 Winograd（同时影响 <code>L2 #4/#17/#32/#46<\/code> 的 59–113 次 dispatch）用 <code>MetalGraph<\/code> ICB 合并发射。","layer":"算子算法 + Runtime"},{"suite":"L1","id":72,"name":"conv_transposed_3D_asymmetric_input_asymmetric_kernel___strided_padded_grouped","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":120.3591,"cand_ms":5.1133,"base_iqr":21.6134,"cand_iqr":0.7188,"speedup":23.5386,"dpf":1,"total_disp":3,"cold_ms":781.5,"max_err":8.344650268554688e-07,"max_bwd_err":null,"bucket":"C","file":"task_072.py","note":"","headroom":"","layer":""},{"suite":"L1","id":73,"name":"conv_transposed_3D_asymmetric_input_square_kernel__strided_padded__grouped","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":389.2711,"cand_ms":28.375,"base_iqr":22.3955,"cand_iqr":1.576,"speedup":13.7188,"dpf":1,"total_disp":3,"cold_ms":834.9,"max_err":8.940696716308594e-07,"max_bwd_err":null,"bucket":"C","file":"task_073.py","note":"","headroom":"","layer":""},{"suite":"L1","id":74,"name":"conv_transposed_1D_dilated","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":19.1214,"cand_ms":17.7468,"base_iqr":0.19,"cand_iqr":0.1857,"speedup":1.0775,"dpf":1,"total_disp":3,"cold_ms":824.0,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"A","file":"task_074.py","note":"","headroom":"","layer":""},{"suite":"L1","id":75,"name":"conv_transposed_2D_asymmetric_input_asymmetric_kernel_strided__grouped____padded____dilated","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":14.3484,"cand_ms":7.6841,"base_iqr":0.0923,"cand_iqr":0.0788,"speedup":1.8673,"dpf":1,"total_disp":3,"cold_ms":787.0,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_075.py","note":"","headroom":"","layer":""},{"suite":"L1","id":76,"name":"conv_standard_1D_dilated_strided","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":143.612,"cand_ms":92.0956,"base_iqr":0.538,"cand_iqr":0.2637,"speedup":1.5594,"dpf":1,"total_disp":3,"cold_ms":2940.0,"max_err":1.7881393432617188e-06,"max_bwd_err":null,"bucket":"A","file":"task_076.py","note":"","headroom":"","layer":""},{"suite":"L1","id":77,"name":"conv_transposed_3D_square_input_square_kernel___padded____dilated____strided","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":224.8668,"cand_ms":11.6522,"base_iqr":0.852,"cand_iqr":0.1709,"speedup":19.2983,"dpf":1,"total_disp":3,"cold_ms":1086.5,"max_err":1.9073486328125e-06,"max_bwd_err":null,"bucket":"C","file":"task_077.py","note":"","headroom":"","layer":""},{"suite":"L1","id":78,"name":"conv_transposed_2D_asymmetric_input_asymmetric_kernel___padded","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":36.1471,"cand_ms":38.2346,"base_iqr":0.1513,"cand_iqr":0.2591,"speedup":0.9454,"dpf":1,"total_disp":3,"cold_ms":992.0,"max_err":2.86102294921875e-06,"max_bwd_err":null,"bucket":"A","file":"task_078.py","note":"","headroom":"","layer":""},{"suite":"L1","id":79,"name":"conv_transposed_1D_asymmetric_input_square_kernel___padded____strided____dilated","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":20.6971,"cand_ms":10.5127,"base_iqr":0.2368,"cand_iqr":0.3483,"speedup":1.9688,"dpf":1,"total_disp":3,"cold_ms":823.7,"max_err":8.344650268554688e-07,"max_bwd_err":null,"bucket":"A","file":"task_079.py","note":"","headroom":"","layer":""},{"suite":"L1","id":80,"name":"conv_standard_2D_square_input_asymmetric_kernel___dilated____padded","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":66.7842,"cand_ms":63.0935,"base_iqr":0.1927,"cand_iqr":0.1569,"speedup":1.0585,"dpf":1,"total_disp":3,"cold_ms":1214.4,"max_err":3.933906555175781e-06,"max_bwd_err":null,"bucket":"A","file":"task_080.py","note":"","headroom":"","layer":""},{"suite":"L1","id":81,"name":"conv_transposed_2D_asymmetric_input_square_kernel___dilated____padded____strided","cat":"ConvTranspose (1D/2D/3D)","backend":"mps","bwd":false,"base_ms":15.4789,"cand_ms":6.1554,"base_iqr":0.1467,"cand_iqr":0.0988,"speedup":2.5147,"dpf":1,"total_disp":3,"cold_ms":758.0,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_081.py","note":"","headroom":"","layer":""},{"suite":"L1","id":82,"name":"conv_depthwise_2D_square_input_square_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":6.5831,"cand_ms":6.6027,"base_iqr":0.0853,"cand_iqr":0.1085,"speedup":0.997,"dpf":1,"total_disp":3,"cold_ms":2219.6,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_082.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":83,"name":"conv_depthwise_2D_square_input_asymmetric_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":3.4679,"cand_ms":3.4775,"base_iqr":0.1083,"cand_iqr":0.1403,"speedup":0.9972,"dpf":1,"total_disp":3,"cold_ms":801.7,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_083.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":84,"name":"conv_depthwise_2D_asymmetric_input_square_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":24.7512,"cand_ms":24.734,"base_iqr":0.265,"cand_iqr":0.2387,"speedup":1.0007,"dpf":1,"total_disp":3,"cold_ms":174.5,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_084.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":85,"name":"conv_depthwise_2D_asymmetric_input_asymmetric_kernel","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":7.1089,"cand_ms":3.527,"base_iqr":0.1292,"cand_iqr":0.1163,"speedup":2.0156,"dpf":1,"total_disp":3,"cold_ms":960.7,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_085.py","note":"","headroom":"","layer":""},{"suite":"L1","id":86,"name":"conv_depthwise_separable_2D","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":72.0528,"cand_ms":38.7066,"base_iqr":3.9995,"cand_iqr":0.2149,"speedup":1.8615,"dpf":2,"total_disp":6,"cold_ms":1672.8,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_086.py","note":"","headroom":"","layer":""},{"suite":"L1","id":87,"name":"conv_pointwise_2D","cat":"Conv Standard / DW","backend":"mps","bwd":false,"base_ms":266.9299,"cand_ms":126.209,"base_iqr":9.0961,"cand_iqr":0.7334,"speedup":2.115,"dpf":1,"total_disp":3,"cold_ms":1557.0,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_087.py","note":"","headroom":"","layer":""},{"suite":"L1","id":88,"name":"MinGPTNewGelu","cat":"Activation & Softmax","backend":"mps","bwd":false,"base_ms":14.6006,"cand_ms":1.9072,"base_iqr":0.0563,"cand_iqr":0.1384,"speedup":7.6556,"dpf":1,"total_disp":3,"cold_ms":2463.4,"max_err":1.1920928955078125e-07,"max_bwd_err":null,"bucket":"A","file":"task_088.py","note":"","headroom":"","layer":""},{"suite":"L1","id":89,"name":"cumsum","cat":"Prefix Scan","backend":"mps","bwd":false,"base_ms":23.7605,"cand_ms":23.6913,"base_iqr":0.1624,"cand_iqr":0.2408,"speedup":1.0029,"dpf":1,"total_disp":3,"cold_ms":716.7,"max_err":0.0078125,"max_bwd_err":null,"bucket":"A","file":"task_089.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":90,"name":"cumprod","cat":"Prefix Scan","backend":"mps","bwd":false,"base_ms":23.7248,"cand_ms":23.7047,"base_iqr":0.1654,"cand_iqr":0.1607,"speedup":1.0008,"dpf":1,"total_disp":3,"cold_ms":879.0,"max_err":1.401298464324817e-45,"max_bwd_err":null,"bucket":"A","file":"task_090.py","note":"","headroom":"","layer":"已逼近 SOL"},{"suite":"L1","id":91,"name":"cumsum_reverse","cat":"Prefix Scan","backend":"mps","bwd":false,"base_ms":70.6176,"cand_ms":24.2729,"base_iqr":0.2677,"cand_iqr":0.2819,"speedup":2.9093,"dpf":1,"total_disp":3,"cold_ms":2564.0,"max_err":0.017578125,"max_bwd_err":null,"bucket":"D","file":"task_091.py","note":"","headroom":"","layer":""},{"suite":"L1","id":92,"name":"cumsum_exclusive","cat":"Prefix Scan","backend":"mps","bwd":false,"base_ms":96.3454,"cand_ms":24.1267,"base_iqr":0.49,"cand_iqr":0.1397,"speedup":3.9933,"dpf":1,"total_disp":3,"cold_ms":894.8,"max_err":0.017578125,"max_bwd_err":null,"bucket":"D","file":"task_092.py","note":"","headroom":"","layer":""},{"suite":"L1","id":93,"name":"masked_cumsum","cat":"Prefix Scan","backend":"mps","bwd":false,"base_ms":49.73,"cand_ms":27.3431,"base_iqr":0.2814,"cand_iqr":0.2272,"speedup":1.8187,"dpf":1,"total_disp":3,"cold_ms":2506.4,"max_err":0.0087890625,"max_bwd_err":null,"bucket":"D","file":"task_093.py","note":"","headroom":"","layer":""},{"suite":"L1","id":94,"name":"MSELoss","cat":"Loss Functions","backend":"mps","bwd":false,"base_ms":71.0638,"cand_ms":25.4421,"base_iqr":0.3027,"cand_iqr":0.3938,"speedup":2.7932,"dpf":2,"total_disp":6,"cold_ms":3337.7,"max_err":2.9802322387695312e-08,"max_bwd_err":null,"bucket":"D","file":"task_094.py","note":"","headroom":"","layer":""},{"suite":"L1","id":95,"name":"CrossEntropyLoss","cat":"Loss Functions","backend":"mps","bwd":false,"base_ms":3.7806,"cand_ms":1.9237,"base_iqr":0.083,"cand_iqr":0.2357,"speedup":1.9653,"dpf":2,"total_disp":6,"cold_ms":840.0,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"A","file":"task_095.py","note":"","headroom":"","layer":""},{"suite":"L1","id":96,"name":"HuberLoss","cat":"Loss Functions","backend":"mps","bwd":false,"base_ms":24.458,"cand_ms":25.4702,"base_iqr":0.2114,"cand_iqr":0.3808,"speedup":0.9603,"dpf":2,"total_disp":6,"cold_ms":802.1,"max_err":7.450580596923828e-09,"max_bwd_err":null,"bucket":"A","file":"task_096.py","note":"","headroom":"","layer":""},{"suite":"L1","id":97,"name":"ScaledDotProductAttention","cat":"Attention (SDPA)","backend":"mps","bwd":false,"base_ms":147.471,"cand_ms":142.2919,"base_iqr":0.3517,"cand_iqr":3.1725,"speedup":1.0364,"dpf":1,"total_disp":3,"cold_ms":2175.1,"max_err":5.960464477539062e-07,"max_bwd_err":null,"bucket":"A","file":"task_097.py","note":"Two-Wave <code>BM=32, BN=512<\/code> 交换 <code>K@Qᵀ<\/code>，并巧妙利用空闲的 32 KB SRAM 双缓冲存放转置后的 <code>Qᵀ<\/code>，消除 <code>transpose_matrix=true<\/code> 硬件惩罚，使 <code>K@Qᵀ<\/code> 达 7.6 TF、<code>P@V<\/code> 达 8.35 TF，端到端 7.73 TF（76.0% SOL），正面击败 PyTorch MPS SDPA。","headroom":"在 FP32 下已逼近 16-SG 寄存器压力上限；若面向 LLM 推理切换 FP16/BF16 并扩展至 GQA 共享 KV（如 <code>L3-01<\/code> 3.25x），可进一步释放带宽和容量红利。","layer":"算子 / 算法"},{"suite":"L1","id":98,"name":"KLDivLoss","cat":"Loss Functions","backend":"mps","bwd":false,"base_ms":32.8767,"cand_ms":6.6698,"base_iqr":0.1088,"cand_iqr":0.1549,"speedup":4.9292,"dpf":2,"total_disp":6,"cold_ms":719.5,"max_err":3.3527612686157227e-08,"max_bwd_err":null,"bucket":"D","file":"task_098.py","note":"","headroom":"","layer":""},{"suite":"L1","id":99,"name":"TripletMarginLoss","cat":"Loss Functions","backend":"mps","bwd":false,"base_ms":35.8456,"cand_ms":9.65,"base_iqr":0.3284,"cand_iqr":0.1574,"speedup":3.7146,"dpf":2,"total_disp":6,"cold_ms":1643.1,"max_err":5.960464477539063e-08,"max_bwd_err":null,"bucket":"D","file":"task_099.py","note":"","headroom":"","layer":""},{"suite":"L1","id":100,"name":"HingeLoss","cat":"Loss Functions","backend":"mps","bwd":false,"base_ms":214.7252,"cand_ms":12.8995,"base_iqr":0.6459,"cand_iqr":0.31,"speedup":16.6461,"dpf":2,"total_disp":6,"cold_ms":792.5,"max_err":0.0,"max_bwd_err":null,"bucket":"D","file":"task_100.py","note":"","headroom":"","layer":""},{"suite":"L2","id":1,"name":"Conv2D_ReLU_BiasAdd","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":60.5923,"cand_ms":36.2192,"base_iqr":0.2876,"cand_iqr":0.2179,"speedup":1.6729,"dpf":2,"total_disp":6,"cold_ms":90.1,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_001.py","note":"","headroom":"","layer":""},{"suite":"L2","id":2,"name":"ConvTranspose2d_BiasAdd_Clamp_Scaling_Clamp_Divide","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":259.9686,"cand_ms":48.1983,"base_iqr":0.414,"cand_iqr":0.1467,"speedup":5.3937,"dpf":1,"total_disp":3,"cold_ms":149.5,"max_err":1.0728836059570312e-06,"max_bwd_err":null,"bucket":"A","file":"task_002.py","note":"","headroom":"","layer":""},{"suite":"L2","id":3,"name":"ConvTranspose3d_Sum_LayerNorm_AvgPool_GELU","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":396.1816,"cand_ms":54.2859,"base_iqr":0.9124,"cand_iqr":0.1223,"speedup":7.2981,"dpf":2,"total_disp":6,"cold_ms":96.2,"max_err":5.4836273193359375e-06,"max_bwd_err":null,"bucket":"C","file":"task_003.py","note":"","headroom":"","layer":""},{"suite":"L2","id":4,"name":"Conv2d_Mish_Mish","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":93.9557,"cand_ms":60.7813,"base_iqr":0.2427,"cand_iqr":0.3705,"speedup":1.5458,"dpf":112,"total_disp":336,"cold_ms":2654.4,"max_err":7.510185241699219e-06,"max_bwd_err":null,"bucket":"A","file":"task_004.py","note":"","headroom":"","layer":""},{"suite":"L2","id":5,"name":"ConvTranspose2d_Subtract_Tanh","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":304.9599,"cand_ms":104.5586,"base_iqr":0.2833,"cand_iqr":0.3416,"speedup":2.9166,"dpf":1,"total_disp":3,"cold_ms":194.2,"max_err":9.560026228427887e-07,"max_bwd_err":null,"bucket":"A","file":"task_005.py","note":"","headroom":"","layer":""},{"suite":"L2","id":6,"name":"Conv3d_Softmax_MaxPool_MaxPool","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":12.4699,"cand_ms":3.6134,"base_iqr":0.0528,"cand_iqr":0.0783,"speedup":3.451,"dpf":3,"total_disp":9,"cold_ms":1216.4,"max_err":8.940696716308594e-08,"max_bwd_err":null,"bucket":"C","file":"task_006.py","note":"","headroom":"","layer":""},{"suite":"L2","id":7,"name":"Conv3d_ReLU_LeakyReLU_GELU_Sigmoid_BiasAdd","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":146.7175,"cand_ms":28.9843,"base_iqr":0.2096,"cand_iqr":0.1289,"speedup":5.062,"dpf":1,"total_disp":3,"cold_ms":68.6,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"C","file":"task_007.py","note":"","headroom":"","layer":""},{"suite":"L2","id":8,"name":"Conv3d_Divide_Max_GlobalAvgPool_BiasAdd_Sum","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":99.5873,"cand_ms":18.1176,"base_iqr":0.1741,"cand_iqr":0.1125,"speedup":5.4967,"dpf":3,"total_disp":9,"cold_ms":683.2,"max_err":7.152557373046875e-07,"max_bwd_err":null,"bucket":"C","file":"task_008.py","note":"","headroom":"","layer":""},{"suite":"L2","id":9,"name":"Matmul_Subtract_Multiply_ReLU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":48.0075,"cand_ms":26.5654,"base_iqr":1.2995,"cand_iqr":1.151,"speedup":1.8071,"dpf":1,"total_disp":3,"cold_ms":786.9,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_009.py","note":"","headroom":"","layer":""},{"suite":"L2","id":10,"name":"ConvTranspose2d_MaxPool_Hardtanh_Mean_Tanh","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":207.8851,"cand_ms":93.7608,"base_iqr":27.4152,"cand_iqr":11.5247,"speedup":2.2172,"dpf":3,"total_disp":9,"cold_ms":2268.3,"max_err":1.7881393432617188e-07,"max_bwd_err":null,"bucket":"A","file":"task_010.py","note":"","headroom":"","layer":""},{"suite":"L2","id":11,"name":"ConvTranspose2d_BatchNorm_Tanh_MaxPool_GroupNorm","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":78.5938,"cand_ms":71.899,"base_iqr":31.1007,"cand_iqr":38.0623,"speedup":1.0931,"dpf":5,"total_disp":15,"cold_ms":4031.4,"max_err":1.2040138244628906e-05,"max_bwd_err":null,"bucket":"A","file":"task_011.py","note":"","headroom":"","layer":""},{"suite":"L2","id":12,"name":"Gemm_Multiply_LeakyReLU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":41.5936,"cand_ms":24.6559,"base_iqr":0.6281,"cand_iqr":1.5123,"speedup":1.687,"dpf":1,"total_disp":3,"cold_ms":771.8,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_012.py","note":"","headroom":"","layer":""},{"suite":"L2","id":13,"name":"ConvTranspose3d_Mean_Add_Softmax_Tanh_Scaling","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":556.4964,"cand_ms":117.0189,"base_iqr":29.599,"cand_iqr":6.1943,"speedup":4.7556,"dpf":3,"total_disp":9,"cold_ms":2279.5,"max_err":2.384185791015625e-07,"max_bwd_err":null,"bucket":"C","file":"task_013.py","note":"","headroom":"","layer":""},{"suite":"L2","id":14,"name":"Gemm_Divide_Sum_Scaling","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":41.0561,"cand_ms":25.7659,"base_iqr":0.8931,"cand_iqr":0.9864,"speedup":1.5934,"dpf":2,"total_disp":6,"cold_ms":1471.3,"max_err":0.002197265625,"max_bwd_err":null,"bucket":"A","file":"task_014.py","note":"","headroom":"","layer":""},{"suite":"L2","id":15,"name":"ConvTranspose3d_BatchNorm_Subtract","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":56.1732,"cand_ms":7.9052,"base_iqr":0.529,"cand_iqr":1.356,"speedup":7.1059,"dpf":4,"total_disp":12,"cold_ms":2234.6,"max_err":3.8743019104003906e-07,"max_bwd_err":null,"bucket":"C","file":"task_015.py","note":"","headroom":"","layer":""},{"suite":"L2","id":16,"name":"ConvTranspose2d_Mish_Add_Hardtanh_Scaling","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":264.3786,"cand_ms":62.846,"base_iqr":36.5819,"cand_iqr":9.7512,"speedup":4.2068,"dpf":1,"total_disp":3,"cold_ms":1478.5,"max_err":1.9073486328125e-06,"max_bwd_err":null,"bucket":"A","file":"task_016.py","note":"","headroom":"","layer":""},{"suite":"L2","id":17,"name":"Conv2d_InstanceNorm_Divide","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":44.8579,"cand_ms":39.5255,"base_iqr":5.6172,"cand_iqr":4.1972,"speedup":1.1349,"dpf":60,"total_disp":180,"cold_ms":4324.9,"max_err":3.032386302947998e-05,"max_bwd_err":null,"bucket":"A","file":"task_017.py","note":"","headroom":"","layer":""},{"suite":"L2","id":18,"name":"Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":48.0285,"cand_ms":28.6777,"base_iqr":1.0955,"cand_iqr":0.7432,"speedup":1.6748,"dpf":2,"total_disp":6,"cold_ms":823.6,"max_err":1.9073486328125e-05,"max_bwd_err":null,"bucket":"A","file":"task_018.py","note":"","headroom":"","layer":""},{"suite":"L2","id":19,"name":"ConvTranspose2d_GELU_GroupNorm","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":184.3125,"cand_ms":129.9599,"base_iqr":17.6284,"cand_iqr":14.0871,"speedup":1.4182,"dpf":4,"total_disp":12,"cold_ms":3207.1,"max_err":3.814697265625e-06,"max_bwd_err":null,"bucket":"A","file":"task_019.py","note":"","headroom":"","layer":""},{"suite":"L2","id":20,"name":"ConvTranspose3d_Sum_ResidualAdd_Multiply_ResidualAdd","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":222.2757,"cand_ms":16.563,"base_iqr":2.7295,"cand_iqr":1.067,"speedup":13.4201,"dpf":1,"total_disp":3,"cold_ms":947.2,"max_err":1.6689300537109375e-06,"max_bwd_err":null,"bucket":"C","file":"task_020.py","note":"","headroom":"","layer":""},{"suite":"L2","id":21,"name":"Conv2d_Add_Scale_Sigmoid_GroupNorm","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":79.817,"cand_ms":18.5117,"base_iqr":11.1639,"cand_iqr":1.7823,"speedup":4.3117,"dpf":4,"total_disp":12,"cold_ms":3656.5,"max_err":3.0517578125e-05,"max_bwd_err":null,"bucket":"A","file":"task_021.py","note":"","headroom":"","layer":""},{"suite":"L2","id":22,"name":"Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":43.0872,"cand_ms":24.6212,"base_iqr":0.6989,"cand_iqr":1.0323,"speedup":1.75,"dpf":2,"total_disp":6,"cold_ms":1588.2,"max_err":3.814697265625e-05,"max_bwd_err":null,"bucket":"A","file":"task_022.py","note":"","headroom":"","layer":""},{"suite":"L2","id":23,"name":"Conv3d_GroupNorm_Mean","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":15.0899,"cand_ms":5.9576,"base_iqr":0.1121,"cand_iqr":0.1157,"speedup":2.5329,"dpf":3,"total_disp":9,"cold_ms":2253.7,"max_err":6.60964474263892e-08,"max_bwd_err":null,"bucket":"A","file":"task_023.py","note":"","headroom":"","layer":""},{"suite":"L2","id":24,"name":"Conv3d_Min_Softmax","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":15.8632,"cand_ms":6.0349,"base_iqr":0.0442,"cand_iqr":0.0888,"speedup":2.6286,"dpf":3,"total_disp":9,"cold_ms":1521.4,"max_err":3.725290298461914e-08,"max_bwd_err":null,"bucket":"A","file":"task_024.py","note":"","headroom":"","layer":""},{"suite":"L2","id":25,"name":"Conv2d_Min_Tanh_Tanh","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":33.1166,"cand_ms":28.6364,"base_iqr":0.1166,"cand_iqr":0.113,"speedup":1.1565,"dpf":3,"total_disp":9,"cold_ms":2448.8,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_025.py","note":"","headroom":"","layer":""},{"suite":"L2","id":26,"name":"ConvTranspose3d_Add_HardSwish","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":426.8295,"cand_ms":38.9659,"base_iqr":17.1796,"cand_iqr":1.2197,"speedup":10.9539,"dpf":1,"total_disp":3,"cold_ms":1671.2,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"C","file":"task_026.py","note":"","headroom":"","layer":""},{"suite":"L2","id":27,"name":"Conv3d_HardSwish_GroupNorm_Mean","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":625.9117,"cand_ms":28.394,"base_iqr":5.0588,"cand_iqr":1.531,"speedup":22.0438,"dpf":3,"total_disp":9,"cold_ms":2502.8,"max_err":5.364418029785156e-07,"max_bwd_err":null,"bucket":"C","file":"task_027.py","note":"","headroom":"","layer":""},{"suite":"L2","id":28,"name":"BMM_InstanceNorm_Sum_ResidualAdd_Multiply","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":43.9568,"cand_ms":27.1905,"base_iqr":3.7772,"cand_iqr":2.5709,"speedup":1.6166,"dpf":3,"total_disp":9,"cold_ms":2741.3,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"A","file":"task_028.py","note":"","headroom":"","layer":""},{"suite":"L2","id":29,"name":"Matmul_Mish_Mish","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":43.8988,"cand_ms":26.0969,"base_iqr":1.6954,"cand_iqr":1.9337,"speedup":1.6821,"dpf":1,"total_disp":3,"cold_ms":927.2,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_029.py","note":"","headroom":"","layer":""},{"suite":"L2","id":30,"name":"Gemm_GroupNorm_Hardtanh","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":44.1054,"cand_ms":27.3028,"base_iqr":1.8197,"cand_iqr":1.5878,"speedup":1.6154,"dpf":3,"total_disp":9,"cold_ms":1701.7,"max_err":5.960464477539062e-07,"max_bwd_err":null,"bucket":"A","file":"task_030.py","note":"","headroom":"","layer":""},{"suite":"L2","id":31,"name":"Conv2d_Min_Add_Multiply","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":65.8804,"cand_ms":36.1719,"base_iqr":0.2201,"cand_iqr":0.077,"speedup":1.8213,"dpf":2,"total_disp":6,"cold_ms":1678.4,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"A","file":"task_031.py","note":"","headroom":"","layer":""},{"suite":"L2","id":32,"name":"Conv2d_Scaling_Min","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":80.13,"cand_ms":69.5123,"base_iqr":6.1272,"cand_iqr":3.6563,"speedup":1.1527,"dpf":113,"total_disp":339,"cold_ms":2622.4,"max_err":1.52587890625e-05,"max_bwd_err":null,"bucket":"A","file":"task_032.py","note":"","headroom":"","layer":""},{"suite":"L2","id":33,"name":"Gemm_Scale_BatchNorm","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":42.4349,"cand_ms":25.4863,"base_iqr":0.6018,"cand_iqr":0.8681,"speedup":1.665,"dpf":2,"total_disp":6,"cold_ms":1662.1,"max_err":2.384185791015625e-07,"max_bwd_err":null,"bucket":"A","file":"task_033.py","note":"","headroom":"","layer":""},{"suite":"L2","id":34,"name":"ConvTranspose3d_LayerNorm_GELU_Scaling","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":935.964,"cand_ms":57.1738,"base_iqr":0.7337,"cand_iqr":5.8935,"speedup":16.3705,"dpf":2,"total_disp":6,"cold_ms":1910.1,"max_err":1.1205673217773438e-05,"max_bwd_err":null,"bucket":"C","file":"task_034.py","note":"","headroom":"","layer":""},{"suite":"L2","id":35,"name":"Conv2d_Subtract_HardSwish_MaxPool_Mish","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":68.5629,"cand_ms":43.8674,"base_iqr":0.304,"cand_iqr":0.2673,"speedup":1.563,"dpf":3,"total_disp":9,"cold_ms":1735.7,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_035.py","note":"","headroom":"","layer":""},{"suite":"L2","id":36,"name":"ConvTranspose2d_Min_Sum_GELU_Add","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":43.3704,"cand_ms":13.8082,"base_iqr":0.1475,"cand_iqr":0.1352,"speedup":3.1409,"dpf":3,"total_disp":9,"cold_ms":2549.9,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_036.py","note":"","headroom":"","layer":""},{"suite":"L2","id":37,"name":"Matmul_Swish_Sum_GroupNorm","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":92.8025,"cand_ms":43.0794,"base_iqr":21.0027,"cand_iqr":11.2254,"speedup":2.1542,"dpf":2,"total_disp":6,"cold_ms":1791.9,"max_err":1.1920928955078125e-06,"max_bwd_err":null,"bucket":"A","file":"task_037.py","note":"","headroom":"","layer":""},{"suite":"L2","id":38,"name":"ConvTranspose3d_AvgPool_Clamp_Softmax_Multiply","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":464.561,"cand_ms":51.186,"base_iqr":42.4378,"cand_iqr":4.1094,"speedup":9.0759,"dpf":4,"total_disp":12,"cold_ms":3728.8,"max_err":5.638867150992155e-11,"max_bwd_err":null,"bucket":"C","file":"task_038.py","note":"","headroom":"","layer":""},{"suite":"L2","id":39,"name":"Gemm_Scale_BatchNorm","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":116.9634,"cand_ms":69.1672,"base_iqr":3.418,"cand_iqr":1.5817,"speedup":1.691,"dpf":2,"total_disp":6,"cold_ms":95.5,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_039.py","note":"","headroom":"","layer":""},{"suite":"L2","id":40,"name":"Matmul_Scaling_ResidualAdd","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":109.8614,"cand_ms":67.7563,"base_iqr":1.668,"cand_iqr":0.6041,"speedup":1.6214,"dpf":1,"total_disp":3,"cold_ms":897.9,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_040.py","note":"","headroom":"","layer":""},{"suite":"L2","id":41,"name":"Gemm_BatchNorm_GELU_ReLU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":118.9661,"cand_ms":85.4679,"base_iqr":13.1468,"cand_iqr":26.6331,"speedup":1.3919,"dpf":2,"total_disp":6,"cold_ms":2463.1,"max_err":2.384185791015625e-07,"max_bwd_err":null,"bucket":"A","file":"task_041.py","note":"","headroom":"","layer":""},{"suite":"L2","id":42,"name":"ConvTranspose2d_GlobalAvgPool_BiasAdd_LogSumExp_Sum_Multiply","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":119.8102,"cand_ms":3.6783,"base_iqr":9.2786,"cand_iqr":0.1909,"speedup":32.5722,"dpf":4,"total_disp":12,"cold_ms":3395.1,"max_err":7.62939453125e-06,"max_bwd_err":null,"bucket":"B","file":"task_042.py","note":"","headroom":"","layer":""},{"suite":"L2","id":43,"name":"Conv3d_Max_LogSumExp_ReLU","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":82.687,"cand_ms":81.0204,"base_iqr":0.4612,"cand_iqr":0.3828,"speedup":1.0206,"dpf":3,"total_disp":9,"cold_ms":2480.3,"max_err":1.430511474609375e-06,"max_bwd_err":null,"bucket":"A","file":"task_043.py","note":"<strong>源码级根因<\/strong>：当前 <code>EpilogueDAGAttr<\/code> 只能融合<strong>逐元素<\/strong>后处理（如 <code>L2 #11<\/code> 融合了 BN+Tanh），但无法融合<strong>空间窗口消费<\/strong>（<code>Conv → MaxPool2d/3d<\/code>）或<strong>归约统计量收集<\/strong>（<code>Conv → InstanceNorm/GroupNorm<\/code> 的 <code>sum / sum_sq<\/code>）。因此 <code>L2 #43<\/code> 必须把整张 5D 卷积输出写回 DRAM，再读回来做 MaxPool3d；<code>L2 #17<\/code> 写回 4D 特征图后再被 InstanceNorm 读两遍！","headroom":"<strong>最大通用编译器红利（预计 1.02x–1.13x → 1.5x–2.2x）<\/strong>：<br><strong>编译器 IR &amp; Pass 层<\/strong>：将 <code>EpilogueDAG<\/code> 升级为两类新尾融合原语——① <em>Reduction Epilogue<\/em>（在 Conv/GEMM 写回的同时顺手原子/分段累加通道 <code>sum, sum_sq<\/code>，把 InstanceNorm/GroupNorm 砍成 1-pass）；② <em>Spatial-Window Consumer Epilogue<\/em>（2×2/2×2×2 输出 tile 在 SRAM 内直接取 Max/Avg 后写回，直接砍掉 4x–8x DRAM 写回流量）。","layer":"编译器 Pass / IR"},{"suite":"L2","id":44,"name":"ConvTranspose2d_Multiply_GlobalAvgPool_GlobalAvgPool_Mean","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":44.8391,"cand_ms":13.8885,"base_iqr":0.5028,"cand_iqr":0.1352,"speedup":3.2285,"dpf":2,"total_disp":6,"cold_ms":1898.2,"max_err":1.4901161193847656e-08,"max_bwd_err":null,"bucket":"A","file":"task_044.py","note":"","headroom":"","layer":""},{"suite":"L2","id":45,"name":"Gemm_Sigmoid_LogSumExp","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":61.5105,"cand_ms":52.3599,"base_iqr":2.9959,"cand_iqr":3.7907,"speedup":1.1748,"dpf":3,"total_disp":9,"cold_ms":2404.3,"max_err":1.430511474609375e-06,"max_bwd_err":null,"bucket":"A","file":"task_045.py","note":"","headroom":"","layer":""},{"suite":"L2","id":46,"name":"Conv2d_Subtract_Tanh_Subtract_AvgPool","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":48.1741,"cand_ms":34.2984,"base_iqr":0.4536,"cand_iqr":0.7691,"speedup":1.4046,"dpf":59,"total_disp":177,"cold_ms":2493.9,"max_err":2.5331974029541016e-06,"max_bwd_err":null,"bucket":"A","file":"task_046.py","note":"","headroom":"","layer":""},{"suite":"L2","id":47,"name":"Conv3d_Mish_Tanh","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":79.2389,"cand_ms":39.9738,"base_iqr":1.3065,"cand_iqr":0.3429,"speedup":1.9823,"dpf":1,"total_disp":3,"cold_ms":1011.0,"max_err":2.0265579223632812e-06,"max_bwd_err":null,"bucket":"A","file":"task_047.py","note":"","headroom":"","layer":""},{"suite":"L2","id":48,"name":"Conv3d_Scaling_Tanh_Multiply_Sigmoid","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":56.6888,"cand_ms":9.605,"base_iqr":0.5457,"cand_iqr":0.1355,"speedup":5.902,"dpf":1,"total_disp":3,"cold_ms":902.9,"max_err":2.980232238769531e-07,"max_bwd_err":null,"bucket":"C","file":"task_048.py","note":"","headroom":"","layer":""},{"suite":"L2","id":49,"name":"ConvTranspose3d_Softmax_Sigmoid","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":205.7838,"cand_ms":21.2249,"base_iqr":1.8866,"cand_iqr":0.6378,"speedup":9.6954,"dpf":2,"total_disp":6,"cold_ms":1866.0,"max_err":1.1920928955078125e-07,"max_bwd_err":null,"bucket":"C","file":"task_049.py","note":"","headroom":"","layer":""},{"suite":"L2","id":50,"name":"ConvTranspose3d_Scaling_AvgPool_BiasAdd_Scaling","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":180.8505,"cand_ms":20.5968,"base_iqr":0.588,"cand_iqr":0.2472,"speedup":8.7805,"dpf":2,"total_disp":6,"cold_ms":1870.0,"max_err":2.384185791015625e-07,"max_bwd_err":null,"bucket":"C","file":"task_050.py","note":"","headroom":"","layer":""},{"suite":"L2","id":51,"name":"Gemm_Subtract_GlobalAvgPool_LogSumExp_GELU_ResidualAdd","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":88.0399,"cand_ms":45.3682,"base_iqr":1.1019,"cand_iqr":1.6734,"speedup":1.9406,"dpf":3,"total_disp":9,"cold_ms":3470.8,"max_err":1.1920928955078125e-07,"max_bwd_err":null,"bucket":"A","file":"task_051.py","note":"","headroom":"","layer":""},{"suite":"L2","id":52,"name":"Conv2d_Activation_BatchNorm","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":28.4751,"cand_ms":19.7069,"base_iqr":0.6057,"cand_iqr":0.4157,"speedup":1.4449,"dpf":3,"total_disp":9,"cold_ms":1856.4,"max_err":5.960464477539062e-07,"max_bwd_err":null,"bucket":"A","file":"task_052.py","note":"","headroom":"","layer":""},{"suite":"L2","id":53,"name":"Gemm_Scaling_Hardtanh_GELU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":85.4126,"cand_ms":44.7518,"base_iqr":3.5341,"cand_iqr":3.6495,"speedup":1.9086,"dpf":1,"total_disp":3,"cold_ms":988.0,"max_err":1.7881393432617188e-07,"max_bwd_err":null,"bucket":"A","file":"task_053.py","note":"","headroom":"","layer":""},{"suite":"L2","id":54,"name":"Conv2d_Multiply_LeakyReLU_GELU","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":67.1297,"cand_ms":38.1822,"base_iqr":0.5768,"cand_iqr":0.7137,"speedup":1.7581,"dpf":2,"total_disp":6,"cold_ms":1873.4,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"A","file":"task_054.py","note":"","headroom":"","layer":""},{"suite":"L2","id":55,"name":"Matmul_MaxPool_Sum_Scale","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":252.5772,"cand_ms":153.0294,"base_iqr":13.0936,"cand_iqr":4.9559,"speedup":1.6505,"dpf":2,"total_disp":6,"cold_ms":5057.9,"max_err":0.000244140625,"max_bwd_err":null,"bucket":"A","file":"task_055.py","note":"","headroom":"","layer":""},{"suite":"L2","id":56,"name":"Matmul_Sigmoid_Sum","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":254.2801,"cand_ms":157.0502,"base_iqr":9.9684,"cand_iqr":7.63,"speedup":1.6191,"dpf":2,"total_disp":6,"cold_ms":5970.5,"max_err":0.00390625,"max_bwd_err":null,"bucket":"A","file":"task_056.py","note":"","headroom":"","layer":""},{"suite":"L2","id":57,"name":"Conv2d_ReLU_HardSwish","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":18.4989,"cand_ms":4.1593,"base_iqr":0.3103,"cand_iqr":0.1245,"speedup":4.4476,"dpf":2,"total_disp":6,"cold_ms":2029.7,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_057.py","note":"","headroom":"","layer":""},{"suite":"L2","id":58,"name":"ConvTranspose3d_LogSumExp_HardSwish_Subtract_Clamp","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":188.6191,"cand_ms":18.8428,"base_iqr":0.3157,"cand_iqr":0.2148,"speedup":10.0101,"dpf":2,"total_disp":6,"cold_ms":1921.4,"max_err":2.384185791015625e-07,"max_bwd_err":null,"bucket":"C","file":"task_058.py","note":"","headroom":"","layer":""},{"suite":"L2","id":59,"name":"Matmul_Swish_Scaling","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":254.3693,"cand_ms":154.0228,"base_iqr":10.5018,"cand_iqr":9.2479,"speedup":1.6515,"dpf":1,"total_disp":3,"cold_ms":2568.6,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_059.py","note":"","headroom":"","layer":""},{"suite":"L2","id":60,"name":"ConvTranspose3d_Swish_GroupNorm_HardSwish","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":198.2599,"cand_ms":65.1589,"base_iqr":0.3011,"cand_iqr":0.1998,"speedup":3.0427,"dpf":3,"total_disp":9,"cold_ms":3007.1,"max_err":3.337860107421875e-06,"max_bwd_err":null,"bucket":"C","file":"task_060.py","note":"","headroom":"","layer":""},{"suite":"L2","id":61,"name":"ConvTranspose3d_ReLU_GroupNorm","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":313.5138,"cand_ms":58.5487,"base_iqr":1.026,"cand_iqr":0.2101,"speedup":5.3548,"dpf":3,"total_disp":9,"cold_ms":4041.2,"max_err":2.1457672119140625e-05,"max_bwd_err":null,"bucket":"C","file":"task_061.py","note":"","headroom":"","layer":""},{"suite":"L2","id":62,"name":"Matmul_GroupNorm_LeakyReLU_Sum","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":45.5174,"cand_ms":26.7404,"base_iqr":0.9075,"cand_iqr":2.1447,"speedup":1.7022,"dpf":2,"total_disp":6,"cold_ms":911.5,"max_err":1.9073486328125e-06,"max_bwd_err":null,"bucket":"A","file":"task_062.py","note":"","headroom":"","layer":""},{"suite":"L2","id":63,"name":"Gemm_ReLU_Divide","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":44.5632,"cand_ms":26.693,"base_iqr":1.241,"cand_iqr":1.3287,"speedup":1.6695,"dpf":1,"total_disp":3,"cold_ms":1114.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_063.py","note":"","headroom":"","layer":""},{"suite":"L2","id":64,"name":"Gemm_LogSumExp_LeakyReLU_LeakyReLU_GELU_GELU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":45.4664,"cand_ms":26.3231,"base_iqr":1.1902,"cand_iqr":1.439,"speedup":1.7272,"dpf":2,"total_disp":6,"cold_ms":2141.2,"max_err":1.9073486328125e-06,"max_bwd_err":null,"bucket":"A","file":"task_064.py","note":"","headroom":"","layer":""},{"suite":"L2","id":65,"name":"Conv2d_AvgPool_Sigmoid_Sum","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":44.2944,"cand_ms":12.4069,"base_iqr":0.334,"cand_iqr":0.1478,"speedup":3.5702,"dpf":3,"total_disp":9,"cold_ms":3232.4,"max_err":0.0625,"max_bwd_err":null,"bucket":"A","file":"task_065.py","note":"","headroom":"","layer":""},{"suite":"L2","id":66,"name":"Matmul_Dropout_Softmax","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":35.8888,"cand_ms":18.6759,"base_iqr":0.8565,"cand_iqr":0.7285,"speedup":1.9217,"dpf":2,"total_disp":6,"cold_ms":3301.2,"max_err":1.1641532182693481e-10,"max_bwd_err":null,"bucket":"A","file":"task_066.py","note":"","headroom":"","layer":""},{"suite":"L2","id":67,"name":"Conv2d_GELU_GlobalAvgPool","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":30.1845,"cand_ms":21.7758,"base_iqr":0.6909,"cand_iqr":0.6065,"speedup":1.3862,"dpf":3,"total_disp":9,"cold_ms":1342.7,"max_err":1.1920928955078125e-07,"max_bwd_err":null,"bucket":"A","file":"task_067.py","note":"","headroom":"","layer":""},{"suite":"L2","id":68,"name":"Matmul_Min_Subtract","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":36.5558,"cand_ms":19.2654,"base_iqr":1.2236,"cand_iqr":1.0568,"speedup":1.8975,"dpf":1,"total_disp":3,"cold_ms":1086.7,"max_err":2.384185791015625e-07,"max_bwd_err":null,"bucket":"A","file":"task_068.py","note":"","headroom":"","layer":""},{"suite":"L2","id":69,"name":"Conv2d_HardSwish_ReLU","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":9.1029,"cand_ms":4.2389,"base_iqr":0.2048,"cand_iqr":0.1057,"speedup":2.1475,"dpf":2,"total_disp":6,"cold_ms":1122.8,"max_err":4.172325134277344e-07,"max_bwd_err":null,"bucket":"A","file":"task_069.py","note":"","headroom":"","layer":""},{"suite":"L2","id":70,"name":"Gemm_Sigmoid_Scaling_ResidualAdd","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":44.2351,"cand_ms":25.9619,"base_iqr":0.9545,"cand_iqr":1.1396,"speedup":1.7038,"dpf":1,"total_disp":3,"cold_ms":1097.0,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"A","file":"task_070.py","note":"","headroom":"","layer":""},{"suite":"L2","id":71,"name":"Conv2d_Divide_LeakyReLU","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":9.0882,"cand_ms":4.2709,"base_iqr":0.2502,"cand_iqr":0.1546,"speedup":2.1279,"dpf":2,"total_disp":6,"cold_ms":2011.1,"max_err":1.7881393432617188e-07,"max_bwd_err":null,"bucket":"A","file":"task_071.py","note":"","headroom":"","layer":""},{"suite":"L2","id":72,"name":"ConvTranspose3d_BatchNorm_AvgPool_AvgPool","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":184.4605,"cand_ms":21.2671,"base_iqr":0.8489,"cand_iqr":0.2111,"speedup":8.6735,"dpf":3,"total_disp":9,"cold_ms":3345.8,"max_err":2.9802322387695312e-08,"max_bwd_err":null,"bucket":"C","file":"task_072.py","note":"","headroom":"","layer":""},{"suite":"L2","id":73,"name":"Conv2d_BatchNorm_Scaling","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":9.2546,"cand_ms":4.2934,"base_iqr":0.2481,"cand_iqr":0.2339,"speedup":2.1556,"dpf":3,"total_disp":9,"cold_ms":2155.7,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"A","file":"task_073.py","note":"","headroom":"","layer":""},{"suite":"L2","id":74,"name":"ConvTranspose3d_LeakyReLU_Multiply_LeakyReLU_Max","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":63.1487,"cand_ms":6.0636,"base_iqr":0.4717,"cand_iqr":0.2505,"speedup":10.4144,"dpf":2,"total_disp":6,"cold_ms":2292.4,"max_err":4.76837158203125e-07,"max_bwd_err":null,"bucket":"C","file":"task_074.py","note":"","headroom":"","layer":""},{"suite":"L2","id":75,"name":"Gemm_GroupNorm_Min_BiasAdd","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":46.4605,"cand_ms":27.4866,"base_iqr":1.6445,"cand_iqr":0.8262,"speedup":1.6903,"dpf":3,"total_disp":9,"cold_ms":2145.5,"max_err":9.5367431640625e-07,"max_bwd_err":null,"bucket":"A","file":"task_075.py","note":"","headroom":"","layer":""},{"suite":"L2","id":76,"name":"Gemm_Add_ReLU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":44.702,"cand_ms":26.5173,"base_iqr":0.9613,"cand_iqr":1.4734,"speedup":1.6858,"dpf":1,"total_disp":3,"cold_ms":1878.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_076.py","note":"","headroom":"","layer":""},{"suite":"L2","id":77,"name":"ConvTranspose3d_Scale_BatchNorm_GlobalAvgPool","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":967.452,"cand_ms":2.296,"base_iqr":28.9202,"cand_iqr":4.9681,"speedup":421.368,"dpf":4,"total_disp":12,"cold_ms":4255.2,"max_err":2.980232238769531e-07,"max_bwd_err":null,"bucket":"B","file":"task_077.py","note":"<strong>必须透明披露<\/strong>：421x 并非把 5D ConvT3d 算出了超光速，而是利用了零填充转置卷积 + 仿射缩放/BN + 全局平均池化 (GAP) 的严格线性可交换性——先对输入空间规约再做权重折叠矩阵乘，把原本数 GB 的 5D 中间张量直接化为 0 落盘！<code>L2 #42<\/code> 按最小代数 I/O (1.074 GB) 计也达到 291.9 GB/s（78.1% 带宽 SOL）。","headroom":"<strong>编译器 Pass + DSL 契约<\/strong>：当前此类代数折叠通过 <code>AlgebraicNormFoldingPass<\/code> 与特定任务触发；若在 FX 图分区器 (<code>compile_backend.py<\/code>) 中做通用的线性算子交换重写（检测 <code>padding==0 && linear_chain && GAP<\/code>），可让任意 PyTorch 模型零改代码自动获得数量级收益。","layer":"编译器 + DSL"},{"suite":"L2","id":78,"name":"ConvTranspose3d_Max_Max_Sum","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":2010.568,"cand_ms":98.6233,"base_iqr":75.954,"cand_iqr":14.9847,"speedup":20.3863,"dpf":3,"total_disp":9,"cold_ms":3578.0,"max_err":7.62939453125e-06,"max_bwd_err":null,"bucket":"C","file":"task_078.py","note":"","headroom":"","layer":""},{"suite":"L2","id":79,"name":"Conv3d_Multiply_InstanceNorm_Clamp_Multiply_Max","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":17.2407,"cand_ms":3.5935,"base_iqr":0.1652,"cand_iqr":0.2546,"speedup":4.7978,"dpf":3,"total_disp":9,"cold_ms":3237.0,"max_err":4.231929779052734e-06,"max_bwd_err":null,"bucket":"C","file":"task_079.py","note":"","headroom":"","layer":""},{"suite":"L2","id":80,"name":"Gemm_Max_Subtract_GELU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":44.49,"cand_ms":27.4702,"base_iqr":1.0935,"cand_iqr":2.271,"speedup":1.6196,"dpf":2,"total_disp":6,"cold_ms":2247.1,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"task_080.py","note":"","headroom":"","layer":""},{"suite":"L2","id":81,"name":"Gemm_Swish_Divide_Clamp_Tanh_Clamp","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":45.36,"cand_ms":26.2055,"base_iqr":1.1314,"cand_iqr":1.8486,"speedup":1.7309,"dpf":1,"total_disp":3,"cold_ms":2251.2,"max_err":1.7881393432617188e-07,"max_bwd_err":null,"bucket":"A","file":"task_081.py","note":"","headroom":"","layer":""},{"suite":"L2","id":82,"name":"Conv2d_Tanh_Scaling_BiasAdd_Max","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":124.3754,"cand_ms":26.8817,"base_iqr":43.3499,"cand_iqr":7.9648,"speedup":4.6268,"dpf":3,"total_disp":9,"cold_ms":2404.0,"max_err":7.152557373046875e-07,"max_bwd_err":null,"bucket":"A","file":"task_082.py","note":"","headroom":"","layer":""},{"suite":"L2","id":83,"name":"Conv3d_GroupNorm_Min_Clamp_Dropout","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":39.9644,"cand_ms":13.1539,"base_iqr":1.2318,"cand_iqr":1.0364,"speedup":3.0382,"dpf":3,"total_disp":9,"cold_ms":3280.6,"max_err":0.0,"max_bwd_err":null,"bucket":"C","file":"task_083.py","note":"","headroom":"","layer":""},{"suite":"L2","id":84,"name":"Gemm_BatchNorm_Scaling_Softmax","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":45.5846,"cand_ms":28.7798,"base_iqr":2.4266,"cand_iqr":1.8264,"speedup":1.5839,"dpf":3,"total_disp":9,"cold_ms":2216.4,"max_err":2.3283064365386963e-10,"max_bwd_err":null,"bucket":"A","file":"task_084.py","note":"","headroom":"","layer":""},{"suite":"L2","id":85,"name":"Conv2d_GroupNorm_Scale_MaxPool_Clamp","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":26.481,"cand_ms":8.4368,"base_iqr":0.6367,"cand_iqr":1.2574,"speedup":3.1387,"dpf":4,"total_disp":12,"cold_ms":3456.4,"max_err":1.3113021850585938e-06,"max_bwd_err":null,"bucket":"A","file":"task_085.py","note":"","headroom":"","layer":""},{"suite":"L2","id":86,"name":"Matmul_Divide_GELU","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":44.4461,"cand_ms":27.4247,"base_iqr":1.2689,"cand_iqr":2.2586,"speedup":1.6207,"dpf":1,"total_disp":3,"cold_ms":2241.6,"max_err":3.725290298461914e-08,"max_bwd_err":null,"bucket":"A","file":"task_086.py","note":"","headroom":"","layer":""},{"suite":"L2","id":87,"name":"Conv2d_Subtract_Subtract_Mish","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":54.6821,"cand_ms":16.9398,"base_iqr":1.2306,"cand_iqr":1.8384,"speedup":3.228,"dpf":2,"total_disp":6,"cold_ms":1279.7,"max_err":5.364418029785156e-07,"max_bwd_err":null,"bucket":"A","file":"task_087.py","note":"","headroom":"","layer":""},{"suite":"L2","id":88,"name":"Gemm_GroupNorm_Swish_Multiply_Swish","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":46.891,"cand_ms":27.9984,"base_iqr":2.7486,"cand_iqr":2.3532,"speedup":1.6748,"dpf":2,"total_disp":6,"cold_ms":1161.5,"max_err":2.86102294921875e-06,"max_bwd_err":null,"bucket":"A","file":"task_088.py","note":"","headroom":"","layer":""},{"suite":"L2","id":89,"name":"ConvTranspose3d_MaxPool_Softmax_Subtract_Swish_Max","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":198.8661,"cand_ms":21.5776,"base_iqr":0.4273,"cand_iqr":0.3944,"speedup":9.2163,"dpf":3,"total_disp":9,"cold_ms":1409.9,"max_err":7.152557373046875e-07,"max_bwd_err":null,"bucket":"C","file":"task_089.py","note":"","headroom":"","layer":""},{"suite":"L2","id":90,"name":"Conv3d_LeakyReLU_Sum_Clamp_GELU","cat":"Conv3d Fusion","backend":"mps","bwd":false,"base_ms":349.774,"cand_ms":54.0472,"base_iqr":1.3013,"cand_iqr":0.5351,"speedup":6.4716,"dpf":1,"total_disp":3,"cold_ms":1395.3,"max_err":1.6689300537109375e-06,"max_bwd_err":null,"bucket":"C","file":"task_090.py","note":"","headroom":"","layer":""},{"suite":"L2","id":91,"name":"ConvTranspose2d_Softmax_BiasAdd_Scaling_Sigmoid","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":186.7224,"cand_ms":73.2326,"base_iqr":19.9539,"cand_iqr":6.7266,"speedup":2.5497,"dpf":2,"total_disp":6,"cold_ms":3715.6,"max_err":1.7881393432617188e-07,"max_bwd_err":null,"bucket":"A","file":"task_091.py","note":"","headroom":"","layer":""},{"suite":"L2","id":92,"name":"Conv2d_GroupNorm_Tanh_HardSwish_ResidualAdd_LogSumExp","cat":"Conv2d Fusion","backend":"mps","bwd":false,"base_ms":27.881,"cand_ms":9.3018,"base_iqr":1.8558,"cand_iqr":1.0466,"speedup":2.9974,"dpf":4,"total_disp":12,"cold_ms":1068.8,"max_err":1.430511474609375e-06,"max_bwd_err":null,"bucket":"A","file":"task_092.py","note":"","headroom":"","layer":""},{"suite":"L2","id":93,"name":"ConvTranspose2d_Add_Min_GELU_Multiply","cat":"ConvTranspose2d Fusion","backend":"mps","bwd":false,"base_ms":151.2805,"cand_ms":62.2485,"base_iqr":9.9919,"cand_iqr":1.6384,"speedup":2.4303,"dpf":1,"total_disp":3,"cold_ms":1648.7,"max_err":5.952897481620312e-07,"max_bwd_err":null,"bucket":"A","file":"task_093.py","note":"","headroom":"","layer":""},{"suite":"L2","id":94,"name":"Gemm_BiasAdd_Hardtanh_Mish_GroupNorm","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":53.6398,"cand_ms":31.0298,"base_iqr":3.067,"cand_iqr":2.0697,"speedup":1.7287,"dpf":2,"total_disp":6,"cold_ms":2855.3,"max_err":1.0728836059570312e-06,"max_bwd_err":null,"bucket":"A","file":"task_094.py","note":"","headroom":"","layer":""},{"suite":"L2","id":95,"name":"Matmul_Add_Swish_Tanh_GELU_Hardtanh","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":51.3487,"cand_ms":29.1746,"base_iqr":1.1352,"cand_iqr":2.6836,"speedup":1.76,"dpf":1,"total_disp":3,"cold_ms":1393.4,"max_err":4.172325134277344e-07,"max_bwd_err":null,"bucket":"A","file":"task_095.py","note":"","headroom":"","layer":""},{"suite":"L2","id":96,"name":"ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":185.2798,"cand_ms":19.3896,"base_iqr":1.482,"cand_iqr":0.3334,"speedup":9.5556,"dpf":2,"total_disp":6,"cold_ms":3500.6,"max_err":2.2351741790771484e-08,"max_bwd_err":null,"bucket":"C","file":"task_096.py","note":"","headroom":"","layer":""},{"suite":"L2","id":97,"name":"Matmul_BatchNorm_BiasAdd_Divide_Swish","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":51.8303,"cand_ms":32.326,"base_iqr":1.4568,"cand_iqr":1.2571,"speedup":1.6034,"dpf":2,"total_disp":6,"cold_ms":2500.6,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"A","file":"task_097.py","note":"","headroom":"","layer":""},{"suite":"L2","id":98,"name":"Matmul_AvgPool_GELU_Scale_Max","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":50.1379,"cand_ms":28.1401,"base_iqr":1.242,"cand_iqr":2.3995,"speedup":1.7817,"dpf":2,"total_disp":6,"cold_ms":2419.1,"max_err":1.7881393432617188e-07,"max_bwd_err":null,"bucket":"A","file":"task_098.py","note":"","headroom":"","layer":""},{"suite":"L2","id":99,"name":"Matmul_GELU_Softmax","cat":"GEMM / Matmul / BMM Fusion","backend":"mps","bwd":false,"base_ms":51.6745,"cand_ms":28.7388,"base_iqr":2.5378,"cand_iqr":3.4136,"speedup":1.7981,"dpf":2,"total_disp":6,"cold_ms":1285.6,"max_err":2.3283064365386963e-10,"max_bwd_err":null,"bucket":"A","file":"task_099.py","note":"","headroom":"","layer":""},{"suite":"L2","id":100,"name":"ConvTranspose3d_Clamp_Min_Divide","cat":"ConvTranspose3d Fusion","backend":"mps","bwd":false,"base_ms":2612.8829,"cand_ms":174.7249,"base_iqr":3.3128,"cand_iqr":4.7176,"speedup":14.9543,"dpf":1,"total_disp":3,"cold_ms":1579.3,"max_err":3.5762786865234375e-07,"max_bwd_err":null,"bucket":"C","file":"task_100.py","note":"","headroom":"","layer":""},{"suite":"L3","id":1,"name":"flash_attn2_fwd_gqa_causal","cat":"Attention / Decode","backend":"mps","bwd":false,"base_ms":9.1243,"cand_ms":2.8112,"base_iqr":0.0,"cand_iqr":0.0,"speedup":3.2457,"dpf":1,"total_disp":59,"cold_ms":3110.9,"max_err":1.0728836059570312e-06,"max_bwd_err":null,"bucket":"A","file":"","note":"","headroom":"","layer":""},{"suite":"L3","id":2,"name":"flash_attn2_fwd_bwd_causal","cat":"Attention / Decode","backend":"mps","bwd":true,"base_ms":1.9734,"cand_ms":1.8797,"base_iqr":0.0,"cand_iqr":0.0,"speedup":1.0498,"dpf":4,"total_disp":265,"cold_ms":237.0,"max_err":1.0132789611816406e-06,"max_bwd_err":1.9073486328125e-06,"bucket":"A","file":"","note":"源码 <code>l3_02_flash_attn2_bwd.py<\/code> 显示两大瓶颈：① Backward 拆分为 <code>BwdDKDV<\/code> 与 <code>BwdDQ<\/code> 两个独立 kernel（虽在并发 <code>command_batch<\/code> 中并行），但 <code>Q, K, V, dO<\/code> 被读两遍且 <code>S=QKᵀ, P=exp(S-LSE)<\/code> 被重算两遍；② <code>B=2, H=8, L=512<\/code> 规模小，单次前向 <code>waitUntilCompleted<\/code> 往返占比极高。且实验账本证明直接把 SRAM 翻倍到 17.6 KB 做双缓冲会掉 occupancy（0.94x → 0.90x）。","headroom":"<strong>高空间（预计 1.05x → 1.45x–1.80x）<\/strong>：<br>① <strong>编译器 Pass<\/strong>：SRAM 活跃区间着色复用（<code>Q/K<\/code> 与 <code>P/dS<\/code> 分时共享同一块 &lt;12 KB SRAM），在保持 3 TGs/core 下消除冲突。<br>② <strong>算子算法<\/strong>：单循环 fused backward（计算 dK/dV 时同步用原子或分块归约累加 dQ，省去一半 QKᵀ/exp 重算）。<br>③ <strong>Runtime / Autograd<\/strong>：利用已验证快 1.47x 的 <code>MetalGraph<\/code> Compute ICB（0.921ms vs 1.354ms）配合异步跨队事件消除前向强制同步。","layer":"算子 + 编译器 + Runtime"},{"suite":"L3","id":3,"name":"paged_attn_decode_vllm","cat":"Attention / Decode","backend":"mps","bwd":false,"base_ms":23.4686,"cand_ms":1.8899,"base_iqr":0.0,"cand_iqr":0.0,"speedup":12.4178,"dpf":2,"total_disp":76,"cold_ms":1544.3,"max_err":2.086162567138672e-07,"max_bwd_err":null,"bucket":"D","file":"","note":"","headroom":"","layer":""},{"suite":"L3","id":4,"name":"sliding_window_alibi_softcap_attn","cat":"Attention / Decode","backend":"mps","bwd":false,"base_ms":5.192,"cand_ms":0.764,"base_iqr":0.0,"cand_iqr":0.0,"speedup":6.7962,"dpf":1,"total_disp":59,"cold_ms":1519.4,"max_err":4.291534423828125e-06,"max_bwd_err":null,"bucket":"D","file":"","note":"","headroom":"","layer":""},{"suite":"L3","id":5,"name":"fused_rmsnorm_rope_kv","cat":"Norm / RoPE / KV","backend":"mps","bwd":false,"base_ms":9.517,"cand_ms":1.239,"base_iqr":0.0,"cand_iqr":0.0,"speedup":7.6813,"dpf":2,"total_disp":123,"cold_ms":4319.4,"max_err":1.430511474609375e-06,"max_bwd_err":null,"bucket":"D","file":"","note":"","headroom":"","layer":""},{"suite":"L3","id":6,"name":"fused_layernorm_fwd_bwd","cat":"Norm / RoPE / KV","backend":"mps","bwd":true,"base_ms":1.9132,"cand_ms":1.6259,"base_iqr":0.0,"cand_iqr":0.0,"speedup":1.1767,"dpf":4,"total_disp":90,"cold_ms":5.1,"max_err":9.5367431640625e-07,"max_bwd_err":7.2479248046875e-05,"bucket":"A","file":"","note":"查看 <code>l3_06_fused_layernorm_fwd_bwd.py:445-478<\/code>：反向共发 3 个 kernel——<code>zero_dwdb<\/code> 清零、<code>bwd_dx<\/code> 完整读一遍 <code>(x, dy)<\/code> 算 <code>dx<\/code>、<code>bwd_dwdb_atomic<\/code> <strong>再完整读一遍 <code>(x, dy)<\/code><\/strong> 用 <code>atomic_float<\/code> 累参数梯度，带宽流量直接翻倍！","headroom":"<strong>中高空间（预计 1.18x → 1.55x–1.85x）<\/strong>：<br><strong>算子算法 + DSL 原语<\/strong>：采用经典 Triton 持久化分组融合（每个 TG 负责 <code>GROUP_SIZE_M<\/code> 行：一次读入 <code>(x, dy)<\/code>，算完 <code>dx<\/code> 写回的同时把局部 <code>dw, db<\/code> 累在寄存器/片上缓冲，退出前只写一次部分和 + 轻量级阶段 2 规约）。在 DSL 中抽象 <code>tlx.persistent_reduce<\/code> 即可让 LayerNorm/RMSNorm/BatchNorm 反向通用复用。","layer":"算子 + DSL"},{"suite":"L3","id":7,"name":"chunked_linear_cross_entropy","cat":"Fused Loss + Linear","backend":"mps","bwd":true,"base_ms":71.8625,"cand_ms":57.347,"base_iqr":0.0,"cand_iqr":0.0,"speedup":1.2531,"dpf":27,"total_disp":209,"cold_ms":7023.6,"max_err":9.5367431640625e-07,"max_bwd_err":9.778887033462524e-09,"bucket":"A","file":"","note":"按 3 次 SGMM (<code>6·BT·H·V = 412.3 GFLOPs<\/code>) 折算，M1Triton 端到端已达 <strong>7.19 TF（70.7% FP32 峰值）<\/strong> 同时完全消除了 256 MB <code>[2048, 32768]<\/code> 巨型 logits 张量。剩余时间消耗在源码 <code>l3_07:491-520<\/code>：每个 chunk 内 <code>logits_c<\/code> 被写了读、读了写——先调 <code>online_log_softmax<\/code>、再 <code>gather<\/code>、再 <code>logp_to_dlogits<\/code> 扫一遍 <code>exp()<\/code>，且每 chunk 用 <code>ADD_RES=1<\/code> 重复读写 <code>dW [V, H]<\/code>！","headroom":"<strong>稳健空间（预计 1.25x → 1.45x–1.60x）<\/strong>：<br>① <strong>算子算法<\/strong>：将 <code>online_log_softmax + gather_nll + (exp - one_hot) * inv_bt<\/code> 合并为单遍 <code>[chunk_t, V]<\/code> 微核，直接省掉 2 次 64 MB 读写与重复 <code>exp<\/code>。<br>② <strong>编译器 Pass<\/strong>：支持可组合的 <em>Reduction-with-Epilogue<\/em> 融合，不再把 <code>tlx.online_softmax<\/code> 当作不可拼接的黑盒宏算子。","layer":"编译器 + 算子"},{"suite":"L3","id":8,"name":"mamba_ssm_scan","cat":"SSM / Parallel Scan","backend":"mps","bwd":false,"base_ms":55.6889,"cand_ms":0.8365,"base_iqr":0.0,"cand_iqr":0.0,"speedup":66.577,"dpf":1,"total_disp":94,"cold_ms":3638.8,"max_err":3.337860107421875e-06,"max_bwd_err":null,"bucket":"D","file":"","note":"PyTorch Eager 对 Mamba 的 512 步状态递推只能写 Python <code>for t in range(L)<\/code>（发起上千次小 kernel launch，CPU 调度与中间激活读写完全淹没 GPU）。M1Triton 用单核分块并行关联扫描 (Blelloch associative scan) 将全部 <code>N_state=16<\/code> 隐状态锁在 SIMD 寄存器与 SRAM 中，单次 dispatch 仅需 0.84 ms。","headroom":"<strong>DSL 层<\/strong>：当前底层依赖 <code>tlx.row_scan<\/code> / 专用 emitter；若 DSL 原生暴露 <code>tl.associative_scan<\/code> + <code>tlx.subgroup_shuffle<\/code>，用户可直接用 30 行 Python 编写任意线性注意力 / Mamba-2 / RWKV 变体而无需改 C++ 后端。","layer":"DSL / 语言"},{"suite":"L3","id":9,"name":"moe_grouped_gemm","cat":"MoE / Quantized GEMM","backend":"mps","bwd":false,"base_ms":2.2455,"cand_ms":1.7187,"base_iqr":0.0,"cand_iqr":0.0,"speedup":1.3065,"dpf":1,"total_disp":45,"cold_ms":90.0,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"","note":"","headroom":"","layer":""},{"suite":"L3","id":10,"name":"w4a16_dequant_gemm","cat":"MoE / Quantized GEMM","backend":"mps","bwd":false,"base_ms":4.6854,"cand_ms":1.5357,"base_iqr":0.0,"cand_iqr":0.0,"speedup":3.051,"dpf":1,"total_disp":45,"cold_ms":809.4,"max_err":0.0,"max_bwd_err":null,"bucket":"A","file":"","note":"PyTorch MPS 参考实现必须先把 4-bit 权重完整反量化成 32 MB FP16/64 MB FP32 写回内存再调 GEMM。M1Triton <code>tlx.quant_dot<\/code> 在寄存器内用位运算将 <code>uint32<\/code>（8 个 int4）实时解包并乘以 group-128 scale/zero，直接喂给 <code>simdgroup_half8x8<\/code> MMA，将权重显存从 64 MB 压到 8.5 MB，实测 5.59 TF（58.1% FP16 峰值），加速 3.05x。","headroom":"<strong>算子 + 数据排布层<\/strong>：在 decode 阶段 (<code>M=1..16<\/code>) 转入带宽受限时，将权重离线交错重排为匹配 <code>simdgroup_half8x8<\/code> lane 映射的 nibble 布局，可把位提取指令减少一半并逼近 350+ GB/s 带宽极限。","layer":"算子 / 算法"}]};
+
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+  const themeBtn = $("#themeBtn");
+  themeBtn.addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme");
+    document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+    renderRoofline();
+    renderCatChart();
+    renderHistChart();
+  });
+
+  const hw = REPORT.hardware;
+  const sm = REPORT.summary;
+
+  $("#hwPills").innerHTML = [
+    ["GPU", hw.device],
+    ["STREAM 实测带宽", hw.bw_peak + " GB/s (理论400)"],
+    ["FP32 SGMM 实测", hw.fp32_peak + " TFLOPS (理论10.4)"],
+    ["FP16 SGMM 实测", hw.fp16_peak + " TFLOPS"],
+    ["Roofline 拐点", hw.ridge + " FLOP/B"],
+    ["SRAM / TG", hw.sram_kb + " KB / " + hw.max_tg + " threads"],
+    ["系统", hw.platform],
+  ].map(([k, v]) => `<span class="pill">${k}: <strong>${v}</strong></span>`).join("");
+
+  const kpis = [
+    {
+      label: "总评测通过 (L1+L2+L3)",
+      val: `${sm.total} / ${sm.total}`,
+      sub: `击败 MPS: ${sm.beats}/${sm.total} (${(100*sm.beats/sm.total).toFixed(1)}%) · ≥0.98x: ${sm.ge98}/${sm.total} · 总 Geomean ${sm.overall_gm.toFixed(2)}x`,
+      color: "var(--green)",
+    },
+    {
+      label: "KernelBench Level 1 (100)",
+      val: `${sm.l1_gm.toFixed(4)}x`,
+      sub: `100/100 通过 · >1.0x: ${sm.l1_beats}/100 · ≥0.98x: ${sm.l1_ge98}/100 · 单算子基石`,
+      color: "var(--accent)",
+    },
+    {
+      label: "KernelBench Level 2 (100)",
+      val: `${sm.l2_gm.toFixed(4)}x`,
+      sub: `100/100 全部击败 MPS · 中位 DPF=${sm.l2_dpf_med} · 单核融合 ${sm.l2_dpf1}/100`,
+      color: "var(--purple)",
+    },
+    {
+      label: "Level 3 Complex Triton (10)",
+      val: `${sm.l3_gm.toFixed(4)}x`,
+      sub: `10/10 全部击败 MPS · 含 3 个 Fwd+Bwd Autograd (FA2 / LN / CE)`,
+      color: "var(--amber)",
+    },
+  ];
+  $("#kpiGrid").innerHTML = kpis.map(k => `
+    <div class="kpi" style="--kpi-color:${k.color}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-val">${k.val}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>
+  `).join("");
+
+  const bucketColor = (b) => ({
+    A: "var(--green)",
+    B: "var(--purple)",
+    C: "var(--amber)",
+    D: "var(--cyan)",
+    H: "var(--red)",
+  }[b] || "var(--accent)");
+
+  const bucketLabel = (b) => ({
+    A: "桶A · 逼近SOL",
+    B: "桶B · 代数化简",
+    C: "桶C · MPS 3D短板",
+    D: "桶D · 消循环/调度",
+  }[b] || b);
+
+  let rfShowMps = true;
+  let rfSuite = "ALL";
+  $("#rfToggleMps").addEventListener("click", (e) => {
+    rfShowMps = !rfShowMps;
+    e.target.classList.toggle("active", rfShowMps);
+    renderRoofline();
+  });
+  $$(".rf-suite-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      rfSuite = btn.dataset.suite;
+      $$(".rf-suite-btn").forEach(b => b.classList.toggle("active", b === btn));
+      renderRoofline();
+    });
+  });
+
+  const tip = $("#tooltip");
+  function showTip(ev, html) {
+    tip.innerHTML = html;
+    tip.style.display = "block";
+    const x = Math.min(window.innerWidth - 340, ev.clientX + 14);
+    const y = Math.min(window.innerHeight - 200, ev.clientY + 14);
+    tip.style.left = Math.max(8, x) + "px";
+    tip.style.top = Math.max(8, y) + "px";
+  }
+  function hideTip() { tip.style.display = "none"; }
+
+  function renderRoofline() {
+    const svg = $("#rooflineSvg");
+    const W = 760, H = 430;
+    const pad = { l: 64, r: 24, t: 24, b: 48 };
+    const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+
+    const minAI = 0.08, maxAI = 1200;
+    const minTF = 0.015, maxTF = 16;
+    const lx = (v) => pad.l + (Math.log10(Math.max(v, minAI)) - Math.log10(minAI)) / (Math.log10(maxAI) - Math.log10(minAI)) * pw;
+    const ly = (v) => pad.t + ph - (Math.log10(Math.max(v, minTF)) - Math.log10(minTF)) / (Math.log10(maxTF) - Math.log10(minTF)) * ph;
+
+    const gridColor = getComputedStyle(document.documentElement).getPropertyValue("--border").trim();
+    const dimColor = getComputedStyle(document.documentElement).getPropertyValue("--text-dim").trim();
+    const txtColor = getComputedStyle(document.documentElement).getPropertyValue("--text").trim();
+
+    let out = "";
+    [0.1, 1, 10, 100, 1000].forEach(x => {
+      const px = lx(x);
+      out += `<line x1="${px}" y1="${pad.t}" x2="${px}" y2="${pad.t+ph}" stroke="${gridColor}" stroke-dasharray="2,3"/>`;
+      out += `<text x="${px}" y="${H-26}" fill="${dimColor}" font-size="11" text-anchor="middle" font-family="var(--mono)">${x}</text>`;
+    });
+    [0.02, 0.1, 0.5, 1, 2, 5, 10].forEach(y => {
+      const py = ly(y);
+      out += `<line x1="${pad.l}" y1="${py}" x2="${pad.l+pw}" y2="${py}" stroke="${gridColor}" stroke-dasharray="2,3"/>`;
+      out += `<text x="${pad.l-8}" y="${py+4}" fill="${dimColor}" font-size="11" text-anchor="end" font-family="var(--mono)">${y}</text>`;
+    });
+
+    out += `<text x="${pad.l+pw/2}" y="${H-6}" fill="${dimColor}" font-size="12" text-anchor="middle">Arithmetic Intensity (FLOP / Byte, log scale)</text>`;
+    out += `<text x="16" y="${pad.t+ph/2}" fill="${dimColor}" font-size="12" text-anchor="middle" transform="rotate(-90 16 ${pad.t+ph/2})">Achieved Compute (TFLOPS, log scale)</text>`;
+
+    const ridgeX = hw.fp32_peak * 1000 / hw.bw_peak;
+    const thRidgeX = 10.4 * 1000 / 400.0;
+    const roofPts = [minAI, ridgeX, maxAI].map(x => `${lx(x)},${ly(Math.min(hw.fp32_peak, x * hw.bw_peak / 1000))}`).join(" ");
+    const thPts = [minAI, thRidgeX, maxAI].map(x => `${lx(x)},${ly(Math.min(10.4, x * 400.0 / 1000))}`).join(" ");
+
+    out += `<polyline points="${thPts}" fill="none" stroke="${dimColor}" stroke-width="1.2" stroke-dasharray="5,5" opacity="0.5"/>`;
+    out += `<polyline points="${roofPts}" fill="none" stroke="var(--accent)" stroke-width="2.6"/>`;
+    out += `<line x1="${lx(ridgeX)}" y1="${ly(hw.fp32_peak)}" x2="${lx(ridgeX)}" y2="${pad.t+ph}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4,4" opacity="0.55"/>`;
+    out += `<text x="${lx(ridgeX)+6}" y="${pad.t+ph-8}" fill="var(--accent)" font-size="11" font-family="var(--mono)">Ridge ${ridgeX.toFixed(1)} FLOP/B</text>`;
+    out += `<text x="${lx(0.45)}" y="${ly(0.45*hw.bw_peak/1000)-10}" fill="var(--accent)" font-size="11" font-family="var(--mono)" transform="rotate(-29 ${lx(0.45)} ${ly(0.45*hw.bw_peak/1000)-10})">实测带宽 373.83 GB/s</text>`;
+    out += `<text x="${lx(260)}" y="${ly(hw.fp32_peak)-8}" fill="var(--accent)" font-size="11" font-family="var(--mono)">实测 FP32 SGMM 10.171 TFLOPS</text>`;
+
+    const pts = REPORT.roofline_points.filter(p => rfSuite === "ALL" || p.suite === rfSuite);
+    const labelPos = {
+      "L1 #25": [-9, -8, "end"],
+      "L1 #89": [9, 4, "start"],
+      "L1 #88": [-9, -7, "end"],
+      "L1 #36": [9, 5, "start"],
+      "L2 #42": [9, 7, "start"],
+      "L1 #7": [-9, -8, "end"],
+      "L1 #72": [-9, 4, "end"],
+      "L1 #6": [-9, 14, "end"],
+      "L2 #27": [9, 5, "start"],
+      "L1 #97": [-9, -10, "end"],
+      "L1 #66": [9, 5, "start"],
+      "L3-07": [-9, 12, "end"],
+      "L3-10": [9, 14, "start"],
+      "L1 #1": [8, -10, "start"],
+    };
+    pts.forEach((p, idx) => {
+      const cx = lx(p.ai);
+      const cy = ly(p.cand_tf);
+      const by = ly(p.base_tf);
+      const col = bucketColor(p.bucket);
+      if (rfShowMps) {
+        out += `<line x1="${cx}" y1="${by}" x2="${cx}" y2="${cy}" stroke="${col}" stroke-width="1.3" stroke-dasharray="2,2" opacity="0.65"/>`;
+        out += `<circle cx="${cx}" cy="${by}" r="4.2" fill="var(--bg-card)" stroke="${dimColor}" stroke-width="1.6" class="rf-pt" data-idx="${idx}"/>`;
+      }
+      out += `<circle cx="${cx}" cy="${cy}" r="6.2" fill="${col}" stroke="${txtColor}" stroke-width="1.2" class="rf-pt" data-idx="${idx}" style="cursor:pointer"/>`;
+      const lp = labelPos[p.key];
+      if (lp) {
+        out += `<text x="${cx+lp[0]}" y="${cy+lp[1]}" fill="${txtColor}" font-size="10.5" text-anchor="${lp[2]}" font-family="var(--mono)">${p.key}</text>`;
+      }
+    });
+
+    svg.innerHTML = out;
+    svg.querySelectorAll(".rf-pt").forEach(el => {
+      const p = pts[Number(el.dataset.idx)];
+      el.addEventListener("mousemove", (ev) => {
+        const unitStr = p.kind === "bw"
+          ? `${p.cand_gbs} GB/s (MPS: ${p.base_gbs} GB/s)`
+          : `${p.cand_tf} TFLOPS (MPS: ${p.base_tf} TF)`;
+        showTip(ev, `
+          <h4>${p.label}</h4>
+          <div style="color:var(--text-dim);margin-bottom:6px;font-size:11.5px;">${p.shape}</div>
+          <div class="kv"><span>算术强度 AI:</span><span>${p.ai} FLOP/B</span></div>
+          <div class="kv"><span>实测吞吐:</span><span>${unitStr}</span></div>
+          <div class="kv"><span>M1Triton % SOL:</span><strong style="color:${bucketColor(p.bucket)}">${p.sol_pct}%</strong></div>
+          <div class="kv"><span>PyTorch MPS % SOL:</span><span>${p.base_sol_pct}%</span></div>
+          <div class="kv"><span>耗时 (Base → M1T):</span><span>${p.base_ms}ms → ${p.cand_ms}ms</span></div>
+          <div class="kv"><span>加速比:</span><strong style="color:${p.speedup>=1?'var(--green)':'var(--red)'}">${p.speedup}x</strong></div>
+        `);
+      });
+      el.addEventListener("mouseleave", hideTip);
+    });
+  }
+
+  $("#solTable tbody").innerHTML = REPORT.roofline_points.map(p => {
+    const thr = p.kind === "bw" ? `${p.cand_gbs} GB/s` : `${p.cand_tf.toFixed(2)} TF`;
+    const spClass = p.speedup >= 2 ? "b-green" : (p.speedup >= 1 ? "b-blue" : "b-red");
+    const solColor = p.sol_pct >= 60 ? "var(--green)" : (p.sol_pct >= 30 ? "var(--amber)" : "var(--red)");
+    return `<tr>
+      <td><strong>${p.key}</strong> <span style="color:var(--text-dim)">${p.label.replace(p.key + " ", "")}</span></td>
+      <td class="num">${p.ai}</td>
+      <td class="num">${thr}</td>
+      <td class="num" style="color:${solColor};font-weight:700">${p.sol_pct}%</td>
+      <td class="num" style="color:var(--text-dim)">${p.base_sol_pct}%</td>
+      <td class="num"><span class="badge ${spClass}">${p.speedup.toFixed(2)}x</span></td>
+    </tr>`;
+  }).join("");
+
+  const bucketsMeta = [
+    {
+      code: "A", color: "var(--green)", title: "桶 A · 真实硬件 SOL 饱和",
+      cnt: sm.bucket_counts.A,
+      desc: "实打实跑出 58%–97% 带宽或算力极限：<code>L1 #25 Swish (97.3%)</code>、<code>#89 Cumsum (97.0%)</code>、<code>#1 Matmul (80.8%)</code>、<code>#97 FlashAttn (76.0%)</code>、<code>#6 Split-K (58.4%, 8.36x)</code>、<code>L3-10 W4A16 (58.1%, 3.05x)</code>。",
+    },
+    {
+      code: "B", color: "var(--purple)", title: "桶 B · 精确代数/结构化简",
+      cnt: sm.bucket_counts.B,
+      desc: "利用零填充线性交换或三角稀疏直接消灭无效 FLOPs 与数 GB 中间张量：<code>L2 #77 (421.37x)</code>、<code>L2 #42 (32.57x, 78.1% 最小I/O SOL)</code>、<code>L1 #14/#15 (3.77–3.96x, 精确 ⅓N³ 仍达 53.5% SOL)</code>。",
+    },
+    {
+      code: "C", color: "var(--amber)", title: "桶 C · 击穿 MPS 3D/转置短板",
+      cnt: sm.bucket_counts.C,
+      desc: "MPS 在 3D/转置卷积仅 0.5%–4.4% SOL；M1Triton 隐式 GEMM + <code>FUSE_SW</code> 拉回 11%–46% SOL：<code>L1 #66 (10.41x)</code>、<code>#72 (23.54x)</code>、<code>L2 #27 (22.04x)</code>、<code>#78 (20.39x)</code>。",
+    },
+    {
+      code: "D", color: "var(--cyan)", title: "桶 D · 消除循环与碎片化调度",
+      cnt: sm.bucket_counts.D,
+      desc: "单核吞掉 Python 步进循环、动态块表寻址或碎片 kernel launch：<code>L3-08 Mamba SSM (66.58x)</code>、<code>L3-03 PagedAttn (12.42x)</code>、<code>L3-05 RMSNorm+RoPE+KV (7.68x)</code>、<code>L1 #100 Hinge (16.65x)</code>。",
+    },
+  ];
+  $("#bucketGrid").innerHTML = bucketsMeta.map(b => `
+    <div class="bucket-card" style="--bcolor:${b.color}">
+      <h4><span>${b.title}</span><span class="badge b-gray">${b.cnt} cases</span></h4>
+      <p>${b.desc}</p>
+    </div>
+  `).join("");
+
+  let catSuite = "L1";
+  $$(".cat-suite-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      catSuite = btn.dataset.suite;
+      $$(".cat-suite-btn").forEach(b => b.classList.toggle("active", b === btn));
+      renderCatChart();
+    });
+  });
+
+  function renderCatChart() {
+    const svg = $("#catChartSvg");
+    const items = REPORT.cat_stats[catSuite];
+    const W = 600, H = 330;
+    const padL = 178, padR = 78, padT = 12, padB = 18;
+    const maxV = Math.max(...items.map(i => i.geomean), 2.5);
+    const rowH = Math.min(34, (H - padT - padB) / items.length);
+    const dimColor = getComputedStyle(document.documentElement).getPropertyValue("--text-dim").trim();
+    const txtColor = getComputedStyle(document.documentElement).getPropertyValue("--text").trim();
+
+    let out = "";
+    items.forEach((it, idx) => {
+      const y = padT + idx * rowH;
+      const bw = Math.max(4, (it.geomean / maxV) * (W - padL - padR));
+      const col = it.geomean >= 3 ? "var(--green)" : (it.geomean >= 1.5 ? "var(--accent)" : "var(--amber)");
+      out += `<text x="${padL-10}" y="${y+rowH*0.62}" fill="${txtColor}" font-size="11.5" text-anchor="end">${it.cat} (${it.count})</text>`;
+      out += `<rect x="${padL}" y="${y+rowH*0.2}" width="${bw}" height="${rowH*0.58}" rx="4" fill="${col}" opacity="0.88"/>`;
+      out += `<text x="${padL+bw+7}" y="${y+rowH*0.62}" fill="${dimColor}" font-size="11.5" font-family="var(--mono)">${it.geomean.toFixed(2)}x (${it.beats}/${it.count})</text>`;
+    });
+    svg.innerHTML = out;
+  }
+
+  function renderHistChart() {
+    const svg = $("#histChartSvg");
+    const bins = [
+      { label: "<0.90x", filter: "lt090", fn: s => s < 0.90, col: "var(--red)" },
+      { label: "0.90-0.98", filter: "090to098", fn: s => s >= 0.90 && s < 0.98, col: "var(--amber)" },
+      { label: "0.98-1.05", filter: "eq100", fn: s => s >= 0.98 && s <= 1.05, col: "var(--text-dim)" },
+      { label: "1.05-2.0x", filter: "1to2", fn: s => s > 1.05 && s < 2.0, col: "var(--accent)" },
+      { label: "2.0-5.0x", filter: "2to5", fn: s => s >= 2.0 && s <= 5.0, col: "var(--green)" },
+      { label: "5.0-15x", filter: "5to15", fn: s => s > 5.0 && s <= 15.0, col: "var(--purple)" },
+      { label: ">15x", filter: "gt15", fn: s => s > 15.0, col: "var(--purple)" },
+    ];
+    const counts = bins.map(b => REPORT.tasks.filter(t => b.fn(t.speedup)).length);
+    const maxC = Math.max(...counts, 1);
+    const W = 600, H = 330, padL = 36, padR = 16, padT = 26, padB = 42;
+    const bw = (W - padL - padR) / bins.length;
+    const dimColor = getComputedStyle(document.documentElement).getPropertyValue("--text-dim").trim();
+    const txtColor = getComputedStyle(document.documentElement).getPropertyValue("--text").trim();
+    const gridColor = getComputedStyle(document.documentElement).getPropertyValue("--border").trim();
+
+    let out = `<line x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}" stroke="${gridColor}"/>`;
+    bins.forEach((b, i) => {
+      const c = counts[i];
+      const bh = (c / maxC) * (H - padT - padB);
+      const x = padL + i * bw + 8;
+      const y = H - padB - bh;
+      out += `<rect class="hist-bar" data-filter="${b.filter}" x="${x}" y="${y}" width="${bw-16}" height="${bh}" rx="5" fill="${b.col}" opacity="0.88" style="cursor:pointer"/>`;
+      out += `<text x="${x+(bw-16)/2}" y="${y-6}" fill="${txtColor}" font-size="12" font-weight="700" text-anchor="middle" font-family="var(--mono)">${c}</text>`;
+      out += `<text x="${x+(bw-16)/2}" y="${H-padB+18}" fill="${dimColor}" font-size="10.5" text-anchor="middle" font-family="var(--mono)">${b.label}</text>`;
+    });
+    svg.innerHTML = out;
+    svg.querySelectorAll(".hist-bar").forEach(el => {
+      el.addEventListener("click", () => {
+        $("#spSelect").value = el.dataset.filter;
+        tblState.sp = el.dataset.filter;
+        renderTable();
+        $("#allcases").scrollIntoView({ behavior: "smooth" });
+      });
+    });
+  }
+
+  let diveGroup = "all";
+  function renderDives() {
+    const list = REPORT.deep_dives.filter(d => diveGroup === "all" || d.group === diveGroup);
+    const layerBadge = (code, txt) => {
+      const cls = { compiler: "b-blue", dsl: "b-purple", kernel: "b-amber", sol: "b-green" }[code] || "b-gray";
+      return `<span class="badge ${cls}">改进主抓手: ${txt}</span>`;
+    };
+    $("#diveGrid").innerHTML = list.map(d => `
+      <div class="dive-card ${d.group === 'bottleneck' ? 'is-bottleneck' : 'is-winner'}">
+        <div class="dive-top">
+          <h4 class="dive-title">${d.title}</h4>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${layerBadge(d.layer_code, d.layer)}
+          </div>
+        </div>
+        <div class="dive-metrics">
+          <span class="badge ${d.speedup >= 1 ? 'b-green' : 'b-red'}">${d.speedup.toFixed(2)}x</span>
+          <span>MPS ${d.base_ms}ms → M1T ${d.cand_ms}ms</span>
+          <span style="color:var(--text-muted)">|</span>
+          <span style="color:var(--accent)">${d.metric}</span>
+        </div>
+        <div class="dive-block"><strong>机制与源码归因：</strong>${d.why}</div>
+        <div class="dive-headroom"><strong>剩余空间与 Co-Design 抓手：</strong>${d.headroom}</div>
+      </div>
+    `).join("");
+  }
+  $$(".dive-filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      diveGroup = btn.dataset.group;
+      $$(".dive-filter-btn").forEach(b => b.classList.toggle("active", b === btn));
+      renderDives();
+    });
+  });
+
+  $("#expTable tbody").innerHTML = REPORT.experiments.map(e => {
+    const vBadge = e.verdict === "keep" ? '<span class="badge b-green">KEEP</span>' : '<span class="badge b-red">REJECT (回退)</span>';
+    return `<tr>
+      <td style="white-space:nowrap"><strong>${e.phase}</strong><br><span style="color:var(--text-muted);font-family:var(--mono);font-size:11px">${e.premise}</span></td>
+      <td>${e.hypothesis}</td>
+      <td class="num" style="white-space:nowrap">${e.baseline} → <strong>${e.candidate}</strong><br><span style="color:var(--text-muted);font-size:11px">(${e.direction})</span></td>
+      <td>${vBadge}</td>
+      <td style="color:var(--text-dim)">${e.explanation}</td>
+    </tr>`;
+  }).join("");
+
+  const tblState = { suite: "ALL", cat: "ALL", sp: "ALL", bucket: "ALL", q: "", sortCol: "suite", sortDir: 1 };
+  const expanded = new Set();
+
+  function populateCats() {
+    const cats = Array.from(new Set(
+      REPORT.tasks.filter(t => tblState.suite === "ALL" || t.suite === tblState.suite).map(t => t.cat)
+    )).sort();
+    const sel = $("#catSelect");
+    const prev = sel.value;
+    sel.innerHTML = `<option value="ALL">全部分类 (${cats.length})</option>` + cats.map(c => `<option value="${c}">${c}</option>`).join("");
+    sel.value = cats.includes(prev) ? prev : "ALL";
+    tblState.cat = sel.value;
+  }
+
+  function matchSpeedup(sp, mode) {
+    if (mode === "ALL") return true;
+    if (mode === "lt090") return sp < 0.90;
+    if (mode === "090to098") return sp >= 0.90 && sp < 0.98;
+    if (mode === "lt098") return sp < 0.98;
+    if (mode === "eq100") return sp >= 0.98 && sp <= 1.05;
+    if (mode === "1to2") return sp > 1.05 && sp < 2.0;
+    if (mode === "2to5") return sp >= 2.0 && sp <= 5.0;
+    if (mode === "5to15") return sp > 5.0 && sp <= 15.0;
+    if (mode === "gt15") return sp > 15.0;
+    return true;
+  }
+
+  function geomean(arr) {
+    const pos = arr.filter(x => x > 0);
+    if (!pos.length) return 0;
+    return Math.exp(pos.reduce((a, b) => a + Math.log(b), 0) / pos.length);
+  }
+
+  function renderTable() {
+    const q = tblState.q.trim().toLowerCase();
+    const rows = REPORT.tasks.filter(t => {
+      if (tblState.suite !== "ALL" && t.suite !== tblState.suite) return false;
+      if (tblState.cat !== "ALL" && t.cat !== tblState.cat) return false;
+      if (tblState.bucket !== "ALL" && t.bucket !== tblState.bucket) return false;
+      if (!matchSpeedup(t.speedup, tblState.sp)) return false;
+      if (q) {
+        const hay = `${t.suite} #${t.id} ${t.name} ${t.cat} ${t.note} ${t.headroom}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const col = tblState.sortCol, dir = tblState.sortDir;
+    rows.sort((a, b) => {
+      if (col === "suite") {
+        if (a.suite !== b.suite) return a.suite.localeCompare(b.suite) * dir;
+        return (a.id - b.id) * dir;
+      }
+      const va = a[col], vb = b[col];
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+
+    const sps = rows.map(r => r.speedup);
+    const gm = geomean(sps);
+    const beats = sps.filter(s => s > 1.0).length;
+    const sortedSp = [...sps].sort((a, b) => a - b);
+    const med = sortedSp.length ? sortedSp[Math.floor(sortedSp.length / 2)] : 0;
+    $("#filterSummary").innerHTML = `
+      <span>当前筛选: <strong>${rows.length} / ${REPORT.tasks.length}</strong> cases</span>
+      <span>Geomean: <strong style="color:var(--green)">${gm.toFixed(3)}x</strong></span>
+      <span>Median: <strong>${med.toFixed(2)}x</strong></span>
+      <span>&gt; 1.00x: <strong>${beats}/${rows.length} (${rows.length?(100*beats/rows.length).toFixed(1):0}%)</strong></span>
+      <span style="color:var(--text-muted)">提示: 点击任意行展开 Seed 误差、抖动与 Agent 诊断</span>
+    `;
+
+    const tbody = $("#allTable tbody");
+    const html = [];
+    rows.forEach(r => {
+      const rkey = `${r.suite}-${r.id}`;
+      const spCls = r.speedup >= 2 ? "b-green" : (r.speedup >= 1.0 ? "b-blue" : (r.speedup >= 0.98 ? "b-gray" : "b-red"));
+      const barPct = Math.min(100, (Math.log10(Math.max(r.speedup, 0.5) * 2) / Math.log10(40)) * 100);
+      const barCol = r.speedup >= 2 ? "var(--green)" : (r.speedup >= 1 ? "var(--accent)" : (r.speedup >= 0.98 ? "var(--text-dim)" : "var(--red)"));
+      const sBadge = r.suite === "L1" ? "b-blue" : (r.suite === "L2" ? "b-purple" : "b-amber");
+      const errStr = r.max_err === 0 ? "0.00e+0" : r.max_err.toExponential(1);
+      const hasNote = r.note ? ' <span title="含 Agent 深度解读" style="color:var(--accent)">★</span>' : "";
+      const bwdTag = r.bwd ? ' <span class="badge b-amber">Fwd+Bwd</span>' : "";
+      const cpuTag = r.backend !== "mps" ? ' <span class="badge b-red">CPU Ref</span>' : "";
+
+      html.push(`<tr class="data-row" data-rkey="${rkey}">
+        <td><span class="badge ${sBadge}">${r.suite}</span></td>
+        <td class="num">#${r.id}</td>
+        <td><code>${r.name}</code>${bwdTag}${cpuTag}${hasNote}</td>
+        <td style="color:var(--text-dim)">${r.cat}</td>
+        <td class="num">${r.base_ms.toFixed(3)}</td>
+        <td class="num"><strong>${r.cand_ms.toFixed(3)}</strong></td>
+        <td class="num sp-bar-cell">
+          <span class="badge ${spCls}">${r.speedup.toFixed(2)}x</span>
+          <div class="sp-bar-bg"><div class="sp-bar-fg" style="width:${barPct.toFixed(0)}%;background:${barCol}"></div></div>
+        </td>
+        <td class="num">${r.dpf}</td>
+        <td class="num" style="color:var(--text-dim)">${errStr}</td>
+        <td><span class="badge b-gray">${bucketLabel(r.bucket)}</span></td>
+      </tr>`);
+
+      if (expanded.has(rkey)) {
+        const bwdErr = r.max_bwd_err !== null ? ` · Max Bwd Err: <code>${r.max_bwd_err.toExponential(2)}</code>` : "";
+        const iqrInfo = r.base_iqr > 0 ? ` · Base IQR: <code>±${r.base_iqr.toFixed(3)}ms</code> · M1T IQR: <code>±${r.cand_iqr.toFixed(3)}ms</code>` : "";
+        const agentSec = r.note
+          ? `<div style="margin-top:8px;"><strong>Agent 解读：</strong>${r.note}</div><div style="margin-top:5px;"><strong>提升空间与抓手：</strong>${r.headroom}</div>`
+          : `<div style="margin-top:6px;color:var(--text-muted)">归因分类：<strong>${bucketLabel(r.bucket)}</strong>${r.speedup < 0.98 ? " · 存在明显优化空间，可按第 4 节 Co-Design 矩阵归类优化" : (r.speedup >= 0.98 && r.speedup < 1.05 ? " · 已接近单算子硬件/基线持平区间，进一步提速需依赖 L2 跨算子融合" : " · 已显著超越 PyTorch MPS 基线")}</div>`;
+        html.push(`<tr class="detail-row"><td colspan="10">
+          <div>
+            <strong>候选文件:</strong> <code>${r.file || "N/A"}</code> ·
+            <strong>冷编译耗时:</strong> <code>${r.cold_ms} ms</code> ·
+            <strong>3-Seed 总发射数:</strong> <code>${r.total_disp}</code> ·
+            <strong>Baseline:</strong> <code>${r.backend}</code>${iqrInfo}${bwdErr}
+          </div>
+          ${agentSec}
+        </td></tr>`);
+      }
+    });
+    tbody.innerHTML = html.join("");
+
+    tbody.querySelectorAll("tr.data-row").forEach(tr => {
+      tr.addEventListener("click", () => {
+        const k = tr.dataset.rkey;
+        if (expanded.has(k)) expanded.delete(k); else expanded.add(k);
+        renderTable();
+      });
+    });
+  }
+
+  $$(".tbl-suite-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      tblState.suite = btn.dataset.suite;
+      $$(".tbl-suite-btn").forEach(b => b.classList.toggle("active", b === btn));
+      populateCats();
+      renderTable();
+    });
+  });
+  $("#catSelect").addEventListener("change", (e) => { tblState.cat = e.target.value; renderTable(); });
+  $("#spSelect").addEventListener("change", (e) => { tblState.sp = e.target.value; renderTable(); });
+  $("#bucketSelect").addEventListener("change", (e) => { tblState.bucket = e.target.value; renderTable(); });
+  $("#searchInput").addEventListener("input", (e) => { tblState.q = e.target.value; renderTable(); });
+  $$("#allTable th.sortable").forEach(th => {
+    th.addEventListener("click", () => {
+      const c = th.dataset.col;
+      if (tblState.sortCol === c) tblState.sortDir *= -1;
+      else { tblState.sortCol = c; tblState.sortDir = (c === "speedup" || c === "base_ms" || c === "cand_ms") ? -1 : 1; }
+      renderTable();
+    });
+  });
+
+  renderRoofline();
+  renderCatChart();
+  renderHistChart();
+  renderDives();
+  populateCats();
+  renderTable();
+})();
+</script>
+</body>
+</html>
