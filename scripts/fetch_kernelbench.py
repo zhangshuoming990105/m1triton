@@ -26,8 +26,9 @@ def parse_task_id(filename: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def fetch_level1(dest_dir: Path, repo_url: str, commit_sha: str) -> dict:
+def fetch_level(level: int, dest_dir: Path, repo_url: str, commit_sha: str) -> dict:
     dest_dir.mkdir(parents=True, exist_ok=True)
+    subpath = f"KernelBench/level{level}"
     with tempfile.TemporaryDirectory(prefix="kb_fetch_") as tmp:
         tmp_repo = Path(tmp) / "KernelBench"
         subprocess.run(
@@ -43,7 +44,7 @@ def fetch_level1(dest_dir: Path, repo_url: str, commit_sha: str) -> dict:
             check=True,
         )
         subprocess.run(
-            ["git", "-C", str(tmp_repo), "sparse-checkout", "set", "KernelBench/level1"],
+            ["git", "-C", str(tmp_repo), "sparse-checkout", "set", subpath],
             check=True,
         )
         subprocess.run(
@@ -56,13 +57,13 @@ def fetch_level1(dest_dir: Path, repo_url: str, commit_sha: str) -> dict:
         if resolved_sha != commit_sha:
             raise RuntimeError(f"Expected commit {commit_sha}, got {resolved_sha}")
 
-        src_dir = tmp_repo / "KernelBench" / "level1"
+        src_dir = tmp_repo / subpath
         src_files = sorted(
             [p for p in src_dir.glob("*.py") if parse_task_id(p.name) is not None],
             key=lambda p: parse_task_id(p.name) or 0,
         )
         if len(src_files) != 100:
-            raise RuntimeError(f"Expected 100 Level 1 tasks, found {len(src_files)}")
+            raise RuntimeError(f"Expected 100 Level {level} tasks, found {len(src_files)}")
 
         for old in dest_dir.glob("*.py"):
             old.unlink()
@@ -89,27 +90,29 @@ def fetch_level1(dest_dir: Path, repo_url: str, commit_sha: str) -> dict:
     manifest = {
         "source_repo": repo_url,
         "commit_sha": commit_sha,
-        "level": 1,
+        "level": level,
         "task_count": len(tasks),
         "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
         "tasks": tasks,
     }
-    manifest_path = dest_dir / "MANIFEST.json"
+    manifest_path = dest_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch pinned KernelBench Level 1 tasks.")
-    parser.add_argument("--dest", type=Path, default=Path("benchmarks/kernelbench_l1"))
+    parser = argparse.ArgumentParser(description="Fetch pinned KernelBench Level 1 or Level 2 tasks.")
+    parser.add_argument("--level", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--dest", type=Path, default=None)
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--commit", default=DEFAULT_COMMIT)
     args = parser.parse_args()
+    dest = args.dest if args.dest is not None else Path(f"benchmarks/kernelbench_l{args.level}")
 
-    manifest = fetch_level1(args.dest, args.repo, args.commit)
+    manifest = fetch_level(args.level, dest, args.repo, args.commit)
     print(
-        f"Fetched {manifest['task_count']} KernelBench Level 1 tasks "
-        f"(commit {manifest['commit_sha'][:12]}) -> {args.dest}"
+        f"Fetched {manifest['task_count']} KernelBench Level {args.level} tasks "
+        f"(commit {manifest['commit_sha'][:12]}) -> {dest}"
     )
 
 

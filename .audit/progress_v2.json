@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "goalFile": "GOAL.md",
+  "releaseLine": "v2.0",
+  "baselineTag": "v1.0-kernelbench-l1",
+  "createdAt": "2026-11-22T05:36:00Z",
+  "updatedAt": "2026-11-22T05:36:00Z",
+  "milestones": [
+    {
+      "id": "V2-M0",
+      "title": "Packaging, m1triton doctor, MetalGraph/ICB, Autotuner v2, KB L2 fetch & frozen L2/L3 harnesses",
+      "status": "in_progress",
+      "evidence": "",
+      "note": "Parallel swarm: v2-m0-runtime + v2-m0-autotune-pkg + coordinator Workstream A",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    },
+    {
+      "id": "V2-M1",
+      "title": "Epilogue DAG IR, EpilogueDAGFusionPass, AlgebraicNormFoldingPass & L2 GEMM fusion cluster",
+      "status": "pending",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    },
+    {
+      "id": "V2-M2",
+      "title": "L2 Conv2D/3D & ConvTranspose register epilogue + BN-fold fusion clusters + hygiene checkpoint",
+      "status": "pending",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    },
+    {
+      "id": "V2-M3",
+      "title": "Producer-Consumer SRAM fusion (Pool/Reduce/Norm) + torch.compile(backend='m1triton') -> 100/100 KB L2",
+      "status": "pending",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    },
+    {
+      "id": "V2-M4",
+      "title": "General Triton IR/codegen upgrade & L3 Part 1 (L3-01..L3-05: FlashAttn2 fwd/bwd, PagedAttn, SW/ALiBi, RMSNorm+RoPE+KV) + hygiene",
+      "status": "pending",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    },
+    {
+      "id": "V2-M5",
+      "title": "L3 Part 2 (L3-06..L3-10: LayerNorm bwd atomics, Chunked Linear CE, Mamba SSM, MoE Grouped GEMM, W4A16) -> 10/10 L3",
+      "status": "pending",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    },
+    {
+      "id": "V2-M6",
+      "title": "FusionOccupancyCostModelPass, MetalGraph/ICB tuning & research-lab performance sprint (L2 >=2.0x geomean, >=85 beats)",
+      "status": "pending",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    },
+    {
+      "id": "V2-M7",
+      "title": "Full-repo unslop, fresh-venv install verification, final slop-critic audit, official frozen L2+L3 eval & v2.0 tag",
+      "status": "pending",
+      "evidence": "",
+      "note": "",
+      "updatedAt": "2026-11-22T05:36:00Z"
+    }
+  ],
+  "scoreboardL2": {
+    "passed": 0,
+    "total": 100,
+    "beatsBaseline": 0,
+    "geomeanSpeedup": 0.0,
+    "artifact": ""
+  },
+  "scoreboardL3": {
+    "passed": 0,
+    "total": 10,
+    "beatsBaseline": 0,
+    "geomeanSpeedup": 0.0,
+    "artifact": ""
+  },
+  "milestonesSinceHygiene": 0,
+  "lastCheckpoint": null,
+  "checkpoints": []
+}

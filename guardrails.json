@@ -36,7 +36,9 @@
     {
       "id": "ARCH-FRONTEND-NO-TORCH-CHEAT",
       "includePrefixes": [
-        "benchmarks/kernels/"
+        "benchmarks/kernels/",
+        "benchmarks/kernels_l2/",
+        "benchmarks/triton_l3/kernels/"
       ],
       "pattern": "\\b(?:torch\\.nn\\.functional|torch\\.matmul|torch\\.mm|torch\\.bmm|torch\\.mv|torch\\.addmm|torch\\.einsum|torch\\.tensordot|torch\\.conv|torch\\.softmax|torch\\.log_softmax|torch\\.layer_norm|torch\\.batch_norm|torch\\.group_norm|torch\\.instance_norm|torch\\.cumsum|torch\\.cumprod|torch\\.triu|torch\\.tril|torch\\.diag|torch\\.linalg|torch\\.cdist|torch\\.relu|torch\\.sigmoid|torch\\.tanh|torch\\.nn\\.Conv|torch\\.nn\\.Linear|torch\\.nn\\.BatchNorm|torch\\.nn\\.LayerNorm|torch\\.nn\\.GroupNorm|torch\\.nn\\.InstanceNorm|torch\\.nn\\.MaxPool|torch\\.nn\\.AvgPool|F\\.(?:linear|conv|conv_transpose|matmul|softmax|log_softmax|layer_norm|batch_norm|group_norm|instance_norm|relu|gelu|silu|sigmoid|tanh|elu|selu|softplus|hardsigmoid|hardswish|max_pool|avg_pool|mse_loss|cross_entropy|huber_loss|kl_div|triplet_margin_loss|hinge_embedding_loss|scaled_dot_product_attention|normalize))\\b",
       "fix": "Implement the operator as a compiled M1Triton @triton.jit / @m1.jit kernel instead of delegating compute to PyTorch/MPSGraph."
@@ -48,11 +50,14 @@
       "tests/",
       "tools/",
       ".agents/",
-      "benchmarks/kernelbench_l1/"
+      "benchmarks/kernelbench_l1/",
+      "benchmarks/kernelbench_l2/"
     ]
   },
   "frozenFiles": {
     "evals/eval_kernelbench.py": "a067d3ace8a191bdf96ead152aa6466cc61365ad209216365deca6a258898abe",
-    "evals/roofline_probe.py": "bb190cbb1eb55056f10b96a946178f0cae8fc93212201912c1496142b5737728"
+    "evals/roofline_probe.py": "bb190cbb1eb55056f10b96a946178f0cae8fc93212201912c1496142b5737728",
+    "evals/eval_kernelbench_l2.py": "2f0ab84b2c12ba97adf0e0affc5fb1e3ce0849cdfdeacba2f2352f762e8042be",
+    "evals/eval_triton_l3.py": "2816fe767ba82e39acb19a823bea45ec5a1c5fa6746a1514588696a7f5bed782"
   }
 }
