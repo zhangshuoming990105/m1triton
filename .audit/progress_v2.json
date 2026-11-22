@@ -4,31 +4,31 @@
   "releaseLine": "v2.0",
   "baselineTag": "v1.0-kernelbench-l1",
   "createdAt": "2026-11-22T05:36:00Z",
-  "updatedAt": "2026-11-22T05:36:00Z",
+  "updatedAt": "2026-11-22T05:52:44.190561Z",
   "milestones": [
     {
       "id": "V2-M0",
       "title": "Packaging, m1triton doctor, MetalGraph/ICB, Autotuner v2, KB L2 fetch & frozen L2/L3 harnesses",
-      "status": "in_progress",
-      "evidence": "",
+      "status": "verified",
+      "evidence": "ci_local.sh green (15/15 CTest, 81/81 pytest), 4 frozen evals locked, 100/100 KB L2 fetched & MPS baselined (0 unsupported, .audit/baseline_l2_mps.json), command_batch (1.60x vs 10 CBs) & MetalGraph Compute ICB (5.26x lower CPU submit, MTL_DEBUG_LAYER=1 clean), Autotuner v2 (disk cache + @heuristics + PSO pruning), PEP 517 setup.py + m1triton doctor HEALTHY + examples, merge 3ab0ab4",
       "note": "Parallel swarm: v2-m0-runtime + v2-m0-autotune-pkg + coordinator Workstream A",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "updatedAt": "2026-11-22T05:52:44.190561Z"
     },
     {
       "id": "V2-M1",
       "title": "Epilogue DAG IR, EpilogueDAGFusionPass, AlgebraicNormFoldingPass & L2 GEMM fusion cluster",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": "",
       "note": "",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "updatedAt": "2026-11-22T05:52:44.190561Z"
     },
     {
       "id": "V2-M2",
       "title": "L2 Conv2D/3D & ConvTranspose register epilogue + BN-fold fusion clusters + hygiene checkpoint",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": "",
       "note": "",
-      "updatedAt": "2026-11-22T05:36:00Z"
+      "updatedAt": "2026-11-22T05:52:44.190561Z"
     },
     {
       "id": "V2-M3",
@@ -86,6 +86,20 @@
     "artifact": ""
   },
   "milestonesSinceHygiene": 0,
-  "lastCheckpoint": null,
-  "checkpoints": []
+  "lastCheckpoint": {
+    "ts": "2026-11-22T05:52:44.190561Z",
+    "commit": "3ab0ab4",
+    "summary": "V2-M0 verified & merged: packaging, doctor, MetalGraph/ICB, Autotuner v2, 100 KB L2 tasks & 4 frozen evaluators (81/81 pytest, 15/15 CTest)",
+    "next": "Build shared EpilogueDAG IR contract & launch parallel V2-M1 (GEMM fusion) + V2-M2 (Conv/ConvTranspose fusion) swarm",
+    "hygieneClean": true
+  },
+  "checkpoints": [
+    {
+      "ts": "2026-11-22T05:52:44.190561Z",
+      "commit": "3ab0ab4",
+      "summary": "V2-M0 verified & merged: packaging, doctor, MetalGraph/ICB, Autotuner v2, 100 KB L2 tasks & 4 frozen evaluators (81/81 pytest, 15/15 CTest)",
+      "next": "Build shared EpilogueDAG IR contract & launch parallel V2-M1 (GEMM fusion) + V2-M2 (Conv/ConvTranspose fusion) swarm",
+      "hygieneClean": true
+    }
+  ]
 }
