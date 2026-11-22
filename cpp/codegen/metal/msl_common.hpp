@@ -4,6 +4,7 @@
 #include "ir/ir.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -104,5 +105,12 @@ std::optional<uint32_t> param_index_of(const ir::Kernel& kernel, ir::ValueId vid
 std::optional<std::string> scalar_long_expr(const ir::Kernel& kernel, ir::ValueId vid, bool allow_bool = true);
 std::optional<int64_t> positive_constexpr_param(const ir::Kernel& kernel, const char* name);
 int64_t positive_constexpr_param(const ir::Kernel& kernel, const char* name, int64_t fallback);
+
+void collect_epilogue_dag_helpers(const ir::EpilogueDAGAttr& dag, HelperFlags& helpers);
+void collect_epilogue_dag_param_indices(const ir::EpilogueDAGAttr& dag, std::set<uint32_t>& read_params);
+void emit_epilogue_dag_msl(std::ostringstream& os, const ir::Kernel& kernel, const ir::EpilogueDAGAttr& dag,
+                           const std::string& val_var, const std::string& ch_expr, const std::string& elem_idx_expr,
+                           const std::function<std::string(uint32_t)>& param_name_fn, HelperFlags& helpers,
+                           const std::string& indent = "  ");
 
 }  // namespace m1triton::codegen::metal

@@ -198,6 +198,8 @@ std::string msl_int_literal(int64_t v) {
 
 std::string msl_exact_float_literal(double v) {
   const float f = static_cast<float>(v);
+  if (std::isnan(f)) return "NAN";
+  if (std::isinf(f)) return (f < 0.0f) ? "(-INFINITY)" : "INFINITY";
   char buf[64];
   for (int prec = 6; prec <= 9; ++prec) {
     std::snprintf(buf, sizeof(buf), "%.*e", prec, static_cast<double>(f));
@@ -286,8 +288,24 @@ std::string msl_binary_expr(BinaryOp op, const std::string& lhs_in, const std::s
       if (is_float_dtype(op_dt)) return "metal::fmod(" + a + ", " + b + ")";
       return "(" + a + " % " + b + ")";
     case BinaryOp::Max:
+      if (is_float_dtype(op_dt)) {
+        if (vec4) {
+          return "metal::select(metal::select(metal::max(" + a + ", " + b + "), " + b + ", metal::isnan(" + b +
+                 ")), " + a + ", metal::isnan(" + a + "))";
+        }
+        return "(metal::isnan(" + a + ") ? " + a + " : (metal::isnan(" + b + ") ? " + b + " : ((" + a + " > " + b +
+               ") ? " + a + " : " + b + ")))";
+      }
       return "metal::max(" + a + ", " + b + ")";
     case BinaryOp::Min:
+      if (is_float_dtype(op_dt)) {
+        if (vec4) {
+          return "metal::select(metal::select(metal::min(" + a + ", " + b + "), " + b + ", metal::isnan(" + b +
+                 ")), " + a + ", metal::isnan(" + a + "))";
+        }
+        return "(metal::isnan(" + a + ") ? " + a + " : (metal::isnan(" + b + ") ? " + b + " : ((" + a + " < " + b +
+               ") ? " + a + " : " + b + ")))";
+      }
       return "metal::min(" + a + ", " + b + ")";
     case BinaryOp::Pow:
       if (is_float_dtype(op_dt)) return "metal::pow(" + a + ", " + b + ")";
@@ -774,6 +792,238 @@ std::optional<int64_t> positive_constexpr_param(const Kernel& kernel, const char
 
 int64_t positive_constexpr_param(const Kernel& kernel, const char* name, int64_t fallback) {
   return positive_constexpr_param(kernel, name).value_or(fallback);
+}
+
+void collect_epilogue_dag_helpers(const ir::EpilogueDAGAttr& dag, HelperFlags& helpers) {
+  for (const auto& st : dag.steps) {
+    switch (st.op) {
+      case ir::EpilogueOpKind::GELU:
+        helpers.needs_erf = true;
+        break;
+      case ir::EpilogueOpKind::Tanh:
+      case ir::EpilogueOpKind::GELUTanh:
+      case ir::EpilogueOpKind::Mish:
+        helpers.needs_tanh = true;
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+void collect_epilogue_dag_param_indices(const ir::EpilogueDAGAttr& dag, std::set<uint32_t>& read_params) {
+  for (const auto& st : dag.steps) {
+    if ((ir::epilogue_op_needs_ptr_arg(st.op) || ir::epilogue_op_needs_scalar_arg(st.op)) && st.arg_idx >= 0) {
+      read_params.insert(static_cast<uint32_t>(st.arg_idx));
+    }
+  }
+}
+
+void emit_epilogue_dag_msl(std::ostringstream& os, const Kernel&, const ir::EpilogueDAGAttr& dag,
+                           const std::string& v, const std::string& ch_expr, const std::string& elem_idx_expr,
+                           const std::function<std::string(uint32_t)>& param_name_fn, HelperFlags& helpers,
+                           const std::string& indent) {
+  collect_epilogue_dag_helpers(dag, helpers);
+  bool declared_reg[4] = {false, false, false, false};
+  for (const auto& st : dag.steps) {
+    const std::string p0 = msl_exact_float_literal(st.param0);
+    const std::string p1 = msl_exact_float_literal(st.param1);
+    switch (st.op) {
+      case ir::EpilogueOpKind::AddConst:
+        os << indent << v << " = " << v << " + " << p0 << ";\n";
+        break;
+      case ir::EpilogueOpKind::SubConst:
+        os << indent << v << " = " << v << " - " << p0 << ";\n";
+        break;
+      case ir::EpilogueOpKind::RSubConst:
+        os << indent << v << " = " << p0 << " - " << v << ";\n";
+        break;
+      case ir::EpilogueOpKind::MulConst:
+        os << indent << v << " = " << v << " * " << p0 << ";\n";
+        break;
+      case ir::EpilogueOpKind::DivConst:
+        os << indent << v << " = " << v << " / " << p0 << ";\n";
+        break;
+      case ir::EpilogueOpKind::MinConst:
+        if (std::isnan(st.param0)) {
+          os << indent << v << " = NAN;\n";
+        } else {
+          os << indent << v << " = (" << v << " > " << p0 << ") ? " << p0 << " : " << v << ";\n";
+        }
+        break;
+      case ir::EpilogueOpKind::MaxConst:
+        if (std::isnan(st.param0)) {
+          os << indent << v << " = NAN;\n";
+        } else {
+          os << indent << v << " = (" << v << " < " << p0 << ") ? " << p0 << " : " << v << ";\n";
+        }
+        break;
+      case ir::EpilogueOpKind::Clamp:
+      case ir::EpilogueOpKind::HardTanh:
+        if (std::isnan(st.param0) || std::isnan(st.param1)) {
+          os << indent << v << " = NAN;\n";
+        } else {
+          os << indent << v << " = (" << v << " < " << p0 << ") ? " << p0 << " : ((" << v << " > " << p1 << ") ? "
+             << p1 << " : " << v << ");\n";
+        }
+        break;
+      case ir::EpilogueOpKind::AddBias: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " + " << pn << "[" << ch_expr << "];\n";
+        break;
+      }
+      case ir::EpilogueOpKind::SubBias: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " - " << pn << "[" << ch_expr << "];\n";
+        break;
+      }
+      case ir::EpilogueOpKind::MulBias: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " * " << pn << "[" << ch_expr << "];\n";
+        break;
+      }
+      case ir::EpilogueOpKind::DivBias: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " / " << pn << "[" << ch_expr << "];\n";
+        break;
+      }
+      case ir::EpilogueOpKind::MinBias: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << "{ float m1_eb = " << pn << "[" << ch_expr << "]; " << v << " = isnan(" << v << ") ? " << v
+           << " : (isnan(m1_eb) ? m1_eb : ((" << v << " > m1_eb) ? m1_eb : " << v << ")); }\n";
+        break;
+      }
+      case ir::EpilogueOpKind::MaxBias: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << "{ float m1_eb = " << pn << "[" << ch_expr << "]; " << v << " = isnan(" << v << ") ? " << v
+           << " : (isnan(m1_eb) ? m1_eb : ((" << v << " < m1_eb) ? m1_eb : " << v << ")); }\n";
+        break;
+      }
+      case ir::EpilogueOpKind::AddScalar: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " + float(" << pn << ");\n";
+        break;
+      }
+      case ir::EpilogueOpKind::SubScalar: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " - float(" << pn << ");\n";
+        break;
+      }
+      case ir::EpilogueOpKind::MulScalar: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " * float(" << pn << ");\n";
+        break;
+      }
+      case ir::EpilogueOpKind::DivScalar: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " / float(" << pn << ");\n";
+        break;
+      }
+      case ir::EpilogueOpKind::AddResidual: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " + " << pn << "[" << elem_idx_expr << "];\n";
+        break;
+      }
+      case ir::EpilogueOpKind::SubResidual: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " - " << pn << "[" << elem_idx_expr << "];\n";
+        break;
+      }
+      case ir::EpilogueOpKind::MulResidual: {
+        const std::string pn = param_name_fn(static_cast<uint32_t>(st.arg_idx));
+        os << indent << v << " = " << v << " * " << pn << "[" << elem_idx_expr << "];\n";
+        break;
+      }
+      case ir::EpilogueOpKind::SaveReg: {
+        const int s = st.arg_idx;
+        if (!declared_reg[s]) {
+          os << indent << "float m1_esav" << s << " = " << v << ";\n";
+          declared_reg[s] = true;
+        } else {
+          os << indent << "m1_esav" << s << " = " << v << ";\n";
+        }
+        break;
+      }
+      case ir::EpilogueOpKind::AddSaved:
+        os << indent << v << " = " << v << " + m1_esav" << st.arg_idx << ";\n";
+        break;
+      case ir::EpilogueOpKind::SubSaved:
+        os << indent << v << " = " << v << " - m1_esav" << st.arg_idx << ";\n";
+        break;
+      case ir::EpilogueOpKind::MulSaved:
+        os << indent << v << " = " << v << " * m1_esav" << st.arg_idx << ";\n";
+        break;
+      case ir::EpilogueOpKind::ReLU:
+        os << indent << v << " = (" << v << " < 0.0f) ? 0.0f : " << v << ";\n";
+        break;
+      case ir::EpilogueOpKind::LeakyReLU:
+        os << indent << v << " = (" << v << " > 0.0f) ? " << v << " : (" << v << " * " << p0 << ");\n";
+        break;
+      case ir::EpilogueOpKind::Sigmoid:
+        os << indent << v << " = 1.0f / (1.0f + exp(-" << v << "));\n";
+        break;
+      case ir::EpilogueOpKind::Tanh:
+        os << indent << v << " = m1_tanh(" << v << ");\n";
+        break;
+      case ir::EpilogueOpKind::GELU:
+        os << indent << v << " = 0.5f * " << v << " * (1.0f + m1_erf(" << v << " * 0.7071067811865476f));\n";
+        break;
+      case ir::EpilogueOpKind::GELUTanh:
+        os << indent << v << " = 0.5f * " << v << " * (1.0f + m1_tanh(0.7978845608028654f * (" << v
+           << " + 0.044715f * " << v << " * " << v << " * " << v << ")));\n";
+        break;
+      case ir::EpilogueOpKind::Swish:
+        os << indent << v << " = " << v << " / (1.0f + exp(-" << v << "));\n";
+        break;
+      case ir::EpilogueOpKind::Mish:
+        os << indent << "{ float m1_sp = (" << v << " > 20.0f) ? " << v << " : log(1.0f + exp(" << v << ")); " << v
+           << " = " << v << " * m1_tanh(m1_sp); }\n";
+        break;
+      case ir::EpilogueOpKind::HardSwish:
+        os << indent << v << " = (" << v << " <= -3.0f) ? 0.0f : ((" << v << " >= 3.0f) ? " << v << " : (" << v
+           << " * (" << v << " + 3.0f) * 0.1666666716337204f));\n";
+        break;
+      case ir::EpilogueOpKind::HardSigmoid:
+        os << indent << v << " = (" << v << " <= -3.0f) ? 0.0f : ((" << v << " >= 3.0f) ? 1.0f : ((" << v
+           << " + 3.0f) * 0.1666666716337204f));\n";
+        break;
+      case ir::EpilogueOpKind::ELU:
+        os << indent << v << " = (" << v << " > 0.0f) ? " << v << " : (" << p0 << " * (exp((" << v
+           << " > 0.0f) ? 0.0f : " << v << ") - 1.0f));\n";
+        break;
+      case ir::EpilogueOpKind::SELU:
+        os << indent << v << " = (" << v << " > 0.0f) ? (1.0507009873554805f * " << v
+           << ") : (1.7580993408473768f * (exp((" << v << " > 0.0f) ? 0.0f : " << v << ") - 1.0f));\n";
+        break;
+      case ir::EpilogueOpKind::Softplus: {
+        const float beta = (st.param0 == 0.0f) ? 1.0f : st.param0;
+        const float thr = (st.param0 == 0.0f && st.param1 == 0.0f) ? 20.0f : st.param1;
+        const std::string bs = msl_exact_float_literal(beta);
+        const std::string ts = msl_exact_float_literal(thr);
+        os << indent << v << " = (" << v << " * " << bs << " > " << ts << ") ? " << v << " : (log(1.0f + exp(" << v
+           << " * " << bs << ")) / " << bs << ");\n";
+        break;
+      }
+      case ir::EpilogueOpKind::Softsign:
+        os << indent << v << " = " << v << " / (1.0f + fabs(" << v << "));\n";
+        break;
+      case ir::EpilogueOpKind::Log:
+        os << indent << v << " = log(" << v << ");\n";
+        break;
+      case ir::EpilogueOpKind::Exp:
+        os << indent << v << " = exp(" << v << ");\n";
+        break;
+      case ir::EpilogueOpKind::Abs:
+        os << indent << v << " = fabs(" << v << ");\n";
+        break;
+      case ir::EpilogueOpKind::Neg:
+        os << indent << v << " = -" << v << ";\n";
+        break;
+      case ir::EpilogueOpKind::Sqrt:
+        os << indent << v << " = sqrt(" << v << ");\n";
+        break;
+    }
+  }
 }
 
 }  // namespace m1triton::codegen::metal

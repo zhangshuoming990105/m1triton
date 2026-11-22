@@ -105,6 +105,8 @@ class KernelVerifier {
       }
     }
 
+    verify_op_hints(kernel_.hints, "kernel @" + kernel_.name);
+
     std::unordered_set<ValueId> visible;
     verify_block(kernel_.entry_block, visible);
 
@@ -120,6 +122,46 @@ class KernelVerifier {
   void error(std::string msg) {
     out_.ok = false;
     out_.errors.push_back(std::move(msg));
+  }
+
+  void verify_op_hints(const OpHints& hints, const std::string& where) {
+    if (hints.epilogue_dag.has_value()) {
+      bool saved_reg[4] = {false, false, false, false};
+      for (size_t i = 0; i < hints.epilogue_dag->steps.size(); ++i) {
+        const auto& st = hints.epilogue_dag->steps[i];
+        const std::string stag = where + " epilogue_dag[" + std::to_string(i) + "]";
+        if (epilogue_op_needs_ptr_arg(st.op)) {
+          if (st.arg_idx < 0 || static_cast<size_t>(st.arg_idx) >= kernel_.params.size()) {
+            error(stag + ": buffer arg_idx out of range");
+          } else if (!kernel_.params[static_cast<size_t>(st.arg_idx)].type.is_ptr()) {
+            error(stag + ": buffer step expects pointer kernel param");
+          }
+        } else if (epilogue_op_needs_scalar_arg(st.op)) {
+          if (st.arg_idx < 0 || static_cast<size_t>(st.arg_idx) >= kernel_.params.size()) {
+            error(stag + ": scalar arg_idx out of range");
+          } else if (!kernel_.params[static_cast<size_t>(st.arg_idx)].type.is_scalar()) {
+            error(stag + ": scalar step expects scalar kernel param");
+          }
+        } else if (epilogue_op_uses_reg_slot(st.op)) {
+          if (st.arg_idx < 0 || st.arg_idx >= 4) {
+            error(stag + ": register slot must be in [0, 3]");
+          } else if (st.op == EpilogueOpKind::SaveReg) {
+            saved_reg[st.arg_idx] = true;
+          } else if (!saved_reg[st.arg_idx]) {
+            error(stag + ": reads unsaved register slot " + std::to_string(st.arg_idx));
+          }
+        }
+        if ((st.op == EpilogueOpKind::Clamp || st.op == EpilogueOpKind::HardTanh) && st.param0 > st.param1) {
+          error(stag + ": clamp/hardtanh min exceeds max");
+        }
+      }
+    }
+    if (hints.fused_tail.has_value() && hints.fused_tail->kind != TailKind::None) {
+      const auto& ft = *hints.fused_tail;
+      if (ft.kernel_size < 1 || ft.stride < 1) {
+        error(where + " fused_tail: kernel_size and stride must be >= 1");
+      }
+    }
   }
 
   bool valid_value_id(ValueId id) const { return id < kernel_.values.size(); }
@@ -1080,6 +1122,7 @@ class KernelVerifier {
         }
         break;
     }
+    verify_op_hints(node.hints, tag);
   }
 
   const Kernel& kernel_;

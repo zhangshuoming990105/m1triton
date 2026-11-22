@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <numeric>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <variant>
@@ -91,7 +92,14 @@ struct ConvTransposePlan {
   int32_t fuse_shift_min_w = 0;
   uint32_t fuse_epi_rows = 8;
   std::vector<ActiveWPhase> active_w;
+  std::optional<ir::EpilogueDAGAttr> epilogue_dag;
+  std::optional<ir::FusedTailAttr> fused_tail;
 };
+
+bool is_supported_spatial_tail(ir::TailKind kind) {
+  return kind == ir::TailKind::SpatialGlobalAvgPool || kind == ir::TailKind::SpatialGlobalSum ||
+         kind == ir::TailKind::SpatialGlobalMax;
+}
 
 std::optional<int64_t> literal_value(const std::string& expr) {
   if (expr.size() < 2 || expr.back() != 'L') return std::nullopt;
@@ -345,11 +353,35 @@ std::optional<ConvTransposePlan> build_plan(const Kernel& kernel, const ir::Targ
 
   const bool req_blk8 = positive_constexpr_param(kernel, kWBlk8Param, 0) > 0;
   if (req_blk8) {
-    if (plan.w_elem != "float" || !plan.ci_exact || !plan.co_exact) {
-      err = "conv-transpose W_BLK8=1 requires f32 weights and channels divisible by BLOCK_K/BLOCK_M";
+    if (plan.w_elem != "float" || !plan.co_exact) {
+      err = "conv-transpose W_BLK8=1 requires f32 weights and output channels divisible by BLOCK_M";
       return std::nullopt;
     }
     plan.w_blk8 = true;
+  }
+
+  const std::optional<ir::EpilogueDAGAttr>* dag_src =
+      kernel.hints.epilogue_dag.has_value() ? &kernel.hints.epilogue_dag : &plan.op->hints.epilogue_dag;
+  if (dag_src->has_value() && !(*dag_src)->steps.empty()) {
+    std::set<uint32_t> read_params;
+    collect_epilogue_dag_param_indices(**dag_src, read_params);
+    for (uint32_t pidx : read_params) {
+      if (pidx >= kernel.params.size()) {
+        err = "conv-transpose epilogue_dag references out-of-range kernel parameter";
+        return std::nullopt;
+      }
+    }
+    plan.epilogue_dag = **dag_src;
+  }
+
+  const std::optional<ir::FusedTailAttr>* tail_src =
+      kernel.hints.fused_tail.has_value() ? &kernel.hints.fused_tail : &plan.op->hints.fused_tail;
+  if (tail_src->has_value() && (*tail_src)->kind != ir::TailKind::None) {
+    if (!is_supported_spatial_tail((*tail_src)->kind)) {
+      err = "conv-transpose emitter supports only spatial global fused tails";
+      return std::nullopt;
+    }
+    plan.fused_tail = **tail_src;
   }
 
   if (positive_constexpr_param(kernel, kHaloParam, 0) > 0) {
@@ -361,7 +393,8 @@ std::optional<ConvTransposePlan> build_plan(const Kernel& kernel, const ir::Targ
     const uint32_t ab = plan.w_blk8 ? (plan.bk * plan.b_ld) : (plan.bk * plan.a_ld + plan.bk * plan.b_ld);
     plan.smem_floats = std::max(ab, plan.wm * plan.wn);
   }
-  if (static_cast<uint64_t>(plan.smem_floats) * 4u > target.max_threadgroup_memory_bytes) {
+  const uint32_t tail_smem_floats = (plan.fused_tail && !plan.fuse_sw) ? plan.bm : 0u;
+  if (static_cast<uint64_t>(plan.smem_floats + tail_smem_floats) * 4u > target.max_threadgroup_memory_bytes) {
     err = "conv-transpose tile exceeds max_threadgroup_memory_bytes";
     return std::nullopt;
   }
@@ -396,10 +429,79 @@ class ConvTransposeWriter {
 
   void emit_signature() {
     os_ << "#include <metal_stdlib>\n#include <metal_simdgroup_matrix>\nusing namespace metal;\n\n";
+    if (plan_.epilogue_dag) {
+      HelperFlags helpers;
+      collect_epilogue_dag_helpers(*plan_.epilogue_dag, helpers);
+      emit_helper_functions(os_, helpers);
+    }
+    if (tail_is_max()) {
+      os_ << "static inline float m1_nanmax(float a, float b) {\n"
+          << "  return isnan(a) ? a : (isnan(b) ? b : ((a > b) ? a : b));\n"
+          << "}\n"
+          << "static inline float m1_simd_nanmax(float v) {\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 16));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 8));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 4));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 2));\n"
+          << "  v = m1_nanmax(v, simd_shuffle_xor(v, 1));\n"
+          << "  return v;\n"
+          << "}\n\n";
+    }
     emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
+    if (plan_.fused_tail) {
+      os_ << "    uint3 m1_ntg [[threadgroups_per_grid]],\n";
+    }
     os_ << "    uint m1_lid [[thread_index_in_threadgroup]],\n";
+    if (plan_.fused_tail) {
+      os_ << "    uint m1_lane [[thread_index_in_simdgroup]],\n";
+    }
     os_ << "    uint m1_sgid [[simdgroup_index_in_threadgroup]]) {\n";
+  }
+
+  void emit_dag(const std::string& val_var, const std::string& ch_expr, const std::string& elem_idx_expr,
+                const std::string& ind) {
+    if (!plan_.epilogue_dag) return;
+    HelperFlags unused_helpers;
+    emit_epilogue_dag_msl(
+        os_, kernel_, *plan_.epilogue_dag, val_var, ch_expr, elem_idx_expr,
+        [&](uint32_t idx) -> std::string {
+          const auto& kp = kernel_.params[idx];
+          if (kp.is_constexpr) {
+            return format_scalar_literal_from_i64(kp.constexpr_val, scalar_dtype_of(kp.type));
+          }
+          return kp.name;
+        },
+        unused_helpers, ind);
+  }
+
+  bool tail_is_max() const {
+    return plan_.fused_tail && plan_.fused_tail->kind == ir::TailKind::SpatialGlobalMax;
+  }
+
+  std::string tail_init() const { return tail_is_max() ? "(-INFINITY)" : "0.0f"; }
+
+  std::string tail_combine(const std::string& a, const std::string& b) const {
+    return tail_is_max() ? ("m1_nanmax(" + a + ", " + b + ")") : ("(" + a + " + " + b + ")");
+  }
+
+  std::string tail_simd_reduce(const std::string& v) const {
+    return tail_is_max() ? ("m1_simd_nanmax(" + v + ")") : ("simd_sum(" + v + ")");
+  }
+
+  void emit_tail_finalize(const std::string& var, const std::string& ind) {
+    if (!plan_.fused_tail) return;
+    const auto& ft = *plan_.fused_tail;
+    if (ft.kind == ir::TailKind::SpatialGlobalAvgPool) {
+      if (ft.post_scale != 1.0f) {
+        os_ << ind << var << " = " << var << " * (" << msl_exact_float_literal(ft.post_scale)
+            << " / (float)m1_out_plane);\n";
+      } else {
+        os_ << ind << var << " = " << var << " / (float)m1_out_plane;\n";
+      }
+    } else if (ft.post_scale != 1.0f) {
+      os_ << ind << var << " = " << var << " * " << msl_exact_float_literal(ft.post_scale) << ";\n";
+    }
   }
 
   void emit_dim_phase(const char* tag, const ConvDim& dim) {
@@ -488,37 +590,99 @@ class ConvTransposeWriter {
     emit_dim_phase("H", H());
     if (p.fuse_sw) {
       os_ << "  if (m1_nD == 0 || m1_nH == 0) {\n";
-      os_ << "    constexpr uint m1_ROW_V4 = (uint)(m1_TW * m1_SW) / 4u;\n";
-      os_ << "    constexpr uint m1_TILE_V4 = (uint)(m1_BM * m1_TD * m1_TH) * m1_ROW_V4;\n";
-      os_ << "    for (uint m1_vi = m1_lid; m1_vi < m1_TILE_V4; m1_vi += (uint)m1_NT) {\n";
-      os_ << "      const uint m1_c4 = m1_vi % m1_ROW_V4;\n";
-      os_ << "      const uint m1_r1 = m1_vi / m1_ROW_V4;\n";
-      os_ << "      const uint m1_th = m1_r1 % (uint)m1_TH;\n";
-      os_ << "      const uint m1_r2 = m1_r1 / (uint)m1_TH;\n";
-      os_ << "      const uint m1_td = m1_r2 % (uint)m1_TD;\n";
-      os_ << "      const uint m1_lr = m1_r2 / (uint)m1_TD;\n";
-      os_ << "      const long m1_co = m1_m0 + (long)m1_lr;\n";
-      os_ << "      const long m1_od = m1_aD + (long)m1_SD * (m1_qd0 + (long)m1_td);\n";
-      os_ << "      const long m1_oh = m1_aH + (long)m1_SH * (m1_qh0 + (long)m1_th);\n";
-      os_ << "      const long m1_ow = m1_qw0 * (long)m1_SW + (long)(m1_c4 * 4u);\n";
-      os_ << "      if (m1_od < m1_Dout && m1_oh < m1_Hout && m1_ow < m1_Wout) {\n";
-      if (p.attr.has_bias) {
-        os_ << "        const float m1_zv = (float)" << p.bias_name << "[m1_g * m1_Cog + m1_co];\n";
+      if (p.fused_tail) {
+        os_ << "    const long m1_pstride = (long)m1_NPH * (long)m1_ntg.x;\n";
+        os_ << "    const long m1_pcol = (long)m1_ph * (long)m1_ntg.x + (long)m1_tgid.x;\n";
+        os_ << "    constexpr uint m1_TILE_COLS = (uint)(m1_TD * m1_TH * m1_TW * m1_SW);\n";
+        os_ << "    for (uint m1_lr = m1_sgid; m1_lr < (uint)m1_BM; m1_lr += " << p.num_sg << "u) {\n";
+        os_ << "      const long m1_co = m1_m0 + (long)m1_lr;\n";
+        if (!p.co_exact) os_ << "      if (m1_co >= m1_Cog) continue;\n";
+        os_ << "      const long m1_ch = m1_g * m1_Cog + m1_co;\n";
+        if (p.attr.has_bias) {
+          os_ << "      const float m1_zv = (float)" << p.bias_name << "[m1_ch];\n";
+        } else {
+          os_ << "      const float m1_zv = 0.0f;\n";
+        }
+        os_ << "      float m1_ra = " << tail_init() << ";\n";
+        os_ << "      for (uint m1_c = m1_lane; m1_c < m1_TILE_COLS; m1_c += 32u) {\n";
+        os_ << "        const uint m1_ow_loc = m1_c % (uint)(m1_TW * m1_SW);\n";
+        os_ << "        const uint m1_r1 = m1_c / (uint)(m1_TW * m1_SW);\n";
+        os_ << "        const uint m1_th = m1_r1 % (uint)m1_TH;\n";
+        os_ << "        const uint m1_td = m1_r1 / (uint)m1_TH;\n";
+        os_ << "        const long m1_od = m1_aD + (long)m1_SD * (m1_qd0 + (long)m1_td);\n";
+        os_ << "        const long m1_oh = m1_aH + (long)m1_SH * (m1_qh0 + (long)m1_th);\n";
+        os_ << "        const long m1_ow = m1_qw0 * (long)m1_SW + (long)m1_ow_loc;\n";
+        os_ << "        if (m1_od < m1_Dout && m1_oh < m1_Hout && m1_ow < m1_Wout) {\n";
+        os_ << "          float m1_v = m1_zv;\n";
+        if (p.epilogue_dag) {
+          os_ << "          const long m1_eidx = (m1_n * m1_Cout + m1_ch) * m1_out_plane"
+              << " + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow;\n";
+          emit_dag("m1_v", "m1_ch", "m1_eidx", "          ");
+        }
+        os_ << "          m1_ra = " << tail_combine("m1_ra", "m1_v") << ";\n";
+        os_ << "        }\n";
+        os_ << "      }\n";
+        os_ << "      m1_ra = " << tail_simd_reduce("m1_ra") << ";\n";
+        os_ << "      if (m1_lane == 0u) {\n";
+        emit_tail_finalize("m1_ra", "        ");
+        os_ << "        " << p.out_name << "[(m1_n * m1_Cout + m1_ch) * m1_pstride + m1_pcol] = (" << p.out_elem
+            << ")m1_ra;\n";
+        os_ << "      }\n";
+        os_ << "    }\n";
       } else {
-        os_ << "        const float m1_zv = 0.0f;\n";
+        os_ << "    constexpr uint m1_ROW_V4 = (uint)(m1_TW * m1_SW) / 4u;\n";
+        os_ << "    constexpr uint m1_TILE_V4 = (uint)(m1_BM * m1_TD * m1_TH) * m1_ROW_V4;\n";
+        os_ << "    for (uint m1_vi = m1_lid; m1_vi < m1_TILE_V4; m1_vi += (uint)m1_NT) {\n";
+        os_ << "      const uint m1_c4 = m1_vi % m1_ROW_V4;\n";
+        os_ << "      const uint m1_r1 = m1_vi / m1_ROW_V4;\n";
+        os_ << "      const uint m1_th = m1_r1 % (uint)m1_TH;\n";
+        os_ << "      const uint m1_r2 = m1_r1 / (uint)m1_TH;\n";
+        os_ << "      const uint m1_td = m1_r2 % (uint)m1_TD;\n";
+        os_ << "      const uint m1_lr = m1_r2 / (uint)m1_TD;\n";
+        os_ << "      const long m1_co = m1_m0 + (long)m1_lr;\n";
+        os_ << "      const long m1_od = m1_aD + (long)m1_SD * (m1_qd0 + (long)m1_td);\n";
+        os_ << "      const long m1_oh = m1_aH + (long)m1_SH * (m1_qh0 + (long)m1_th);\n";
+        os_ << "      const long m1_ow = m1_qw0 * (long)m1_SW + (long)(m1_c4 * 4u);\n";
+        os_ << "      if (m1_od < m1_Dout && m1_oh < m1_Hout && m1_ow < m1_Wout) {\n";
+        os_ << "        const long m1_ch = m1_g * m1_Cog + m1_co;\n";
+        if (p.attr.has_bias) {
+          os_ << "        const float m1_zv = (float)" << p.bias_name << "[m1_ch];\n";
+        } else {
+          os_ << "        const float m1_zv = 0.0f;\n";
+        }
+        os_ << "        const long m1_out_base = (m1_n * m1_Cout + m1_ch) * m1_out_plane"
+            << " + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow;\n";
+        os_ << "        device float* m1_op = " << p.out_name << " + m1_out_base;\n";
+        if (p.epilogue_dag) {
+          os_ << "        float4 m1_ov = float4(m1_zv);\n";
+          os_ << "        #pragma unroll\n";
+          os_ << "        for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+          os_ << "          if (m1_ow + m1_e < m1_Wout) {\n";
+          os_ << "            float m1_ev = m1_ov[m1_e];\n";
+          os_ << "            const long m1_eidx = m1_out_base + (long)m1_e;\n";
+          emit_dag("m1_ev", "m1_ch", "m1_eidx", "            ");
+          os_ << "            m1_ov[m1_e] = m1_ev;\n";
+          os_ << "          }\n";
+          os_ << "        }\n";
+          os_ << "        if (m1_ow + 3 < m1_Wout) {\n";
+          os_ << "          *(device packed_float4*)(m1_op) = packed_float4(m1_ov);\n";
+          os_ << "        } else {\n";
+          os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+          os_ << "            if (m1_ow + m1_e < m1_Wout) m1_op[m1_e] = m1_ov[m1_e];\n";
+          os_ << "          }\n";
+          os_ << "        }\n";
+        } else {
+          os_ << "        if (m1_ow + 3 < m1_Wout) {\n";
+          os_ << "          *(device packed_float4*)(m1_op) = packed_float4(float4(m1_zv));\n";
+          os_ << "        } else {\n";
+          os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+          os_ << "            if (m1_ow + m1_e < m1_Wout) m1_op[m1_e] = m1_zv;\n";
+          os_ << "          }\n";
+          os_ << "        }\n";
+        }
+        os_ << "      }\n";
+        os_ << "    }\n";
       }
-      os_ << "        device float* m1_op = " << p.out_name
-          << " + (m1_n * m1_Cout + m1_g * m1_Cog + m1_co) * m1_out_plane"
-          << " + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow;\n";
-      os_ << "        if (m1_ow + 3 < m1_Wout) {\n";
-      os_ << "          *(device packed_float4*)(m1_op) = packed_float4(float4(m1_zv));\n";
-      os_ << "        } else {\n";
-      os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
-      os_ << "            if (m1_ow + m1_e < m1_Wout) m1_op[m1_e] = m1_zv;\n";
-      os_ << "          }\n";
-      os_ << "        }\n";
-      os_ << "      }\n";
-      os_ << "    }\n";
       os_ << "    return;\n";
       os_ << "  }\n";
       os_ << "  threadgroup float m1_smem[" << p.smem_floats << "];\n";
@@ -610,7 +774,7 @@ class ConvTransposeWriter {
 
     os_ << "  for (long m1_c0 = 0; m1_c0 < m1_Cig; m1_c0 += m1_BK) {\n";
     os_ << "    device const " << p.x_elem << "* m1_xc = m1_xg + m1_c0 * m1_in_plane;\n";
-    os_ << "    if (m1_x_in) {\n";
+    os_ << "    if (m1_x_in" << (p.ci_exact ? "" : " && m1_c0 + m1_BK <= m1_Cig") << ") {\n";
     os_ << "      device const " << p.x_elem
         << "* m1_xb = m1_xc + (m1_i0D * m1_Hin + m1_i0H) * m1_Win + m1_i0W;\n";
     os_ << "      for (int m1_idx = (int)m1_lid; m1_idx < m1_BK * m1_XP; m1_idx += m1_NT) {\n";
@@ -635,7 +799,8 @@ class ConvTransposeWriter {
     os_ << "        const long m1_hh = m1_i0H + m1_rh_l;\n";
     os_ << "        const long m1_hw = m1_i0W + m1_rw_l;\n";
     os_ << "        float m1_v = 0.0f;\n";
-    os_ << "        if (m1_hd >= 0 && m1_hd < m1_Din && m1_hh >= 0 && m1_hh < m1_Hin && m1_hw >= 0 && m1_hw < m1_Win)"
+    os_ << "        if (" << (p.ci_exact ? "" : "m1_c0 + m1_ci < m1_Cig && ")
+        << "m1_hd >= 0 && m1_hd < m1_Din && m1_hh >= 0 && m1_hh < m1_Hin && m1_hw >= 0 && m1_hw < m1_Win)"
         << " m1_v = (float)m1_xc[(long)m1_ci * m1_in_plane + (m1_hd * m1_Hin + m1_hh) * m1_Win + m1_hw];\n";
     os_ << "        m1_Bs[m1_ci * m1_XPL + m1_rem] = m1_v;\n";
     os_ << "      }\n";
@@ -694,8 +859,14 @@ class ConvTransposeWriter {
     const uint32_t epi_f = epi_rows / 8u;
     os_ << "  threadgroup float* m1_Cs = m1_smem;\n";
     os_ << "  constexpr uint m1_EPI_ROWS = " << epi_rows << "u;\n";
-    os_ << "  constexpr uint m1_ROW_V4 = (uint)(m1_TW * m1_SW) / 4u;\n";
-    os_ << "  constexpr uint m1_EPI_V4 = m1_EPI_ROWS * (uint)(m1_TD * m1_TH) * m1_ROW_V4;\n";
+    if (p.fused_tail) {
+      os_ << "  const long m1_pstride = (long)m1_NPH * (long)m1_ntg.x;\n";
+      os_ << "  const long m1_pcol = (long)m1_ph * (long)m1_ntg.x + (long)m1_tgid.x;\n";
+      os_ << "  constexpr uint m1_TILE_COLS = (uint)(m1_TD * m1_TH * m1_TW * m1_SW);\n";
+    } else {
+      os_ << "  constexpr uint m1_ROW_V4 = (uint)(m1_TW * m1_SW) / 4u;\n";
+      os_ << "  constexpr uint m1_EPI_V4 = m1_EPI_ROWS * (uint)(m1_TD * m1_TH) * m1_ROW_V4;\n";
+    }
     os_ << "  const uint m1_sg_m_idx = m1_sgid / " << p.sg_n << "u;\n";
     const uint32_t total_strips = p.sg_m * (p.fm / epi_f);
     uint32_t strip_idx = 0;
@@ -716,49 +887,106 @@ class ConvTransposeWriter {
         os_ << "    }\n";
         os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
         os_ << "    const long m1_co_base = m1_m0 + " << (sr * p.wm + i0 * 8u) << "L;\n";
-        os_ << "    for (uint m1_vi = m1_lid; m1_vi < m1_EPI_V4; m1_vi += (uint)m1_NT) {\n";
-        os_ << "      const uint m1_c4 = m1_vi % m1_ROW_V4;\n";
-        os_ << "      const uint m1_r1 = m1_vi / m1_ROW_V4;\n";
-        os_ << "      const uint m1_th = m1_r1 % (uint)m1_TH;\n";
-        os_ << "      const uint m1_r2 = m1_r1 / (uint)m1_TH;\n";
-        os_ << "      const uint m1_td = m1_r2 % (uint)m1_TD;\n";
-        os_ << "      const uint m1_lr = m1_r2 / (uint)m1_TD;\n";
-        os_ << "      const long m1_co = m1_co_base + (long)m1_lr;\n";
-        os_ << "      const long m1_od = m1_aD + (long)m1_SD * (m1_qd0 + (long)m1_td);\n";
-        os_ << "      const long m1_oh = m1_aH + (long)m1_SH * (m1_qh0 + (long)m1_th);\n";
-        os_ << "      const uint m1_ow_loc = m1_c4 * 4u;\n";
-        os_ << "      const long m1_ow = m1_qw0 * (long)m1_SW + (long)m1_ow_loc;\n";
-        os_ << "      if (m1_od < m1_Dout && m1_oh < m1_Hout && m1_ow < m1_Wout) {\n";
-        os_ << "        const uint m1_base_col = (m1_td * (uint)m1_TH + m1_th) * (uint)m1_TW;\n";
-        os_ << "        uint m1_tw = m1_ow_loc / (uint)m1_SW;\n";
-        os_ << "        uint m1_aw = m1_ow_loc - m1_tw * (uint)m1_SW;\n";
-        os_ << "        float4 m1_ov;\n";
-        os_ << "        #pragma unroll\n";
-        os_ << "        for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
-        os_ << "          const int m1_ai = ";
-        for (uint32_t ai = 0; ai < n_act; ++ai) {
-          os_ << "(m1_aw == " << p.active_w[ai].aw << "u) ? " << ai << " : ";
+        if (p.fused_tail) {
+          os_ << "    for (uint m1_lr = m1_sgid; m1_lr < m1_EPI_ROWS; m1_lr += " << p.num_sg << "u) {\n";
+          os_ << "      const long m1_co = m1_co_base + (long)m1_lr;\n";
+          if (!p.co_exact) os_ << "      if (m1_co >= m1_Cog) continue;\n";
+          os_ << "      const long m1_ch = m1_g * m1_Cog + m1_co;\n";
+          os_ << "      float m1_ra = " << tail_init() << ";\n";
+          os_ << "      for (uint m1_c = m1_lane; m1_c < m1_TILE_COLS; m1_c += 32u) {\n";
+          os_ << "        const uint m1_ow_loc = m1_c % (uint)(m1_TW * m1_SW);\n";
+          os_ << "        const uint m1_r1 = m1_c / (uint)(m1_TW * m1_SW);\n";
+          os_ << "        const uint m1_th = m1_r1 % (uint)m1_TH;\n";
+          os_ << "        const uint m1_td = m1_r1 / (uint)m1_TH;\n";
+          os_ << "        const long m1_od = m1_aD + (long)m1_SD * (m1_qd0 + (long)m1_td);\n";
+          os_ << "        const long m1_oh = m1_aH + (long)m1_SH * (m1_qh0 + (long)m1_th);\n";
+          os_ << "        const long m1_ow = m1_qw0 * (long)m1_SW + (long)m1_ow_loc;\n";
+          os_ << "        if (m1_od < m1_Dout && m1_oh < m1_Hout && m1_ow < m1_Wout) {\n";
+          os_ << "          const uint m1_base_col = (m1_td * (uint)m1_TH + m1_th) * (uint)m1_TW;\n";
+          os_ << "          const uint m1_tw = m1_ow_loc / (uint)m1_SW;\n";
+          os_ << "          const uint m1_aw = m1_ow_loc - m1_tw * (uint)m1_SW;\n";
+          os_ << "          const int m1_ai = ";
+          for (uint32_t ai = 0; ai < n_act; ++ai) {
+            os_ << "(m1_aw == " << p.active_w[ai].aw << "u) ? " << ai << " : ";
+          }
+          os_ << "-1;\n";
+          os_ << "          float m1_v = (m1_ai >= 0) ? m1_Cs[((uint)m1_ai * m1_EPI_ROWS + m1_lr) * (uint)m1_BN + "
+              << "m1_base_col + m1_tw] : 0.0f;\n";
+          if (p.attr.has_bias) {
+            os_ << "          m1_v += (float)" << p.bias_name << "[m1_ch];\n";
+          }
+          if (p.epilogue_dag) {
+            os_ << "          const long m1_eidx = (m1_n * m1_Cout + m1_ch) * m1_out_plane"
+                << " + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow;\n";
+            emit_dag("m1_v", "m1_ch", "m1_eidx", "          ");
+          }
+          os_ << "          m1_ra = " << tail_combine("m1_ra", "m1_v") << ";\n";
+          os_ << "        }\n";
+          os_ << "      }\n";
+          os_ << "      m1_ra = " << tail_simd_reduce("m1_ra") << ";\n";
+          os_ << "      if (m1_lane == 0u) {\n";
+          emit_tail_finalize("m1_ra", "        ");
+          os_ << "        " << p.out_name << "[(m1_n * m1_Cout + m1_ch) * m1_pstride + m1_pcol] = (" << p.out_elem
+              << ")m1_ra;\n";
+          os_ << "      }\n";
+          os_ << "    }\n";
+        } else {
+          os_ << "    for (uint m1_vi = m1_lid; m1_vi < m1_EPI_V4; m1_vi += (uint)m1_NT) {\n";
+          os_ << "      const uint m1_c4 = m1_vi % m1_ROW_V4;\n";
+          os_ << "      const uint m1_r1 = m1_vi / m1_ROW_V4;\n";
+          os_ << "      const uint m1_th = m1_r1 % (uint)m1_TH;\n";
+          os_ << "      const uint m1_r2 = m1_r1 / (uint)m1_TH;\n";
+          os_ << "      const uint m1_td = m1_r2 % (uint)m1_TD;\n";
+          os_ << "      const uint m1_lr = m1_r2 / (uint)m1_TD;\n";
+          os_ << "      const long m1_co = m1_co_base + (long)m1_lr;\n";
+          os_ << "      const long m1_od = m1_aD + (long)m1_SD * (m1_qd0 + (long)m1_td);\n";
+          os_ << "      const long m1_oh = m1_aH + (long)m1_SH * (m1_qh0 + (long)m1_th);\n";
+          os_ << "      const uint m1_ow_loc = m1_c4 * 4u;\n";
+          os_ << "      const long m1_ow = m1_qw0 * (long)m1_SW + (long)m1_ow_loc;\n";
+          os_ << "      if (m1_od < m1_Dout && m1_oh < m1_Hout && m1_ow < m1_Wout) {\n";
+          os_ << "        const long m1_ch = m1_g * m1_Cog + m1_co;\n";
+          os_ << "        const uint m1_base_col = (m1_td * (uint)m1_TH + m1_th) * (uint)m1_TW;\n";
+          os_ << "        uint m1_tw = m1_ow_loc / (uint)m1_SW;\n";
+          os_ << "        uint m1_aw = m1_ow_loc - m1_tw * (uint)m1_SW;\n";
+          os_ << "        float4 m1_ov;\n";
+          os_ << "        #pragma unroll\n";
+          os_ << "        for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+          os_ << "          const int m1_ai = ";
+          for (uint32_t ai = 0; ai < n_act; ++ai) {
+            os_ << "(m1_aw == " << p.active_w[ai].aw << "u) ? " << ai << " : ";
+          }
+          os_ << "-1;\n";
+          os_ << "          m1_ov[m1_e] = (m1_ai >= 0) ? m1_Cs[((uint)m1_ai * m1_EPI_ROWS + m1_lr) * (uint)m1_BN + "
+              << "m1_base_col + m1_tw] : 0.0f;\n";
+          os_ << "          if (++m1_aw == (uint)m1_SW) { m1_aw = 0u; ++m1_tw; }\n";
+          os_ << "        }\n";
+          if (p.attr.has_bias) {
+            os_ << "        m1_ov += float4((float)" << p.bias_name << "[m1_ch]);\n";
+          }
+          os_ << "        const long m1_out_base = (m1_n * m1_Cout + m1_ch) * m1_out_plane"
+              << " + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow;\n";
+          if (p.epilogue_dag) {
+            os_ << "        #pragma unroll\n";
+            os_ << "        for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+            os_ << "          if (m1_ow + m1_e < m1_Wout) {\n";
+            os_ << "            float m1_ev = m1_ov[m1_e];\n";
+            os_ << "            const long m1_eidx = m1_out_base + (long)m1_e;\n";
+            emit_dag("m1_ev", "m1_ch", "m1_eidx", "            ");
+            os_ << "            m1_ov[m1_e] = m1_ev;\n";
+            os_ << "          }\n";
+            os_ << "        }\n";
+          }
+          os_ << "        device float* m1_op = " << p.out_name << " + m1_out_base;\n";
+          os_ << "        if (m1_ow + 3 < m1_Wout) {\n";
+          os_ << "          *(device packed_float4*)(m1_op) = packed_float4(m1_ov);\n";
+          os_ << "        } else {\n";
+          os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+          os_ << "            if (m1_ow + m1_e < m1_Wout) m1_op[m1_e] = m1_ov[m1_e];\n";
+          os_ << "          }\n";
+          os_ << "        }\n";
+          os_ << "      }\n";
+          os_ << "    }\n";
         }
-        os_ << "-1;\n";
-        os_ << "          m1_ov[m1_e] = (m1_ai >= 0) ? m1_Cs[((uint)m1_ai * m1_EPI_ROWS + m1_lr) * (uint)m1_BN + "
-            << "m1_base_col + m1_tw] : 0.0f;\n";
-        os_ << "          if (++m1_aw == (uint)m1_SW) { m1_aw = 0u; ++m1_tw; }\n";
-        os_ << "        }\n";
-        if (p.attr.has_bias) {
-          os_ << "        m1_ov += float4((float)" << p.bias_name << "[m1_g * m1_Cog + m1_co]);\n";
-        }
-        os_ << "        device float* m1_op = " << p.out_name
-            << " + (m1_n * m1_Cout + m1_g * m1_Cog + m1_co) * m1_out_plane"
-            << " + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow;\n";
-        os_ << "        if (m1_ow + 3 < m1_Wout) {\n";
-        os_ << "          *(device packed_float4*)(m1_op) = packed_float4(m1_ov);\n";
-        os_ << "        } else {\n";
-        os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
-        os_ << "            if (m1_ow + m1_e < m1_Wout) m1_op[m1_e] = m1_ov[m1_e];\n";
-        os_ << "          }\n";
-        os_ << "        }\n";
-        os_ << "      }\n";
-        os_ << "    }\n";
         if (strip_idx < total_strips) {
           os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
         }
@@ -800,7 +1028,8 @@ class ConvTransposeWriter {
     os_ << "        const long m1_hh = m1_i0H + m1_rh_l;\n";
     os_ << "        const long m1_hw = m1_i0W + m1_rw_l;\n";
     os_ << "        float m1_v = 0.0f;\n";
-    os_ << "        if (m1_hd >= 0 && m1_hd < m1_Din && m1_hh >= 0 && m1_hh < m1_Hin && m1_hw >= 0 && m1_hw < m1_Win)"
+    os_ << "        if (" << (p.ci_exact ? "" : "m1_c0 + m1_ci < m1_Cig && ")
+        << "m1_hd >= 0 && m1_hd < m1_Din && m1_hh >= 0 && m1_hh < m1_Hin && m1_hw >= 0 && m1_hw < m1_Win)"
         << " m1_v = (float)m1_xc[(long)m1_ci * m1_in_plane + (m1_hd * m1_Hin + m1_hh) * m1_Win + m1_hw];\n";
     os_ << "        m1_Bs[m1_ci * m1_XPL + m1_rem] = m1_v;\n";
     os_ << "      }\n";
@@ -910,7 +1139,7 @@ class ConvTransposeWriter {
 
   void emit_epilogue() {
     const auto& p = plan_;
-    if (p.halo && !p.attr.has_bias && p.out_elem == "float" && W().s == 1) {
+    if (p.halo && !p.attr.has_bias && !p.epilogue_dag && !p.fused_tail && p.out_elem == "float" && W().s == 1) {
       os_ << "  if (m1_qd0 + m1_TD <= m1_QD && m1_qh0 + m1_TH <= m1_QH && m1_qw0 + m1_TW <= m1_QW"
           << (p.co_exact ? "" : " && m1_m0 + m1_BM <= m1_Cog") << " && (m1_out_plane & 1023L) != 0) {\n";
       os_ << "    device float* m1_og = " << p.out_name
@@ -936,6 +1165,12 @@ class ConvTransposeWriter {
     }
     os_ << "  threadgroup float* m1_Cs = m1_smem;\n";
     os_ << "  constexpr uint m1_WM = " << p.wm << "u, m1_WN = " << p.wn << "u;\n";
+    if (p.fused_tail) {
+      os_ << "  threadgroup float m1_tail[" << p.bm << "];\n";
+      os_ << "  for (uint m1_r = m1_lid; m1_r < (uint)m1_BM; m1_r += (uint)m1_NT) m1_tail[m1_r] = " << tail_init()
+          << ";\n";
+      os_ << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    }
     os_ << "  for (uint m1_sg = 0u; m1_sg < " << p.num_sg << "u; ++m1_sg) {\n";
     os_ << "    if (m1_sgid == m1_sg) {\n";
     for (uint32_t i = 0; i < p.fm; ++i) {
@@ -952,7 +1187,7 @@ class ConvTransposeWriter {
     os_ << "      const uint m1_lr = m1_idx / m1_WN;\n";
     os_ << "      const uint m1_lc = m1_gc0 + (m1_idx - m1_lr * m1_WN);\n";
     os_ << "      const long m1_co = m1_gr0 + (long)m1_lr;\n";
-    if (!p.co_exact) os_ << "      if (m1_co >= m1_Cog) continue;\n";
+    if (!p.co_exact && !p.fused_tail) os_ << "      if (m1_co >= m1_Cog) continue;\n";
     if (p.halo) {
       os_ << "      const long m1_eqw = m1_qw0 + (long)(m1_lc % (uint)m1_TW);\n";
       os_ << "      const long m1_eqh = m1_qh0 + (long)((m1_lc / (uint)m1_TW) % (uint)m1_TH);\n";
@@ -964,21 +1199,66 @@ class ConvTransposeWriter {
       os_ << "      const long m1_eqh = m1_eqt % m1_QHm;\n";
       os_ << "      const long m1_eqd = m1_eqt / m1_QHm;\n";
     }
-    os_ << "      if (m1_eqd < m1_QD && m1_eqh < m1_QH && m1_eqw < m1_QW) {\n";
+    const std::string co_guard = (!p.co_exact && p.fused_tail) ? "m1_co < m1_Cog && " : "";
+    os_ << "      if (" << co_guard << "m1_eqd < m1_QD && m1_eqh < m1_QH && m1_eqw < m1_QW) {\n";
     os_ << "        const long m1_od = m1_aD + (long)m1_SD * m1_eqd;\n";
     os_ << "        const long m1_oh = m1_aH + (long)m1_SH * m1_eqh;\n";
     os_ << "        const long m1_ow = m1_aW + (long)m1_SW * m1_eqw;\n";
+    os_ << "        const long m1_ch = m1_g * m1_Cog + m1_co;\n";
     os_ << "        float m1_v = m1_Cs[m1_idx];\n";
     if (p.attr.has_bias) {
-      os_ << "        m1_v += (float)" << p.bias_name << "[m1_g * m1_Cog + m1_co];\n";
+      os_ << "        m1_v += (float)" << p.bias_name << "[m1_ch];\n";
     }
-    os_ << "        " << p.out_name
-        << "[(m1_n * m1_Cout + m1_g * m1_Cog + m1_co) * m1_out_plane + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow] "
-        << "= (" << p.out_elem << ")m1_v;\n";
-    os_ << "      }\n";
+    if (p.epilogue_dag) {
+      os_ << "        const long m1_eidx = (m1_n * m1_Cout + m1_ch) * m1_out_plane"
+          << " + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow;\n";
+      emit_dag("m1_v", "m1_ch", "m1_eidx", "        ");
+    }
+    if (p.fused_tail) {
+      os_ << "        m1_Cs[m1_idx] = m1_v;\n";
+      os_ << "      } else {\n";
+      os_ << "        m1_Cs[m1_idx] = " << tail_init() << ";\n";
+      os_ << "      }\n";
+    } else {
+      if (p.epilogue_dag) {
+        os_ << "        " << p.out_name << "[m1_eidx] = (" << p.out_elem << ")m1_v;\n";
+      } else {
+        os_ << "        " << p.out_name
+            << "[(m1_n * m1_Cout + m1_ch) * m1_out_plane + (m1_od * m1_Hout + m1_oh) * m1_Wout + m1_ow] = ("
+            << p.out_elem << ")m1_v;\n";
+      }
+      os_ << "      }\n";
+    }
     os_ << "    }\n";
     os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    if (p.fused_tail) {
+      os_ << "    const uint m1_tr0 = (m1_sg / " << p.sg_n << "u) * m1_WM;\n";
+      os_ << "    for (uint m1_lr = m1_sgid; m1_lr < m1_WM; m1_lr += " << p.num_sg << "u) {\n";
+      os_ << "      float m1_ra = " << tail_init() << ";\n";
+      os_ << "      for (uint m1_c = m1_lane; m1_c < m1_WN; m1_c += 32u) {\n";
+      os_ << "        m1_ra = " << tail_combine("m1_ra", "m1_Cs[m1_lr * m1_WN + m1_c]") << ";\n";
+      os_ << "      }\n";
+      os_ << "      m1_ra = " << tail_simd_reduce("m1_ra") << ";\n";
+      os_ << "      if (m1_lane == 0u) {\n";
+      os_ << "        m1_tail[m1_tr0 + m1_lr] = " << tail_combine("m1_tail[m1_tr0 + m1_lr]", "m1_ra") << ";\n";
+      os_ << "      }\n";
+      os_ << "    }\n";
+      os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    }
     os_ << "  }\n";
+    if (p.fused_tail) {
+      os_ << "  const long m1_pstride = (long)m1_NPH * (long)m1_ntg.x;\n";
+      os_ << "  const long m1_pcol = (long)m1_ph * (long)m1_ntg.x + (long)m1_tgid.x;\n";
+      os_ << "  for (uint m1_r = m1_lid; m1_r < (uint)m1_BM; m1_r += (uint)m1_NT) {\n";
+      os_ << "    const long m1_co = m1_m0 + (long)m1_r;\n";
+      if (!p.co_exact) os_ << "    if (m1_co >= m1_Cog) continue;\n";
+      os_ << "    const long m1_ch = m1_g * m1_Cog + m1_co;\n";
+      os_ << "    float m1_res = m1_tail[m1_r];\n";
+      emit_tail_finalize("m1_res", "    ");
+      os_ << "    " << p.out_name << "[(m1_n * m1_Cout + m1_ch) * m1_pstride + m1_pcol] = (" << p.out_elem
+          << ")m1_res;\n";
+      os_ << "  }\n";
+    }
   }
 
   const Kernel& kernel_;

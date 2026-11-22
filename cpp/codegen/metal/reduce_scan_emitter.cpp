@@ -210,9 +210,12 @@ struct ReduceKernelAnalysis {
   bool has_scan = false;
   bool has_tile_reshape_or_permute = false;
   bool has_multiple_1d_sizes = false;
+  bool uses_multi_dim_pid = false;
   int64_t block_size_1d = 0;
   std::pair<int64_t, int64_t> primary_2d_shape = {0, 0};
   std::optional<LayoutAttr> hint_layout;
+  const ir::EpilogueDAGAttr* epilogue_dag = nullptr;
+  std::optional<int64_t> epilogue_bias_mod;
 };
 
 bool analyze_reduce_kernel(const Kernel& kernel, ReduceKernelAnalysis& out, std::string& err) {
@@ -451,6 +454,10 @@ bool analyze_reduce_kernel(const Kernel& kernel, ReduceKernelAnalysis& out, std:
       const Op& op = kernel.op(oid);
       if (op.erased) continue;
 
+      if (op.kind == OpKind::ProgramId && std::holds_alternative<AxisAttr>(op.attr) &&
+          std::get<AxisAttr>(op.attr).axis > 0u) {
+        out.uses_multi_dim_pid = true;
+      }
       if ((op.kind == OpKind::Store || op.kind == OpKind::AtomicAdd) && !op.operands.empty()) {
         if (auto it = out.ptr_origins.find(op.operands[0]); it != out.ptr_origins.end()) {
           out.written_params.insert(it->second.begin(), it->second.end());
@@ -537,9 +544,145 @@ bool analyze_reduce_kernel(const Kernel& kernel, ReduceKernelAnalysis& out, std:
     if (needs_bcast) out.broadcast_reduces.insert(roid);
   }
 
+  for (OpId roid : out.reduce_ops) {
+    const Op& rop = kernel.op(roid);
+    if (rop.hints.epilogue_dag.has_value() && !rop.hints.epilogue_dag->steps.empty()) {
+      out.epilogue_dag = &*rop.hints.epilogue_dag;
+      break;
+    }
+  }
+  if (out.epilogue_dag == nullptr && kernel.hints.epilogue_dag.has_value() &&
+      !kernel.hints.epilogue_dag->steps.empty()) {
+    out.epilogue_dag = &*kernel.hints.epilogue_dag;
+  }
+  if (out.epilogue_dag != nullptr) {
+    out.epilogue_bias_mod = positive_constexpr_param(kernel, "EPILOGUE_BIAS_MOD");
+    bool has_bias_step = false;
+    for (const auto& st : out.epilogue_dag->steps) {
+      switch (st.op) {
+        case ir::EpilogueOpKind::AddBias:
+        case ir::EpilogueOpKind::SubBias:
+        case ir::EpilogueOpKind::MulBias:
+        case ir::EpilogueOpKind::DivBias:
+        case ir::EpilogueOpKind::MinBias:
+        case ir::EpilogueOpKind::MaxBias:
+          has_bias_step = true;
+          break;
+        default:
+          break;
+      }
+    }
+    if (has_bias_step && out.uses_multi_dim_pid && !out.epilogue_bias_mod.has_value()) {
+      err = "epilogue_dag *_bias on multi-dimensional reduction requires EPILOGUE_BIAS_MOD constexpr";
+      return false;
+    }
+    std::set<uint32_t> read_params;
+    collect_epilogue_dag_param_indices(*out.epilogue_dag, read_params);
+    for (uint32_t idx : read_params) {
+      if (idx >= kernel.params.size()) {
+        err = "epilogue_dag references out-of-range kernel parameter";
+        return false;
+      }
+    }
+  }
+
   build_param_slots(kernel, out.written_params, out.param_slots, out.param_msl_name);
 
   return true;
+}
+
+std::string epilogue_param_name(const Kernel& kernel, const ReduceKernelAnalysis& analysis, uint32_t idx) {
+  const KernelParam& kp = kernel.params[idx];
+  if (kp.is_constexpr) return msl_int_literal(kp.constexpr_val);
+  auto it = analysis.param_msl_name.find(idx);
+  if (it != analysis.param_msl_name.end()) return it->second;
+  return kp.name;
+}
+
+std::string reduce_store_elem_idx_expr(const ReduceKernelAnalysis& analysis, ValueId ptr_vid,
+                                       const std::string& ptr_expr) {
+  auto it = analysis.ptr_origins.find(ptr_vid);
+  if (it != analysis.ptr_origins.end() && it->second.size() == 1) {
+    uint32_t pidx = *it->second.begin();
+    auto nit = analysis.param_msl_name.find(pidx);
+    if (nit != analysis.param_msl_name.end()) {
+      return "long((" + ptr_expr + ") - (" + nit->second + "))";
+    }
+  }
+  return "long(m1_tg_pos.x)";
+}
+
+void emit_scalar_store_with_epilogue(const Kernel& kernel, const ReduceKernelAnalysis& analysis, HelperFlags& helpers,
+                                     ValueId ptr_vid, ScalarDType pdt, const std::string& ptr_expr,
+                                     const std::string& val_expr, const std::string& guard_expr, int ind,
+                                     std::ostringstream& out) {
+  if (analysis.epilogue_dag == nullptr || !is_float_dtype(pdt)) {
+    if (guard_expr.empty()) {
+      out << indent_str(ind) << "*(" << ptr_expr << ") = " << val_expr << ";\n";
+    } else {
+      out << indent_str(ind) << "if (" << guard_expr << ") { *(" << ptr_expr << ") = " << val_expr << "; }\n";
+    }
+    return;
+  }
+  if (!guard_expr.empty()) {
+    out << indent_str(ind) << "if (" << guard_expr << ") {\n";
+  } else {
+    out << indent_str(ind) << "{\n";
+  }
+  const int bind = ind + 1;
+  const std::string idx_expr = reduce_store_elem_idx_expr(analysis, ptr_vid, ptr_expr);
+  out << indent_str(bind) << "float m1_ep_v = float(" << val_expr << ");\n";
+  out << indent_str(bind) << "const long m1_ep_idx = " << idx_expr << ";\n";
+  out << indent_str(bind) << "(void)m1_ep_idx;\n";
+  const std::string ch_expr = analysis.epilogue_bias_mod.has_value()
+                                  ? ("(m1_ep_idx % " + std::to_string(*analysis.epilogue_bias_mod) + "L)")
+                                  : "m1_ep_idx";
+  emit_epilogue_dag_msl(
+      out, kernel, *analysis.epilogue_dag, "m1_ep_v", ch_expr, "m1_ep_idx",
+      [&](uint32_t idx) { return epilogue_param_name(kernel, analysis, idx); }, helpers, indent_str(bind));
+  out << indent_str(bind) << "*(" << ptr_expr << ") = " << msl_cast_expr("m1_ep_v", ScalarDType::F32, pdt, false)
+      << ";\n";
+  out << indent_str(ind) << "}\n";
+}
+
+void emit_vec4_store_with_epilogue(const Kernel& kernel, const ReduceKernelAnalysis& analysis, HelperFlags& helpers,
+                                   ValueId ptr_vid, ScalarDType dt, const std::string& addr_expr,
+                                   const std::string& vec4_expr, const std::string& guard_expr, int ind,
+                                   std::ostringstream& out) {
+  if (analysis.epilogue_dag == nullptr || !is_float_dtype(dt)) {
+    if (guard_expr.empty()) {
+      out << indent_str(ind) << "*(device " << msl_vec4_type(dt) << "*)" << addr_expr << " = " << vec4_expr << ";\n";
+    } else {
+      out << indent_str(ind) << "if (" << guard_expr << ") { *(device " << msl_vec4_type(dt) << "*)" << addr_expr
+          << " = " << vec4_expr << "; }\n";
+    }
+    return;
+  }
+  if (!guard_expr.empty()) {
+    out << indent_str(ind) << "if (" << guard_expr << ") {\n";
+  } else {
+    out << indent_str(ind) << "{\n";
+  }
+  const int bind = ind + 1;
+  const std::string base_idx_expr = reduce_store_elem_idx_expr(analysis, ptr_vid, addr_expr);
+  out << indent_str(bind) << "float4 m1_ep_v4 = " << msl_cast_expr(vec4_expr, dt, ScalarDType::F32, true) << ";\n";
+  out << indent_str(bind) << "const long m1_ep_base = " << base_idx_expr << ";\n";
+  out << indent_str(bind) << "#pragma unroll\n";
+  out << indent_str(bind) << "for (uint m1_ep_lane = 0u; m1_ep_lane < 4u; ++m1_ep_lane) {\n";
+  out << indent_str(bind + 1) << "float m1_ep_v = m1_ep_v4[m1_ep_lane];\n";
+  out << indent_str(bind + 1) << "const long m1_ep_idx = m1_ep_base + long(m1_ep_lane);\n";
+  out << indent_str(bind + 1) << "(void)m1_ep_idx;\n";
+  const std::string ch_expr = analysis.epilogue_bias_mod.has_value()
+                                  ? ("(m1_ep_idx % " + std::to_string(*analysis.epilogue_bias_mod) + "L)")
+                                  : "m1_ep_idx";
+  emit_epilogue_dag_msl(
+      out, kernel, *analysis.epilogue_dag, "m1_ep_v", ch_expr, "m1_ep_idx",
+      [&](uint32_t idx) { return epilogue_param_name(kernel, analysis, idx); }, helpers, indent_str(bind + 1));
+  out << indent_str(bind + 1) << "m1_ep_v4[m1_ep_lane] = m1_ep_v;\n";
+  out << indent_str(bind) << "}\n";
+  out << indent_str(bind) << "*(device " << msl_vec4_type(dt) << "*)" << addr_expr << " = "
+      << msl_cast_expr("m1_ep_v4", ScalarDType::F32, dt, true) << ";\n";
+  out << indent_str(ind) << "}\n";
 }
 
 std::string msl_ptr_type_str(const ReduceKernelAnalysis& analysis, ValueId vid, ScalarDType pointee) {
@@ -1598,16 +1741,14 @@ struct Vec4ReduceEmitter {
         ScalarDType dt = scalar_dtype_of(kernel.value(so.val).type);
         std::string addr = build_ptr_addr_expr(plan, iv_var, elem_base_var);
         std::string ve = get_v4(so.val, dt);
+        std::string guard;
         if (allow_inv_mask_ternary && !plan.dmask.inv_scalar_guards.empty()) {
-          std::string g = plan.dmask.inv_scalar_guards[0];
+          guard = plan.dmask.inv_scalar_guards[0];
           for (size_t i = 1; i < plan.dmask.inv_scalar_guards.size(); ++i) {
-            g = "(" + g + " && " + plan.dmask.inv_scalar_guards[i] + ")";
+            guard = "(" + guard + " && " + plan.dmask.inv_scalar_guards[i] + ")";
           }
-          out << indent_str(ind) << "if (" << g << ") { *(device " << msl_vec4_type(dt) << "*)" << addr << " = " << ve
-              << "; }\n";
-        } else {
-          out << indent_str(ind) << "*(device " << msl_vec4_type(dt) << "*)" << addr << " = " << ve << ";\n";
         }
+        emit_vec4_store_with_epilogue(kernel, analysis, helpers, so.ptrs, dt, addr, ve, guard, ind, out);
         continue;
       }
 
@@ -1716,12 +1857,9 @@ struct Vec4ReduceEmitter {
         std::string pe = eval_scalar_at_lane(so.ptrs, "m1_lane", c_var, "m1_e", local_memo, nullptr);
         std::string ve = msl_cast_expr(eval_scalar_at_lane(so.val, "m1_lane", c_var, "m1_e", local_memo, nullptr),
                                        scalar_dtype_of(kernel.value(so.val).type), pdt, false);
-        if (so.mask != kInvalidId) {
-          std::string me = eval_scalar_at_lane(so.mask, "m1_lane", c_var, "m1_e", local_memo, nullptr);
-          out << indent_str(ind + 1) << "if (" << me << ") { *(" << pe << ") = " << ve << "; }\n";
-        } else {
-          out << indent_str(ind + 1) << "*(" << pe << ") = " << ve << ";\n";
-        }
+        std::string me =
+            (so.mask != kInvalidId) ? eval_scalar_at_lane(so.mask, "m1_lane", c_var, "m1_e", local_memo, nullptr) : "";
+        emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, me, ind + 1, out);
         continue;
       }
 
@@ -2656,7 +2794,7 @@ struct Vec4ReduceEmitter {
             msl_cast_expr(scalar_exprs.at(so.val), scalar_dtype_of(kernel.value(so.val).type), pdt, false);
         std::string guard = "(m1_tid_linear == 0u)";
         if (so.mask != kInvalidId) guard = "(" + guard + " && (" + scalar_exprs.at(so.mask) + "))";
-        out << indent_str(ind) << "if (" << guard << ") { *(" << pe << ") = " << ve << "; }\n";
+        emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, guard, ind, out);
         continue;
       }
 
@@ -3432,12 +3570,8 @@ struct Scalar1DReduceEmitter {
               std::string ve = msl_cast_expr(eval_at(so.val, "m1_lane", "m1_s", memo),
                                              scalar_dtype_of(kernel.value(so.val).type), pdt, false);
               if (!err.empty()) return false;
-              if (so.mask != kInvalidId) {
-                std::string me = eval_at(so.mask, "m1_lane", "m1_s", memo);
-                out << indent_str(ind + 3) << "if (" << me << ") { *(" << pe << ") = " << ve << "; }\n";
-              } else {
-                out << indent_str(ind + 3) << "*(" << pe << ") = " << ve << ";\n";
-              }
+              std::string me = (so.mask != kInvalidId) ? eval_at(so.mask, "m1_lane", "m1_s", memo) : "";
+              emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, me, ind + 3, out);
             }
           }
           std::vector<std::string> ytmps;
@@ -3517,7 +3651,7 @@ struct Scalar1DReduceEmitter {
               msl_cast_expr(scalar_exprs.at(so.val), scalar_dtype_of(kernel.value(so.val).type), pdt, false);
           std::string guard = "(m1_tid_linear == 0u)";
           if (so.mask != kInvalidId) guard = "(" + guard + " && (" + scalar_exprs.at(so.mask) + "))";
-          out << indent_str(ind) << "if (" << guard << ") { *(" << pe << ") = " << ve << "; }\n";
+          emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, guard, ind, out);
           continue;
         }
         auto find_scan_dep = [&](ValueId root) -> const ScanContigInfo* {
@@ -3549,12 +3683,8 @@ struct Scalar1DReduceEmitter {
           std::string ve = msl_cast_expr(eval_at(so.val, "m1_plane", "m1_k", memo),
                                          scalar_dtype_of(kernel.value(so.val).type), pdt, false);
           if (!err.empty()) return false;
-          if (so.mask != kInvalidId) {
-            std::string me = eval_at(so.mask, "m1_plane", "m1_k", memo);
-            out << indent_str(ind + 2) << "if (" << me << ") { *(" << pe << ") = " << ve << "; }\n";
-          } else {
-            out << indent_str(ind + 2) << "*(" << pe << ") = " << ve << ";\n";
-          }
+          std::string me = (so.mask != kInvalidId) ? eval_at(so.mask, "m1_plane", "m1_k", memo) : "";
+          emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, me, ind + 2, out);
           out << indent_str(ind + 1) << "}\n";
           out << indent_str(ind) << "}\n";
           continue;
@@ -3569,12 +3699,8 @@ struct Scalar1DReduceEmitter {
             msl_cast_expr(eval_at(so.val, "m1_lane", "m1_s", memo), scalar_dtype_of(kernel.value(so.val).type), pdt,
                           false);
         if (!err.empty()) return false;
-        if (so.mask != kInvalidId) {
-          std::string me = eval_at(so.mask, "m1_lane", "m1_s", memo);
-          out << indent_str(ind + 2) << "if (" << me << ") { *(" << pe << ") = " << ve << "; }\n";
-        } else {
-          out << indent_str(ind + 2) << "*(" << pe << ") = " << ve << ";\n";
-        }
+        std::string me = (so.mask != kInvalidId) ? eval_at(so.mask, "m1_lane", "m1_s", memo) : "";
+        emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, me, ind + 2, out);
         out << indent_str(ind + 1) << "}\n";
         out << indent_str(ind) << "}\n";
         continue;
@@ -4095,12 +4221,8 @@ struct Row2DReduceEmitter {
           std::string ve = msl_cast_expr(eval_2d_1d(so.val, "m1_row", "m1_rm", memo),
                                          scalar_dtype_of(kernel.value(so.val).type), pdt, false);
           if (!err.empty()) return false;
-          if (so.mask != kInvalidId) {
-            std::string me = eval_2d_1d(so.mask, "m1_row", "m1_rm", memo);
-            out << "        if (" << me << ") { *(" << pe << ") = " << ve << "; }\n";
-          } else {
-            out << "        *(" << pe << ") = " << ve << ";\n";
-          }
+          std::string me = (so.mask != kInvalidId) ? eval_2d_1d(so.mask, "m1_row", "m1_rm", memo) : "";
+          emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, me, 4, out);
           out << "      }\n";
           out << "    }\n";
           out << "  }\n";
@@ -4117,12 +4239,8 @@ struct Row2DReduceEmitter {
           std::string ve = msl_cast_expr(eval_2d(so.val, "m1_row", "m1_col", "m1_rm", memo),
                                          scalar_dtype_of(kernel.value(so.val).type), pdt, false);
           if (!err.empty()) return false;
-          if (so.mask != kInvalidId) {
-            std::string me = eval_2d(so.mask, "m1_row", "m1_col", "m1_rm", memo);
-            out << "        if (" << me << ") { *(" << pe << ") = " << ve << "; }\n";
-          } else {
-            out << "        *(" << pe << ") = " << ve << ";\n";
-          }
+          std::string me = (so.mask != kInvalidId) ? eval_2d(so.mask, "m1_row", "m1_col", "m1_rm", memo) : "";
+          emit_scalar_store_with_epilogue(kernel, analysis, helpers, so.ptrs, pdt, pe, ve, me, 4, out);
           out << "      }\n";
           out << "    }\n";
           out << "  }\n";

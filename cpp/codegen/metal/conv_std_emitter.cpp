@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <variant>
@@ -67,6 +68,9 @@ struct ConvPlan {
   uint32_t wino_tw = 8;
   uint32_t wino_vld = 36;
   uint32_t wino_eld = 36;
+  std::optional<ir::EpilogueDAGAttr> epilogue_dag;
+  std::optional<ir::FusedTailAttr> fused_tail;
+  HelperFlags helpers;
 };
 
 std::optional<int64_t> scalar_const(const Kernel& kernel, ValueId vid) {
@@ -184,6 +188,36 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
   }
   plan.pointwise = unit;
 
+  if (plan.op->hints.epilogue_dag && !plan.op->hints.epilogue_dag->steps.empty()) {
+    plan.epilogue_dag = *plan.op->hints.epilogue_dag;
+  } else if (kernel.hints.epilogue_dag && !kernel.hints.epilogue_dag->steps.empty()) {
+    plan.epilogue_dag = *kernel.hints.epilogue_dag;
+  }
+  if (plan.op->hints.fused_tail && plan.op->hints.fused_tail->kind != ir::TailKind::None) {
+    plan.fused_tail = *plan.op->hints.fused_tail;
+  } else if (kernel.hints.fused_tail && kernel.hints.fused_tail->kind != ir::TailKind::None) {
+    plan.fused_tail = *kernel.hints.fused_tail;
+  }
+
+  if (plan.epilogue_dag) {
+    std::set<uint32_t> read_params;
+    collect_epilogue_dag_param_indices(*plan.epilogue_dag, read_params);
+    for (uint32_t pidx : read_params) {
+      if (pidx >= kernel.params.size()) {
+        err = "implicit_gemm_conv epilogue_dag references out-of-range param index";
+        return std::nullopt;
+      }
+    }
+  }
+  if (plan.fused_tail) {
+    const auto tk = plan.fused_tail->kind;
+    if (tk != ir::TailKind::SpatialGlobalAvgPool && tk != ir::TailKind::SpatialGlobalSum &&
+        tk != ir::TailKind::SpatialGlobalMax) {
+      err = "implicit_gemm_conv fused_tail only supports spatial_global_{avg_pool,sum,max}";
+      return std::nullopt;
+    }
+  }
+
   if (auto wv = positive_constexpr_param(kernel, "WINOGRAD"); wv && (*wv == 10 || *wv == 11 || *wv == 12)) {
     if (nd != 2 || plan.attr.groups != 1 || plan.dims[1].k != 3 || plan.dims[2].k != 3 ||
         plan.dims[1].s != 1 || plan.dims[2].s != 1 || plan.dims[1].d != 1 || plan.dims[2].d != 1 ||
@@ -191,7 +225,14 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
       err = "implicit_gemm_conv WINOGRAD 3-stage requires 2D f32 3x3 s=1 d=1 groups=1";
       return std::nullopt;
     }
+    if (plan.fused_tail) {
+      err = "implicit_gemm_conv fused_tail is not supported on 3-stage Winograd F(4x4, 3x3)";
+      return std::nullopt;
+    }
     plan.winograd_mode = static_cast<int>(*wv);
+    if (plan.winograd_mode == 12 && plan.epilogue_dag) {
+      collect_epilogue_dag_helpers(*plan.epilogue_dag, plan.helpers);
+    }
     if (plan.winograd_mode == 10) {
       plan.num_threads = 64;
       plan.num_sgs = 2;
@@ -280,10 +321,17 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
             ? (plan.bn + pad_add)
             : plan.bn;
     plan.smem_floats = std::max(n_alpha * plan.bk * plan.wino_vld, n_alpha * 8u * plan.wino_eld);
+    if (plan.fused_tail && 8u * plan.bn > plan.num_threads) {
+      err = "implicit_gemm_conv WINOGRAD fused_tail requires 8 * BLOCK_N <= num_threads";
+      return std::nullopt;
+    }
     if (plan.smem_floats * 4u > target.max_threadgroup_memory_bytes ||
         plan.num_threads > target.max_threads_per_threadgroup) {
       err = "implicit_gemm_conv WINOGRAD exceeds threadgroup limits";
       return std::nullopt;
+    }
+    if (plan.epilogue_dag) {
+      collect_epilogue_dag_helpers(*plan.epilogue_dag, plan.helpers);
     }
     return plan;
   }
@@ -343,10 +391,14 @@ std::optional<ConvPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
 
   const uint32_t sg_elems = (plan.bm / plan.sg_m) * (plan.bn / plan.sg_n);
   plan.smem_floats = std::max(plan.bm * (plan.bk + 4) + plan.bk * (plan.bn + 4), sg_elems);
-  if (plan.smem_floats * 4 > target.max_threadgroup_memory_bytes ||
+  const uint32_t tail_smem = plan.fused_tail ? (plan.bm * plan.sg_n) : 0u;
+  if ((plan.smem_floats + tail_smem) * 4u > target.max_threadgroup_memory_bytes ||
       plan.num_threads > target.max_threads_per_threadgroup) {
     err = "implicit_gemm_conv tile exceeds threadgroup limits";
     return std::nullopt;
+  }
+  if (plan.epilogue_dag) {
+    collect_epilogue_dag_helpers(*plan.epilogue_dag, plan.helpers);
   }
   return plan;
 }
@@ -655,6 +707,20 @@ class ConvStdWriter {
     return os_.str();
   }
 
+  void emit_epilogue_steps(const std::string& val_var, const std::string& ch_expr, const std::string& elem_idx_expr,
+                           const std::string& ind) {
+    if (!plan_.epilogue_dag) return;
+    HelperFlags tmp_helpers = plan_.helpers;
+    emit_epilogue_dag_msl(
+        os_, kernel_, *plan_.epilogue_dag, val_var, ch_expr, elem_idx_expr,
+        [this](uint32_t idx) -> std::string {
+          const auto& kp = kernel_.params[idx];
+          if (kp.is_constexpr) return std::to_string(kp.constexpr_val);
+          return kp.name;
+        },
+        tmp_helpers, ind);
+  }
+
   std::string emit_wino4x3_output() {
     const ConvDim& H = plan_.dims[1];
     const ConvDim& W = plan_.dims[2];
@@ -697,7 +763,8 @@ class ConvStdWriter {
       os_ << "  const float m1_bv = (float)" << plan_.bias_name << "[m1_co];\n";
     }
     os_ << "  const long m1_Pout = (long)m1_Hout * (long)m1_Wout;\n";
-    os_ << "  device float* m1_op = " << plan_.out_name << " + ((long)m1_n * (long)m1_Cout + (long)m1_co) * m1_Pout;\n";
+    os_ << "  const long m1_oc_base = ((long)m1_n * (long)m1_Cout + (long)m1_co) * m1_Pout;\n";
+    os_ << "  device float* m1_op = " << plan_.out_name << " + m1_oc_base;\n";
     os_ << "  const bool m1_w4 = (m1_ow0 + 3 < m1_Wout);\n";
     os_ << "  #pragma unroll\n";
     os_ << "  for (int m1_r = 0; m1_r < 4; ++m1_r) {\n";
@@ -709,14 +776,37 @@ class ConvStdWriter {
     if (plan_.attr.has_bias) {
       os_ << "      m1_ov += float4(m1_bv);\n";
     }
-    os_ << "      device float* m1_or = m1_op + (long)(m1_oh0 + m1_r) * (long)m1_Wout + (long)m1_ow0;\n";
-    os_ << "      if (m1_w4) {\n";
-    os_ << "        *(device packed_float4*)(m1_or) = packed_float4(m1_ov);\n";
-    os_ << "      } else {\n";
-    os_ << "        m1_or[0] = m1_ov.x;\n";
-    os_ << "        if (m1_ow0 + 1 < m1_Wout) m1_or[1] = m1_ov.y;\n";
-    os_ << "        if (m1_ow0 + 2 < m1_Wout) m1_or[2] = m1_ov.z;\n";
-    os_ << "      }\n";
+    os_ << "      const long m1_row_off = (long)(m1_oh0 + m1_r) * (long)m1_Wout + (long)m1_ow0;\n";
+    os_ << "      device float* m1_or = m1_op + m1_row_off;\n";
+    if (plan_.epilogue_dag) {
+      os_ << "      const long m1_row_idx = m1_oc_base + m1_row_off;\n";
+      os_ << "      if (m1_w4) {\n";
+      os_ << "        #pragma unroll\n";
+      os_ << "        for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+      os_ << "          float m1_ev = m1_ov[m1_e];\n";
+      emit_epilogue_steps("m1_ev", "m1_co", "(m1_row_idx + (long)m1_e)", "          ");
+      os_ << "          m1_ov[m1_e] = m1_ev;\n";
+      os_ << "        }\n";
+      os_ << "        *(device packed_float4*)(m1_or) = packed_float4(m1_ov);\n";
+      os_ << "      } else {\n";
+      os_ << "        #pragma unroll\n";
+      os_ << "        for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+      os_ << "          if (m1_ow0 + m1_e < m1_Wout) {\n";
+      os_ << "            float m1_ev = m1_ov[m1_e];\n";
+      emit_epilogue_steps("m1_ev", "m1_co", "(m1_row_idx + (long)m1_e)", "            ");
+      os_ << "            m1_or[m1_e] = m1_ev;\n";
+      os_ << "          }\n";
+      os_ << "        }\n";
+      os_ << "      }\n";
+    } else {
+      os_ << "      if (m1_w4) {\n";
+      os_ << "        *(device packed_float4*)(m1_or) = packed_float4(m1_ov);\n";
+      os_ << "      } else {\n";
+      os_ << "        m1_or[0] = m1_ov.x;\n";
+      os_ << "        if (m1_ow0 + 1 < m1_Wout) m1_or[1] = m1_ov.y;\n";
+      os_ << "        if (m1_ow0 + 2 < m1_Wout) m1_or[2] = m1_ov.z;\n";
+      os_ << "      }\n";
+    }
     os_ << "    }\n";
     os_ << "  }\n";
     os_ << "}\n";
@@ -930,51 +1020,209 @@ class ConvStdWriter {
         os_ << "  }\n";
       }
       os_ << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
-      os_ << "  for (uint m1_ei = m1_tid; m1_ei < " << epi_pairs << "u; m1_ei += " << plan_.num_threads << "u) {\n";
-      os_ << "    const int m1_ecl = (int)(m1_ei / (uint)m1_BN);\n";
-      os_ << "    const int m1_etl = (int)(m1_ei % (uint)m1_BN);\n";
-      os_ << "    const int m1_co = m1_co0 + " << (i * 8u) << " + m1_ecl;\n";
-      os_ << "    const int m1_elty = m1_etl / m1_TTW;\n";
-      os_ << "    const int m1_eltx = m1_etl - m1_elty * m1_TTW;\n";
-      os_ << "    const int m1_oh0 = (m1_ty0 + m1_elty) * 2;\n";
-      os_ << "    const int m1_ow0 = (m1_tx0 + m1_eltx) * 2;\n";
-      os_ << "    if (m1_co < m1_Cout && m1_oh0 < m1_Hout && m1_ow0 < m1_Wout) {\n";
-      os_ << "      const uint m1_eoff = (uint)m1_ecl * m1_ELD + (uint)m1_etl;\n";
-      for (int a = 0; a < 16; ++a) {
-        os_ << "      const float m1_m" << a << " = m1_smem[" << a << "u * m1_EPLANE + m1_eoff];\n";
+      if (plan_.fused_tail) {
+        const auto tk = plan_.fused_tail->kind;
+        const bool is_max = (tk == ir::TailKind::SpatialGlobalMax);
+        const std::string ps_lit = msl_exact_float_literal(plan_.fused_tail->post_scale);
+        os_ << "  {\n";
+        os_ << "    float m1_pv = " << (is_max ? "-INFINITY" : "0.0f") << ";\n";
+        os_ << "    if (m1_tid < " << epi_pairs << "u) {\n";
+        os_ << "      const int m1_ecl = (int)(m1_tid / (uint)m1_BN);\n";
+        os_ << "      const int m1_etl = (int)(m1_tid % (uint)m1_BN);\n";
+        os_ << "      const int m1_co = m1_co0 + " << (i * 8u) << " + m1_ecl;\n";
+        os_ << "      const int m1_elty = m1_etl / m1_TTW;\n";
+        os_ << "      const int m1_eltx = m1_etl - m1_elty * m1_TTW;\n";
+        os_ << "      const int m1_oh0 = (m1_ty0 + m1_elty) * 2;\n";
+        os_ << "      const int m1_ow0 = (m1_tx0 + m1_eltx) * 2;\n";
+        os_ << "      if (m1_co < m1_Cout && m1_oh0 < m1_Hout && m1_ow0 < m1_Wout) {\n";
+        os_ << "        const uint m1_eoff = (uint)m1_ecl * m1_ELD + (uint)m1_etl;\n";
+        for (int a = 0; a < 16; ++a) {
+          os_ << "        const float m1_m" << a << " = m1_smem[" << a << "u * m1_EPLANE + m1_eoff];\n";
+        }
+        for (int c = 0; c < 4; ++c) {
+          os_ << "        const float m1_s0" << c << " = m1_m" << c << " + m1_m" << (4 + c) << " + m1_m" << (8 + c)
+              << ";\n";
+          os_ << "        const float m1_s1" << c << " = m1_m" << (4 + c) << " - m1_m" << (8 + c) << " - m1_m"
+              << (12 + c) << ";\n";
+        }
+        os_ << "        float m1_y00 = m1_s00 + m1_s01 + m1_s02;\n";
+        os_ << "        float m1_y01 = m1_s01 - m1_s02 - m1_s03;\n";
+        os_ << "        float m1_y10 = m1_s10 + m1_s11 + m1_s12;\n";
+        os_ << "        float m1_y11 = m1_s11 - m1_s12 - m1_s13;\n";
+        if (plan_.attr.has_bias) {
+          os_ << "        const float m1_bv = (float)" << plan_.bias_name << "[m1_co];\n";
+          os_ << "        m1_y00 += m1_bv; m1_y01 += m1_bv; m1_y10 += m1_bv; m1_y11 += m1_bv;\n";
+        }
+        os_ << "        const long m1_oc_base = ((long)m1_n * (long)m1_Cout + (long)m1_co) * m1_Pout;\n";
+        os_ << "        const long m1_r0_idx = m1_oc_base + (long)m1_oh0 * (long)m1_Wout + (long)m1_ow0;\n";
+        os_ << "        const long m1_r1_idx = m1_oc_base + (long)(m1_oh0 + 1) * (long)m1_Wout + (long)m1_ow0;\n";
+        os_ << "        (void)m1_r0_idx; (void)m1_r1_idx;\n";
+        if (plan_.epilogue_dag) {
+          os_ << "        {\n";
+          emit_epilogue_steps("m1_y00", "m1_co", "m1_r0_idx", "          ");
+          os_ << "        }\n";
+        }
+        os_ << "        m1_pv = m1_y00;\n";
+        os_ << "        if (m1_ow0 + 1 < m1_Wout) {\n";
+        if (plan_.epilogue_dag) {
+          os_ << "          {\n";
+          emit_epilogue_steps("m1_y01", "m1_co", "(m1_r0_idx + 1L)", "            ");
+          os_ << "          }\n";
+        }
+        if (is_max) {
+          os_ << "          m1_pv = (m1_y01 > m1_pv || isnan(m1_y01)) ? m1_y01 : m1_pv;\n";
+        } else {
+          os_ << "          m1_pv += m1_y01;\n";
+        }
+        os_ << "        }\n";
+        os_ << "        if (m1_oh0 + 1 < m1_Hout) {\n";
+        if (plan_.epilogue_dag) {
+          os_ << "          {\n";
+          emit_epilogue_steps("m1_y10", "m1_co", "m1_r1_idx", "            ");
+          os_ << "          }\n";
+        }
+        if (is_max) {
+          os_ << "          m1_pv = (m1_y10 > m1_pv || isnan(m1_y10)) ? m1_y10 : m1_pv;\n";
+        } else {
+          os_ << "          m1_pv += m1_y10;\n";
+        }
+        os_ << "          if (m1_ow0 + 1 < m1_Wout) {\n";
+        if (plan_.epilogue_dag) {
+          os_ << "            {\n";
+          emit_epilogue_steps("m1_y11", "m1_co", "(m1_r1_idx + 1L)", "              ");
+          os_ << "            }\n";
+        }
+        if (is_max) {
+          os_ << "            m1_pv = (m1_y11 > m1_pv || isnan(m1_y11)) ? m1_y11 : m1_pv;\n";
+        } else {
+          os_ << "            m1_pv += m1_y11;\n";
+        }
+        os_ << "          }\n";
+        os_ << "        }\n";
+        os_ << "      }\n";
+        os_ << "    }\n";
+        os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+        os_ << "    if (m1_tid < " << epi_pairs << "u) m1_smem[m1_tid] = m1_pv;\n";
+        os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+        os_ << "    if (m1_tid < 8u) {\n";
+        os_ << "      const int m1_co = m1_co0 + " << (i * 8u) << " + (int)m1_tid;\n";
+        os_ << "      if (m1_co < m1_Cout) {\n";
+        os_ << "        float m1_fin = m1_smem[m1_tid * (uint)m1_BN];\n";
+        os_ << "        for (uint m1_t = 1u; m1_t < (uint)m1_BN; ++m1_t) {\n";
+        os_ << "          const float m1_tv = m1_smem[m1_tid * (uint)m1_BN + m1_t];\n";
+        if (is_max) {
+          os_ << "          m1_fin = (m1_tv > m1_fin || isnan(m1_tv)) ? m1_tv : m1_fin;\n";
+        } else {
+          os_ << "          m1_fin += m1_tv;\n";
+        }
+        os_ << "        }\n";
+        if (tk == ir::TailKind::SpatialGlobalAvgPool) {
+          os_ << "        m1_fin *= (" << ps_lit << " / (float)m1_Pout);\n";
+        } else if (tk == ir::TailKind::SpatialGlobalSum) {
+          if (plan_.fused_tail->post_scale != 1.0f) {
+            os_ << "        m1_fin *= " << ps_lit << ";\n";
+          }
+        } else if (plan_.fused_tail->post_scale != 1.0f) {
+          os_ << "        if (m1_num_tgs.x == 1u) m1_fin *= " << ps_lit << ";\n";
+        }
+        os_ << "        " << plan_.out_name
+            << "[((long)m1_n * (long)m1_Cout + (long)m1_co) * (long)m1_num_tgs.x + (long)m1_tgid.x] = m1_fin;\n";
+        os_ << "      }\n";
+        os_ << "    }\n";
+        os_ << "  }\n";
+      } else {
+        os_ << "  for (uint m1_ei = m1_tid; m1_ei < " << epi_pairs << "u; m1_ei += " << plan_.num_threads << "u) {\n";
+        os_ << "    const int m1_ecl = (int)(m1_ei / (uint)m1_BN);\n";
+        os_ << "    const int m1_etl = (int)(m1_ei % (uint)m1_BN);\n";
+        os_ << "    const int m1_co = m1_co0 + " << (i * 8u) << " + m1_ecl;\n";
+        os_ << "    const int m1_elty = m1_etl / m1_TTW;\n";
+        os_ << "    const int m1_eltx = m1_etl - m1_elty * m1_TTW;\n";
+        os_ << "    const int m1_oh0 = (m1_ty0 + m1_elty) * 2;\n";
+        os_ << "    const int m1_ow0 = (m1_tx0 + m1_eltx) * 2;\n";
+        os_ << "    if (m1_co < m1_Cout && m1_oh0 < m1_Hout && m1_ow0 < m1_Wout) {\n";
+        os_ << "      const uint m1_eoff = (uint)m1_ecl * m1_ELD + (uint)m1_etl;\n";
+        for (int a = 0; a < 16; ++a) {
+          os_ << "      const float m1_m" << a << " = m1_smem[" << a << "u * m1_EPLANE + m1_eoff];\n";
+        }
+        for (int c = 0; c < 4; ++c) {
+          os_ << "      const float m1_s0" << c << " = m1_m" << c << " + m1_m" << (4 + c) << " + m1_m" << (8 + c)
+              << ";\n";
+          os_ << "      const float m1_s1" << c << " = m1_m" << (4 + c) << " - m1_m" << (8 + c) << " - m1_m" << (12 + c)
+              << ";\n";
+        }
+        os_ << "      float m1_y00 = m1_s00 + m1_s01 + m1_s02;\n";
+        os_ << "      float m1_y01 = m1_s01 - m1_s02 - m1_s03;\n";
+        os_ << "      float m1_y10 = m1_s10 + m1_s11 + m1_s12;\n";
+        os_ << "      float m1_y11 = m1_s11 - m1_s12 - m1_s13;\n";
+        if (plan_.attr.has_bias) {
+          os_ << "      const float m1_bv = (float)" << plan_.bias_name << "[m1_co];\n";
+          os_ << "      m1_y00 += m1_bv; m1_y01 += m1_bv; m1_y10 += m1_bv; m1_y11 += m1_bv;\n";
+        }
+        if (plan_.epilogue_dag) {
+          os_ << "      const long m1_oc_base = ((long)m1_n * (long)m1_Cout + (long)m1_co) * m1_Pout;\n";
+          os_ << "      const long m1_r0_off = (long)m1_oh0 * (long)m1_Wout + (long)m1_ow0;\n";
+          os_ << "      const long m1_r1_off = (long)(m1_oh0 + 1) * (long)m1_Wout + (long)m1_ow0;\n";
+          os_ << "      device float* m1_op = " << plan_.out_name << " + m1_oc_base;\n";
+          os_ << "      if (m1_oh0 + 1 < m1_Hout && m1_ow0 + 1 < m1_Wout) {\n";
+          os_ << "        {\n";
+          emit_epilogue_steps("m1_y00", "m1_co", "(m1_oc_base + m1_r0_off)", "          ");
+          os_ << "        }\n";
+          os_ << "        {\n";
+          emit_epilogue_steps("m1_y01", "m1_co", "(m1_oc_base + m1_r0_off + 1L)", "          ");
+          os_ << "        }\n";
+          os_ << "        {\n";
+          emit_epilogue_steps("m1_y10", "m1_co", "(m1_oc_base + m1_r1_off)", "          ");
+          os_ << "        }\n";
+          os_ << "        {\n";
+          emit_epilogue_steps("m1_y11", "m1_co", "(m1_oc_base + m1_r1_off + 1L)", "          ");
+          os_ << "        }\n";
+          os_ << "        *(device packed_float2*)(m1_op + m1_r0_off) = packed_float2(m1_y00, m1_y01);\n";
+          os_ << "        *(device packed_float2*)(m1_op + m1_r1_off) = packed_float2(m1_y10, m1_y11);\n";
+          os_ << "      } else {\n";
+          os_ << "        {\n";
+          emit_epilogue_steps("m1_y00", "m1_co", "(m1_oc_base + m1_r0_off)", "          ");
+          os_ << "        }\n";
+          os_ << "        m1_op[m1_r0_off] = m1_y00;\n";
+          os_ << "        if (m1_ow0 + 1 < m1_Wout) {\n";
+          os_ << "          {\n";
+          emit_epilogue_steps("m1_y01", "m1_co", "(m1_oc_base + m1_r0_off + 1L)", "            ");
+          os_ << "          }\n";
+          os_ << "          m1_op[m1_r0_off + 1L] = m1_y01;\n";
+          os_ << "        }\n";
+          os_ << "        if (m1_oh0 + 1 < m1_Hout) {\n";
+          os_ << "          {\n";
+          emit_epilogue_steps("m1_y10", "m1_co", "(m1_oc_base + m1_r1_off)", "            ");
+          os_ << "          }\n";
+          os_ << "          m1_op[m1_r1_off] = m1_y10;\n";
+          os_ << "          if (m1_ow0 + 1 < m1_Wout) {\n";
+          os_ << "            {\n";
+          emit_epilogue_steps("m1_y11", "m1_co", "(m1_oc_base + m1_r1_off + 1L)", "              ");
+          os_ << "            }\n";
+          os_ << "            m1_op[m1_r1_off + 1L] = m1_y11;\n";
+          os_ << "          }\n";
+          os_ << "        }\n";
+          os_ << "      }\n";
+        } else {
+          os_ << "      device float* m1_op = " << plan_.out_name
+              << " + ((long)m1_n * (long)m1_Cout + (long)m1_co) * m1_Pout;\n";
+          os_ << "      if (m1_oh0 + 1 < m1_Hout && m1_ow0 + 1 < m1_Wout) {\n";
+          os_ << "        *(device packed_float2*)(m1_op + (long)m1_oh0 * (long)m1_Wout + (long)m1_ow0) = "
+                 "packed_float2(m1_y00, m1_y01);\n";
+          os_ << "        *(device packed_float2*)(m1_op + (long)(m1_oh0 + 1) * (long)m1_Wout + (long)m1_ow0) = "
+                 "packed_float2(m1_y10, m1_y11);\n";
+          os_ << "      } else {\n";
+          os_ << "        m1_op[(long)m1_oh0 * (long)m1_Wout + (long)m1_ow0] = m1_y00;\n";
+          os_ << "        if (m1_ow0 + 1 < m1_Wout) m1_op[(long)m1_oh0 * (long)m1_Wout + (long)(m1_ow0 + 1)] = m1_y01;\n";
+          os_ << "        if (m1_oh0 + 1 < m1_Hout) {\n";
+          os_ << "          m1_op[(long)(m1_oh0 + 1) * (long)m1_Wout + (long)m1_ow0] = m1_y10;\n";
+          os_ << "          if (m1_ow0 + 1 < m1_Wout) m1_op[(long)(m1_oh0 + 1) * (long)m1_Wout + (long)(m1_ow0 + 1)] = "
+                 "m1_y11;\n";
+          os_ << "        }\n";
+          os_ << "      }\n";
+        }
+        os_ << "    }\n";
+        os_ << "  }\n";
       }
-      for (int c = 0; c < 4; ++c) {
-        os_ << "      const float m1_s0" << c << " = m1_m" << c << " + m1_m" << (4 + c) << " + m1_m" << (8 + c)
-            << ";\n";
-        os_ << "      const float m1_s1" << c << " = m1_m" << (4 + c) << " - m1_m" << (8 + c) << " - m1_m" << (12 + c)
-            << ";\n";
-      }
-      os_ << "      float m1_y00 = m1_s00 + m1_s01 + m1_s02;\n";
-      os_ << "      float m1_y01 = m1_s01 - m1_s02 - m1_s03;\n";
-      os_ << "      float m1_y10 = m1_s10 + m1_s11 + m1_s12;\n";
-      os_ << "      float m1_y11 = m1_s11 - m1_s12 - m1_s13;\n";
-      if (plan_.attr.has_bias) {
-        os_ << "      const float m1_bv = (float)" << plan_.bias_name << "[m1_co];\n";
-        os_ << "      m1_y00 += m1_bv; m1_y01 += m1_bv; m1_y10 += m1_bv; m1_y11 += m1_bv;\n";
-      }
-      os_ << "      device float* m1_op = " << plan_.out_name
-          << " + ((long)m1_n * (long)m1_Cout + (long)m1_co) * m1_Pout;\n";
-      os_ << "      if (m1_oh0 + 1 < m1_Hout && m1_ow0 + 1 < m1_Wout) {\n";
-      os_ << "        *(device packed_float2*)(m1_op + (long)m1_oh0 * (long)m1_Wout + (long)m1_ow0) = "
-             "packed_float2(m1_y00, m1_y01);\n";
-      os_ << "        *(device packed_float2*)(m1_op + (long)(m1_oh0 + 1) * (long)m1_Wout + (long)m1_ow0) = "
-             "packed_float2(m1_y10, m1_y11);\n";
-      os_ << "      } else {\n";
-      os_ << "        m1_op[(long)m1_oh0 * (long)m1_Wout + (long)m1_ow0] = m1_y00;\n";
-      os_ << "        if (m1_ow0 + 1 < m1_Wout) m1_op[(long)m1_oh0 * (long)m1_Wout + (long)(m1_ow0 + 1)] = m1_y01;\n";
-      os_ << "        if (m1_oh0 + 1 < m1_Hout) {\n";
-      os_ << "          m1_op[(long)(m1_oh0 + 1) * (long)m1_Wout + (long)m1_ow0] = m1_y10;\n";
-      os_ << "          if (m1_ow0 + 1 < m1_Wout) m1_op[(long)(m1_oh0 + 1) * (long)m1_Wout + (long)(m1_ow0 + 1)] = "
-             "m1_y11;\n";
-      os_ << "        }\n";
-      os_ << "      }\n";
-      os_ << "    }\n";
-      os_ << "  }\n";
       if (i + 1u < wfm) {
         os_ << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
       }
@@ -994,8 +1242,12 @@ class ConvStdWriter {
 
   void emit_signature() {
     os_ << "#include <metal_stdlib>\nusing namespace metal;\n\n";
+    emit_helper_functions(os_, plan_.helpers);
     emit_kernel_param_decls(os_, kernel_, plan_.out_name);
     os_ << "    uint3 m1_tgid [[threadgroup_position_in_grid]],\n";
+    if (plan_.fused_tail) {
+      os_ << "    uint3 m1_num_tgs [[threadgroups_per_grid]],\n";
+    }
     os_ << "    uint m1_tid [[thread_index_in_threadgroup]],\n";
     os_ << "    uint m1_sg [[simdgroup_index_in_threadgroup]]) {\n";
   }
@@ -1025,17 +1277,33 @@ class ConvStdWriter {
     os_ << "  const int m1_KFull = (m1_K / m1_BK) * m1_BK;\n";
     os_ << "  const ulong m1_HWo64 = (ulong)m1_Hout * (ulong)m1_Wout;\n";
     os_ << "  const ulong m1_P64 = (ulong)m1_Dout * m1_HWo64;\n";
-    os_ << "  const ulong m1_M = (ulong)m1_N * m1_P64;\n";
-    os_ << "  const bool m1_m32 = (m1_M <= 0xfffffffful);\n";
-    os_ << "  const uint m1_HWo = (uint)m1_HWo64;\n";
-    os_ << "  const uint m1_P = (uint)m1_P64;\n";
-    os_ << "  const long m1_Pin = (long)m1_Din * (long)m1_Hin * (long)m1_Win;\n";
-    os_ << "  typedef " << (plan_.idx32 ? "int" : "long") << " m1_idx;\n";
-    os_ << "  const m1_idx m1_PinI = (m1_idx)m1_Pin;\n";
-    os_ << "  const int m1_g = (int)m1_tgid.z;\n";
-    os_ << "  const int m1_co0 = (int)m1_tgid.y * m1_BM;\n";
-    os_ << "  const ulong m1_m0 = (ulong)m1_tgid.x * (ulong)m1_BN;\n";
-    os_ << "  if (m1_g >= m1_G || m1_co0 >= m1_Cog || m1_m0 >= m1_M) return;\n";
+    if (plan_.fused_tail) {
+      os_ << "  const bool m1_m32 = ((ulong)m1_N * m1_P64 <= 0xfffffffful);\n";
+      os_ << "  const uint m1_HWo = (uint)m1_HWo64;\n";
+      os_ << "  const uint m1_P = (uint)m1_P64;\n";
+      os_ << "  const long m1_Pin = (long)m1_Din * (long)m1_Hin * (long)m1_Win;\n";
+      os_ << "  typedef " << (plan_.idx32 ? "int" : "long") << " m1_idx;\n";
+      os_ << "  const m1_idx m1_PinI = (m1_idx)m1_Pin;\n";
+      os_ << "  const int m1_n_tg = (int)m1_tgid.z / m1_G;\n";
+      os_ << "  const int m1_g = (int)m1_tgid.z - m1_n_tg * m1_G;\n";
+      os_ << "  const int m1_co0 = (int)m1_tgid.y * m1_BM;\n";
+      os_ << "  const ulong m1_p_tile0 = (ulong)m1_tgid.x * (ulong)m1_BN;\n";
+      os_ << "  if (m1_n_tg >= (int)m1_N || m1_co0 >= m1_Cog || m1_p_tile0 >= m1_P64) return;\n";
+      os_ << "  const ulong m1_m0 = (ulong)m1_n_tg * m1_P64 + m1_p_tile0;\n";
+      os_ << "  const ulong m1_M = (ulong)(m1_n_tg + 1) * m1_P64;\n";
+    } else {
+      os_ << "  const ulong m1_M = (ulong)m1_N * m1_P64;\n";
+      os_ << "  const bool m1_m32 = (m1_M <= 0xfffffffful);\n";
+      os_ << "  const uint m1_HWo = (uint)m1_HWo64;\n";
+      os_ << "  const uint m1_P = (uint)m1_P64;\n";
+      os_ << "  const long m1_Pin = (long)m1_Din * (long)m1_Hin * (long)m1_Win;\n";
+      os_ << "  typedef " << (plan_.idx32 ? "int" : "long") << " m1_idx;\n";
+      os_ << "  const m1_idx m1_PinI = (m1_idx)m1_Pin;\n";
+      os_ << "  const int m1_g = (int)m1_tgid.z;\n";
+      os_ << "  const int m1_co0 = (int)m1_tgid.y * m1_BM;\n";
+      os_ << "  const ulong m1_m0 = (ulong)m1_tgid.x * (ulong)m1_BN;\n";
+      os_ << "  if (m1_g >= m1_G || m1_co0 >= m1_Cog || m1_m0 >= m1_M) return;\n";
+    }
     os_ << "  threadgroup float m1_smem[" << plan_.smem_floats << "];\n";
     os_ << "  threadgroup float* m1_sw = m1_smem;\n";
     os_ << "  threadgroup float* m1_sx = m1_smem + m1_BM * m1_LDW;\n";
@@ -1545,7 +1813,102 @@ class ConvStdWriter {
     os_ << "  }\n";
   }
 
+  void emit_fused_tail_epilogue() {
+    const std::string& oe = plan_.out_elem;
+    const uint32_t sg_rows = fm() * 8;
+    const uint32_t sg_ld = fn() * 8;
+    const uint32_t sg_elems = sg_rows * sg_ld;
+    const uint32_t max_sgs = std::max<uint32_t>(1, plan_.smem_floats / sg_elems);
+    const auto tk = plan_.fused_tail->kind;
+    const bool is_max = (tk == ir::TailKind::SpatialGlobalMax);
+    const std::string ps_lit = msl_exact_float_literal(plan_.fused_tail->post_scale);
+
+    os_ << "  threadgroup float m1_tacc[" << (plan_.bm * plan_.sg_n) << "];\n";
+    os_ << "  for (uint m1_sb = 0u; m1_sb < " << plan_.num_sgs << "u; m1_sb += " << max_sgs << "u) {\n";
+    os_ << "    if (m1_sg >= m1_sb && m1_sg < m1_sb + " << max_sgs << "u) {\n";
+    os_ << "      threadgroup float* m1_sgs = m1_smem + (m1_sg - m1_sb) * " << sg_elems << "u;\n";
+    for (uint32_t i = 0; i < fm(); ++i) {
+      for (uint32_t j = 0; j < fn(); ++j) {
+        os_ << "      simdgroup_store(m1_acc[" << i << "][" << j << "], m1_sgs + " << (i * 8) << "u * " << sg_ld
+            << "u + " << (j * 8) << "u, " << sg_ld << ");\n";
+      }
+    }
+    os_ << "    }\n";
+    os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << "    const uint m1_act = min(" << max_sgs << "u, " << plan_.num_sgs << "u - m1_sb);\n";
+    os_ << "    for (uint m1_ri = m1_tid; m1_ri < m1_act * " << sg_rows << "u; m1_ri += " << plan_.num_threads
+        << "u) {\n";
+    os_ << "      const uint m1_lsg = m1_ri / " << sg_rows << "u;\n";
+    os_ << "      const uint m1_lr = m1_ri - m1_lsg * " << sg_rows << "u;\n";
+    os_ << "      const uint m1_gsg = m1_sb + m1_lsg;\n";
+    os_ << "      const uint m1_sgy = m1_gsg / " << plan_.sg_n << "u;\n";
+    os_ << "      const uint m1_sgx = m1_gsg - m1_sgy * " << plan_.sg_n << "u;\n";
+    os_ << "      const uint m1_cl = m1_sgy * " << sg_rows << "u + m1_lr;\n";
+    os_ << "      const int m1_co = m1_co0 + (int)m1_cl;\n";
+    os_ << "      const ulong m1_pbase = m1_p_tile0 + (ulong)(m1_sgx * " << sg_ld << "u);\n";
+    os_ << "      float m1_racc = " << (is_max ? "-INFINITY" : "0.0f") << ";\n";
+    os_ << "      if (m1_co < m1_Cog) {\n";
+    os_ << "        const int m1_cg = m1_g * m1_Cog + m1_co;\n";
+    os_ << "        const long m1_oc_base = ((long)m1_n_tg * m1_Cout + (long)m1_cg) * (long)m1_P64;\n";
+    os_ << "        (void)m1_cg; (void)m1_oc_base;\n";
+    if (plan_.attr.has_bias) {
+      os_ << "        const float m1_bv = (float)" << plan_.bias_name << "[m1_cg];\n";
+    }
+    os_ << "        threadgroup const float* m1_row = m1_smem + m1_lsg * " << sg_elems << "u + m1_lr * " << sg_ld
+        << "u;\n";
+    os_ << "        for (uint m1_lc = 0u; m1_lc < " << sg_ld << "u; ++m1_lc) {\n";
+    os_ << "          const ulong m1_p = m1_pbase + (ulong)m1_lc;\n";
+    os_ << "          if (m1_p < m1_P64) {\n";
+    os_ << "            float m1_ev = m1_row[m1_lc];\n";
+    if (plan_.attr.has_bias) {
+      os_ << "            m1_ev += m1_bv;\n";
+    }
+    emit_epilogue_steps("m1_ev", "m1_cg", "(m1_oc_base + (long)m1_p)", "            ");
+    if (is_max) {
+      os_ << "            m1_racc = (m1_ev > m1_racc || isnan(m1_ev)) ? m1_ev : m1_racc;\n";
+    } else {
+      os_ << "            m1_racc += m1_ev;\n";
+    }
+    os_ << "          }\n";
+    os_ << "        }\n";
+    os_ << "      }\n";
+    os_ << "      m1_tacc[m1_cl * " << plan_.sg_n << "u + m1_sgx] = m1_racc;\n";
+    os_ << "    }\n";
+    os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    os_ << "  }\n";
+    os_ << "  for (uint m1_cl = m1_tid; m1_cl < (uint)m1_BM; m1_cl += " << plan_.num_threads << "u) {\n";
+    os_ << "    const int m1_co = m1_co0 + (int)m1_cl;\n";
+    os_ << "    if (m1_co < m1_Cog) {\n";
+    os_ << "      float m1_fin = m1_tacc[m1_cl * " << plan_.sg_n << "u];\n";
+    os_ << "      for (uint m1_s = 1u; m1_s < " << plan_.sg_n << "u; ++m1_s) {\n";
+    os_ << "        const float m1_tv = m1_tacc[m1_cl * " << plan_.sg_n << "u + m1_s];\n";
+    if (is_max) {
+      os_ << "        m1_fin = (m1_tv > m1_fin || isnan(m1_tv)) ? m1_tv : m1_fin;\n";
+    } else {
+      os_ << "        m1_fin += m1_tv;\n";
+    }
+    os_ << "      }\n";
+    if (tk == ir::TailKind::SpatialGlobalAvgPool) {
+      os_ << "      m1_fin *= (" << ps_lit << " / (float)m1_P64);\n";
+    } else if (tk == ir::TailKind::SpatialGlobalSum) {
+      if (plan_.fused_tail->post_scale != 1.0f) {
+        os_ << "      m1_fin *= " << ps_lit << ";\n";
+      }
+    } else if (plan_.fused_tail->post_scale != 1.0f) {
+      os_ << "      if (m1_num_tgs.x == 1u) m1_fin *= " << ps_lit << ";\n";
+    }
+    os_ << "      " << plan_.out_name
+        << "[((long)m1_n_tg * m1_Cout + (long)(m1_g * m1_Cog + m1_co)) * (long)m1_num_tgs.x + (long)m1_tgid.x] = "
+        << oe << "(m1_fin);\n";
+    os_ << "    }\n";
+    os_ << "  }\n";
+  }
+
   void emit_epilogue() {
+    if (plan_.fused_tail) {
+      emit_fused_tail_epilogue();
+      return;
+    }
     const std::string& oe = plan_.out_elem;
     const std::string opv4 = msl_packed_vec4(oe);
     const std::string ov4 = msl_vec4(oe);
@@ -1557,7 +1920,7 @@ class ConvStdWriter {
     const uint32_t v4_per_row = sg_ld / 4;
 
     os_ << "  device " << oe << "* m1_ob = " << plan_.out_name << " + (long)m1_g * (long)m1_Cog * (long)m1_P64;\n";
-    if (!plan_.attr.has_bias && oe == "float") {
+    if (!plan_.attr.has_bias && !plan_.epilogue_dag && oe == "float") {
       os_ << "  if (m1_co0 + m1_BM <= m1_Cog && m1_m0 + (ulong)(m1_BN - 1) < m1_M && (m1_P64 & 1023ul) != 0ul) {\n";
       os_ << "    const ulong m1_en0 = m1_m32 ? (ulong)((uint)m1_m0 / m1_P) : (m1_m0 / m1_P64);\n";
       os_ << "    const ulong m1_ep0 = m1_m0 - m1_en0 * m1_P64;\n";
@@ -1603,20 +1966,47 @@ class ConvStdWriter {
     }
     os_ << "        const ulong m1_nn = m1_m32 ? (ulong)((uint)m1_mm / m1_P) : (m1_mm / m1_P64);\n";
     os_ << "        const ulong m1_pp = m1_mm - m1_nn * m1_P64;\n";
-    os_ << "        if (m1_mm + 3ul < m1_M && m1_pp + 3ul < m1_P64) {\n";
-    os_ << "          *(device " << opv4 << "*)(m1_ob + ((long)m1_nn * m1_Cout + (long)m1_co) * (long)m1_P64 + "
-        << "(long)m1_pp) = " << opv4 << "(" << ov4 << "(m1_ov));\n";
-    os_ << "        } else {\n";
-    os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
-    os_ << "            const ulong m1_me = m1_mm + (ulong)m1_e;\n";
-    os_ << "            if (m1_me < m1_M) {\n";
-    os_ << "              const ulong m1_ne = m1_m32 ? (ulong)((uint)m1_me / m1_P) : (m1_me / m1_P64);\n";
-    os_ << "              const ulong m1_pe = m1_me - m1_ne * m1_P64;\n";
-    os_ << "              m1_ob[((long)m1_ne * m1_Cout + (long)m1_co) * (long)m1_P64 + (long)m1_pe] = " << oe
-        << "(m1_ov[m1_e]);\n";
-    os_ << "            }\n";
-    os_ << "          }\n";
-    os_ << "        }\n";
+    if (plan_.epilogue_dag) {
+      os_ << "        const int m1_cg = m1_g * m1_Cog + m1_co;\n";
+      os_ << "        if (m1_mm + 3ul < m1_M && m1_pp + 3ul < m1_P64) {\n";
+      os_ << "          const long m1_base_idx = ((long)m1_nn * m1_Cout + (long)m1_cg) * (long)m1_P64 + (long)m1_pp;\n";
+      os_ << "          #pragma unroll\n";
+      os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+      os_ << "            float m1_ev = m1_ov[m1_e];\n";
+      emit_epilogue_steps("m1_ev", "m1_cg", "(m1_base_idx + (long)m1_e)", "            ");
+      os_ << "            m1_ov[m1_e] = m1_ev;\n";
+      os_ << "          }\n";
+      os_ << "          *(device " << opv4 << "*)(" << plan_.out_name << " + m1_base_idx) = " << opv4 << "(" << ov4
+          << "(m1_ov));\n";
+      os_ << "        } else {\n";
+      os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+      os_ << "            const ulong m1_me = m1_mm + (ulong)m1_e;\n";
+      os_ << "            if (m1_me < m1_M) {\n";
+      os_ << "              const ulong m1_ne = m1_m32 ? (ulong)((uint)m1_me / m1_P) : (m1_me / m1_P64);\n";
+      os_ << "              const ulong m1_pe = m1_me - m1_ne * m1_P64;\n";
+      os_ << "              const long m1_eidx = ((long)m1_ne * m1_Cout + (long)m1_cg) * (long)m1_P64 + (long)m1_pe;\n";
+      os_ << "              float m1_ev = m1_ov[m1_e];\n";
+      emit_epilogue_steps("m1_ev", "m1_cg", "m1_eidx", "              ");
+      os_ << "              " << plan_.out_name << "[m1_eidx] = " << oe << "(m1_ev);\n";
+      os_ << "            }\n";
+      os_ << "          }\n";
+      os_ << "        }\n";
+    } else {
+      os_ << "        if (m1_mm + 3ul < m1_M && m1_pp + 3ul < m1_P64) {\n";
+      os_ << "          *(device " << opv4 << "*)(m1_ob + ((long)m1_nn * m1_Cout + (long)m1_co) * (long)m1_P64 + "
+          << "(long)m1_pp) = " << opv4 << "(" << ov4 << "(m1_ov));\n";
+      os_ << "        } else {\n";
+      os_ << "          for (int m1_e = 0; m1_e < 4; ++m1_e) {\n";
+      os_ << "            const ulong m1_me = m1_mm + (ulong)m1_e;\n";
+      os_ << "            if (m1_me < m1_M) {\n";
+      os_ << "              const ulong m1_ne = m1_m32 ? (ulong)((uint)m1_me / m1_P) : (m1_me / m1_P64);\n";
+      os_ << "              const ulong m1_pe = m1_me - m1_ne * m1_P64;\n";
+      os_ << "              m1_ob[((long)m1_ne * m1_Cout + (long)m1_co) * (long)m1_P64 + (long)m1_pe] = " << oe
+          << "(m1_ov[m1_e]);\n";
+      os_ << "            }\n";
+      os_ << "          }\n";
+      os_ << "        }\n";
+    }
     os_ << "      }\n";
     os_ << "    }\n";
     os_ << "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";

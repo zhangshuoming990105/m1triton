@@ -554,6 +554,144 @@ void test_fallback_non_matching_cases() {
   }
 }
 
+void test_epilogue_dag_mma2_and_sram() {
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gemm_mma2_epilogue");
+    build_standard_gemm_ir(k, 64, 64, 16);
+    ir::IRBuilder b(k);
+    b.add_param("bias_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    b.add_param("ep_scale", ir::Type::scalar(ir::ScalarDType::F32));
+    k.hints.tile_spec = ir::TileSpecAttr{64, 64, 16, 4, false, 1, 8};
+    const int32_t bias_idx = static_cast<int32_t>(k.params.size()) - 2;
+    const int32_t scale_idx = static_cast<int32_t>(k.params.size()) - 1;
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, bias_idx},
+        {ir::EpilogueOpKind::SaveReg, 0.0f, 0.0f, 0},
+        {ir::EpilogueOpKind::Sigmoid, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::MulScalar, 0.0f, 0.0f, scale_idx},
+        {ir::EpilogueOpKind::AddSaved, 0.0f, 0.0f, 0},
+        {ir::EpilogueOpKind::GELU, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::Tanh, 0.0f, 0.0f, -1},
+    }};
+
+    bool matched = false;
+    auto res = codegen::metal::try_emit_sgmm_kernel(k, ir::TargetSpec::apple_m1_max(), &matched);
+    assert(matched);
+    assert(res.ok);
+    assert(res.launch_spec.param_slots.size() == 14);
+    assert_contains(res.msl_source, "m1_erf");
+    assert_contains(res.msl_source, "m1_tanh");
+    assert_contains(res.msl_source, "bias_ptr[m1_gc]");
+    assert_contains(res.msl_source, "float(ep_scale)");
+    assert_contains(res.msl_source, "m1_esav0");
+    assert_contains(res.msl_source, "simdgroup_store");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gemm_sram_epilogue");
+    build_standard_gemm_ir(k, 64, 64, 32);
+    ir::IRBuilder b(k);
+    b.add_param("bias_ptr", ir::Type::ptr(ir::ScalarDType::F32), false, 0, 16, false);
+    const int32_t bias_idx = static_cast<int32_t>(k.params.size()) - 1;
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, bias_idx},
+        {ir::EpilogueOpKind::Mish, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::ReLU, 0.0f, 0.0f, -1},
+    }};
+
+    bool matched = false;
+    auto res = codegen::metal::try_emit_sgmm_kernel(k, ir::TargetSpec::apple_m1_max(), &matched);
+    assert(matched);
+    assert(res.ok);
+    assert(res.launch_spec.param_slots.size() == 13);
+    assert_contains(res.msl_source, "m1_tanh");
+    assert_contains(res.msl_source, "bias_ptr[m1_gc]");
+    assert_contains(res.msl_source, "m1_epi[");
+    assert_not_contains(res.msl_source, "if (m1_full_m && m1_full_n && (m1_scn == 1l))");
+  }
+}
+
+void test_fused_tail_row_reduce_and_pool1d() {
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gemm_mma2_row_sum");
+    build_standard_gemm_ir(k, 64, 64, 16);
+    k.hints.tile_spec = ir::TileSpecAttr{64, 64, 16, 4, false, 1, 8};
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{{ir::EpilogueOpKind::DivConst, 2.0f, 0.0f, -1}}};
+    k.hints.fused_tail = ir::FusedTailAttr{ir::TailKind::RowSum, 1, 1, 1.5f, true};
+
+    bool matched = false;
+    auto res = codegen::metal::try_emit_sgmm_kernel(k, ir::TargetSpec::apple_m1_max(), &matched);
+    assert(matched);
+    assert(res.ok);
+    assert_contains(res.msl_source, "simd_shuffle_xor");
+    assert_contains(res.msl_source, "m1_tile_n");
+    assert_not_contains(res.msl_source, "simdgroup_store");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gemm_mma2_row_lse");
+    build_standard_gemm_ir(k, 64, 64, 16);
+    k.hints.tile_spec = ir::TileSpecAttr{64, 64, 16, 4, false, 1, 8};
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{{ir::EpilogueOpKind::Clamp, -10.0f, 10.0f, -1}}};
+    k.hints.fused_tail = ir::FusedTailAttr{ir::TailKind::RowLogSumExp, 1, 1, 1.0f, true};
+
+    bool matched = false;
+    auto res = codegen::metal::try_emit_sgmm_kernel(k, ir::TargetSpec::apple_m1_max(), &matched);
+    assert(matched);
+    assert(res.ok);
+    assert_contains(res.msl_source, "m1_lse_merge");
+    assert_contains(res.msl_source, "long(m1_tile_n) * 2l + 1l");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gemm_mma2_pool1d_max2");
+    build_standard_gemm_ir(k, 64, 64, 16);
+    k.hints.tile_spec = ir::TileSpecAttr{64, 64, 16, 4, false, 1, 8};
+    k.hints.fused_tail = ir::FusedTailAttr{ir::TailKind::Pool1DMax, 2, 2, 1.0f, false};
+
+    bool matched = false;
+    auto res = codegen::metal::try_emit_sgmm_kernel(k, ir::TargetSpec::apple_m1_max(), &matched);
+    assert(matched);
+    assert(res.ok);
+    assert_contains(res.msl_source, "max(m1_vx, m1_vy)");
+    assert_contains(res.msl_source, "m1_gc >> 1u");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gemm_mma2_pool1d_avg16");
+    build_standard_gemm_ir(k, 64, 64, 16);
+    k.hints.tile_spec = ir::TileSpecAttr{64, 64, 16, 4, false, 1, 8};
+    k.hints.fused_tail = ir::FusedTailAttr{ir::TailKind::Pool1DAvg, 16, 16, 1.0f, false};
+
+    bool matched = false;
+    auto res = codegen::metal::try_emit_sgmm_kernel(k, ir::TargetSpec::apple_m1_max(), &matched);
+    assert(matched);
+    assert(res.ok);
+    assert_contains(res.msl_source, "simd_shuffle_xor(m1_acc, 8)");
+    assert_contains(res.msl_source, "m1_w0 / 16u");
+  }
+
+  {
+    ir::Module mod;
+    ir::Kernel& k = mod.add_kernel("gemm_sram_row_mean_and_pool64");
+    build_standard_gemm_ir(k, 64, 64, 32);
+    k.hints.fused_tail = ir::FusedTailAttr{ir::TailKind::RowMean, 1, 1, 1.0f, true};
+
+    bool matched = false;
+    auto res = codegen::metal::try_emit_sgmm_kernel(k, ir::TargetSpec::apple_m1_max(), &matched);
+    assert(matched);
+    assert(res.ok);
+    assert_contains(res.msl_source, "m1_rb");
+    assert_contains(res.msl_source, "m1_tile_n");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -565,6 +703,8 @@ int main() {
   test_split_k_hint_and_ir_driven();
   test_small_32x32_and_f16_mixed_and_ptr_stepping();
   test_fallback_non_matching_cases();
+  test_epilogue_dag_mma2_and_sram();
+  test_fused_tail_row_reduce_and_pool1d();
   std::cout << "test_sgmm_emitter OK\n";
   return 0;
 }

@@ -1210,8 +1210,77 @@ struct SgmmPlan {
   MatrixStructure structure = MatrixStructure::Dense;
   int32_t diagonal_offset = 0;
 
+  std::optional<ir::EpilogueDAGAttr> epilogue_dag;
+  std::optional<ir::FusedTailAttr> fused_tail;
+
   SgmmSchedule sched;
 };
+
+bool is_supported_sgmm_tail(ir::TailKind kind) {
+  switch (kind) {
+    case ir::TailKind::RowSum:
+    case ir::TailKind::RowMean:
+    case ir::TailKind::RowMax:
+    case ir::TailKind::RowMin:
+    case ir::TailKind::RowLogSumExp:
+    case ir::TailKind::Pool1DMax:
+    case ir::TailKind::Pool1DAvg:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool is_pool1d_tail(ir::TailKind kind) {
+  return kind == ir::TailKind::Pool1DMax || kind == ir::TailKind::Pool1DAvg;
+}
+
+bool tail_uses_lse_helper(const SgmmPlan& plan) {
+  return plan.fused_tail.has_value() && plan.fused_tail->kind == ir::TailKind::RowLogSumExp;
+}
+
+bool tail_uses_nanminmax_helper(const SgmmPlan& plan) {
+  if (!plan.fused_tail.has_value()) return false;
+  switch (plan.fused_tail->kind) {
+    case ir::TailKind::RowMax:
+    case ir::TailKind::RowMin:
+    case ir::TailKind::RowLogSumExp:
+    case ir::TailKind::Pool1DMax:
+      return true;
+    default:
+      return false;
+  }
+}
+
+void emit_nanminmax_helpers(std::ostringstream& os) {
+  os << "static inline float m1_nanmax(float a, float b) {\n"
+     << "  return isnan(a) ? a : (isnan(b) ? b : ((a > b) ? a : b));\n"
+     << "}\n"
+     << "static inline float m1_nanmin(float a, float b) {\n"
+     << "  return isnan(a) ? a : (isnan(b) ? b : ((a < b) ? a : b));\n"
+     << "}\n\n";
+}
+
+void emit_lse_merge_helper(std::ostringstream& os) {
+  os << "static inline float2 m1_lse_merge(float2 a, float2 b) {\n"
+     << "  if (b.y == 0.0f) return a;\n"
+     << "  if (a.y == 0.0f) return b;\n"
+     << "  float m = m1_nanmax(a.x, b.x);\n"
+     << "  return float2(m, a.y * exp(a.x - m) + b.y * exp(b.x - m));\n"
+     << "}\n\n";
+}
+
+std::function<std::string(uint32_t)> make_param_name_fn(const Kernel& kernel, const SgmmPlan& plan) {
+  return [&kernel, &plan](uint32_t pidx) -> std::string {
+    auto it = plan.params.param_msl_name.find(pidx);
+    if (it != plan.params.param_msl_name.end()) return it->second;
+    if (pidx < kernel.params.size() && kernel.params[pidx].is_constexpr) {
+      return format_scalar_literal_from_i64(kernel.params[pidx].constexpr_val,
+                                            scalar_dtype_of(kernel.params[pidx].type));
+    }
+    return "m1_arg" + std::to_string(pidx);
+  };
+}
 
 std::optional<StructureAttr> resolve_structure(const Kernel& kernel, const Op& dot_op, const DotAttr& dot_attr,
                                                const MaskBounds& mask_b) {
@@ -1301,8 +1370,13 @@ bool select_schedule(const Kernel& kernel, const Op& dot_op, const TargetSpec& t
 
   bool f32_all = (plan.a_elem_dt == ScalarDType::F32 && plan.b_elem_dt == ScalarDType::F32 &&
                   plan.c_elem_dt == ScalarDType::F32 && plan.acc_dt == ScalarDType::F32);
+  bool tail_mma2_ok = true;
+  if (plan.fused_tail.has_value() && is_pool1d_tail(plan.fused_tail->kind)) {
+    uint32_t kp = static_cast<uint32_t>(plan.fused_tail->kernel_size);
+    tail_mma2_ok = (kp == 1u || kp == 2u || kp == 4u || (kp >= 8u && ((s.tn * 8u) % kp == 0u)));
+  }
   bool eligible_mma2 =
-      f32_all && !plan.is_atomic && plan.structure == MatrixStructure::Dense && (s.bk == 16u) &&
+      f32_all && !plan.is_atomic && plan.structure == MatrixStructure::Dense && tail_mma2_ok && (s.bk == 16u) &&
       ((s.bm == 64u && s.bn == 64u && s.num_sgs == 4u && s.tm == 4u && s.tn == 4u) ||
        (s.bm == 64u && s.bn == 128u && s.num_sgs == 8u && s.tm == 4u && s.tn == 4u) ||
        (s.bm == 128u && s.bn == 64u && s.num_sgs == 8u && s.tm == 4u && s.tn == 4u) ||
@@ -1311,6 +1385,7 @@ bool select_schedule(const Kernel& kernel, const Op& dot_op, const TargetSpec& t
   uint32_t mma_bytes = ir::dtype_bytes(plan.mma_dt);
   uint32_t acc_bytes = ir::dtype_bytes(plan.acc_dt);
   uint32_t sg_tile_bytes = (s.tm * 8u) * (s.tn * 8u + 4u) * acc_bytes;
+  uint32_t tail_band_bytes = plan.fused_tail.has_value() ? ((s.tm * 8u) * s.bn * static_cast<uint32_t>(sizeof(float))) : 0u;
 
   auto calc_smem_bytes = [&](uint32_t nbuf, uint32_t pad, bool tm1) -> uint32_t {
     uint32_t a_rm = s.bm * (s.bk + pad);
@@ -1318,7 +1393,7 @@ bool select_schedule(const Kernel& kernel, const Op& dot_op, const TargetSpec& t
     uint32_t b_rm = s.bk * (s.bn + pad);
     uint32_t b_cm = (tm1 && b_can_cm) ? s.bn * (s.bk + pad) : b_rm;
     uint32_t ab = nbuf * (std::max(a_rm, a_cm) + std::max(b_rm, b_cm)) * mma_bytes;
-    return std::max(ab, sg_tile_bytes);
+    return std::max({ab, sg_tile_bytes, tail_band_bytes});
   };
 
   bool want_db = ts.has_value() ? ts->double_buffer
@@ -1725,16 +1800,49 @@ bool match_sgmm_plan(const Kernel& kernel, const TargetSpec& target, SgmmPlan& p
     }
   }
 
+  std::optional<ir::EpilogueDAGAttr> dag = kernel.hints.epilogue_dag;
+  if (!dag.has_value() && dot_op.hints.epilogue_dag.has_value()) dag = dot_op.hints.epilogue_dag;
+  if (!dag.has_value() && for_op.hints.epilogue_dag.has_value()) dag = for_op.hints.epilogue_dag;
+  if (dag.has_value() && !dag->steps.empty()) {
+    std::set<uint32_t> read_params;
+    collect_epilogue_dag_param_indices(*dag, read_params);
+    for (uint32_t pidx : read_params) {
+      if (pidx >= kernel.params.size()) return false;
+      if (!kernel.params[pidx].is_constexpr &&
+          plan.params.param_msl_name.find(pidx) == plan.params.param_msl_name.end()) {
+        return false;
+      }
+    }
+    plan.epilogue_dag = std::move(dag);
+  }
+
+  std::optional<ir::FusedTailAttr> tail = kernel.hints.fused_tail;
+  if (!tail.has_value() && dot_op.hints.fused_tail.has_value()) tail = dot_op.hints.fused_tail;
+  if (!tail.has_value() && for_op.hints.fused_tail.has_value()) tail = for_op.hints.fused_tail;
+  if (tail.has_value() && tail->kind != ir::TailKind::None) {
+    if (!is_supported_sgmm_tail(tail->kind)) return false;
+    if (plan.structure != MatrixStructure::Dense) return false;
+    if (is_pool1d_tail(tail->kind)) {
+      if (tail->kernel_size < 1 || tail->stride != tail->kernel_size) return false;
+      if ((plan.bn % static_cast<uint32_t>(tail->kernel_size)) != 0u) return false;
+    }
+    plan.fused_tail = std::move(tail);
+  }
+
   bool ir_uses_pid2_in_k = lo_s.uses_pid2 || hi_s.uses_pid2;
   bool ptr_uses_pid2 =
       a_aff.ptr_scalar_uses_pid2 || b_aff.ptr_scalar_uses_pid2 || c_aff.ptr_scalar_uses_pid2;
 
   std::optional<TileSpecAttr> ts = kernel.hints.tile_spec;
   if (!ts.has_value() && dot_op.hints.tile_spec.has_value()) ts = dot_op.hints.tile_spec;
-  if (!ir_uses_pid2_in_k && !ptr_uses_pid2 && ts.has_value() && ts->split_k > 1u) {
+  if (!ir_uses_pid2_in_k && !ptr_uses_pid2 && !plan.epilogue_dag.has_value() && !plan.fused_tail.has_value() &&
+      ts.has_value() && ts->split_k > 1u) {
     plan.split_k = ts->split_k;
   }
   plan.is_atomic = (epi_op.kind == OpKind::AtomicAdd) || (plan.split_k > 1u);
+  if (plan.is_atomic && (plan.epilogue_dag.has_value() || plan.fused_tail.has_value())) {
+    return false;
+  }
 
   if (!select_schedule(kernel, dot_op, target, plan)) return false;
   return true;
@@ -2326,15 +2434,536 @@ void emit_mma2_fast_loop_body(std::ostringstream& os, const SgmmPlan& plan, cons
   }
 }
 
+std::string make_elem_idx_expr(const SgmmPlan& plan, const std::string& gr, const std::string& gc, bool is_tail) {
+  std::string base = (plan.c_batch_off == "0") ? "" : ("long(" + plan.c_batch_off + ") + ");
+  if (is_tail) {
+    std::string n_full = plan.n_bound.has_value()
+                             ? "long(m1_N)"
+                             : ("long(m1_grid_dim." + axis_component(plan.pid_n_axis) + " * " +
+                                std::to_string(plan.sched.bn) + "u)");
+    return base + "long(" + gr + ") * " + n_full + " + long(" + gc + ")";
+  }
+  std::string row_part = (plan.stride_cm_const == 1)
+                             ? ("long(" + gr + ")")
+                             : ("long(" + gr + ") * long(" + plan.stride_cm_expr + ")");
+  std::string col_part = (plan.stride_cn_const == 1)
+                             ? ("long(" + gc + ")")
+                             : ("long(" + gc + ") * long(" + plan.stride_cn_expr + ")");
+  return base + row_part + " + " + col_part;
+}
+
+void emit_mma2_epilogue_regs(std::ostringstream& os, const Kernel& kernel, const SgmmPlan& plan, HelperFlags& helpers,
+                             bool check_bounds, const std::string& ind) {
+  if (!plan.epilogue_dag.has_value()) return;
+  const auto& s = plan.sched;
+  const auto& dag = *plan.epilogue_dag;
+  auto param_fn = make_param_name_fn(kernel, plan);
+  const bool has_m = check_bounds && plan.m_bound.has_value();
+  const bool has_n = check_bounds && plan.n_bound.has_value();
+
+  for (uint32_t i = 0u; i < s.tm; ++i) {
+    os << ind << "{\n"
+       << ind << "  uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n";
+    if (has_m) os << ind << "  if (m1_gr < m1_M) {\n";
+    for (uint32_t j = 0u; j < s.tn; ++j) {
+      os << ind << "    {\n"
+         << ind << "      uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;\n";
+      if (has_n) {
+        os << ind << "      if (m1_gc < m1_N) {\n";
+      } else {
+        os << ind << "      {\n";
+      }
+      os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".x;\n";
+      emit_epilogue_dag_msl(os, kernel, dag, "m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", false),
+                            param_fn, helpers, ind + "        ");
+      os << ind << "        m1_c_" << i << "_" << j << ".x = m1_ev;\n"
+         << ind << "      }\n";
+      if (has_n) {
+        os << ind << "      if (m1_gc + 1u < m1_N) {\n";
+      } else {
+        os << ind << "      {\n";
+      }
+      os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".y;\n";
+      emit_epilogue_dag_msl(os, kernel, dag, "m1_ev", "(m1_gc + 1u)",
+                            make_elem_idx_expr(plan, "m1_gr", "m1_gc + 1u", false), param_fn, helpers,
+                            ind + "        ");
+      os << ind << "        m1_c_" << i << "_" << j << ".y = m1_ev;\n"
+         << ind << "      }\n"
+         << ind << "    }\n";
+    }
+    if (has_m) os << ind << "  }\n";
+    os << ind << "}\n";
+  }
+}
+
+void emit_mma2_fused_tail(std::ostringstream& os, const Kernel& kernel, const SgmmPlan& plan,
+                          const std::string& c_ptr_expr, HelperFlags& helpers, bool check_bounds,
+                          const std::string& ind) {
+  const auto& s = plan.sched;
+  const auto& tail = *plan.fused_tail;
+  auto param_fn = make_param_name_fn(kernel, plan);
+  const bool has_m = check_bounds && plan.m_bound.has_value();
+  const bool has_n = check_bounds && plan.n_bound.has_value();
+  const std::string scm_l = (plan.stride_cm_const == 1) ? "1l" : ("long(" + plan.stride_cm_expr + ")");
+  const std::string scn_l = (plan.stride_cn_const == 1) ? "1l" : ("long(" + plan.stride_cn_expr + ")");
+
+  auto emit_epi_on = [&](const std::string& var, const std::string& col_e, const std::string& elem_e,
+                         const std::string& sub_ind) {
+    if (plan.epilogue_dag.has_value()) {
+      emit_epilogue_dag_msl(os, kernel, *plan.epilogue_dag, var, col_e, elem_e, param_fn, helpers, sub_ind);
+    }
+  };
+
+  if (is_pool1d_tail(tail.kind)) {
+    const uint32_t kp = static_cast<uint32_t>(tail.kernel_size);
+    const bool is_max = (tail.kind == ir::TailKind::Pool1DMax);
+    const double scale =
+        is_max ? static_cast<double>(tail.post_scale) : (static_cast<double>(tail.post_scale) / static_cast<double>(kp));
+    const bool apply_scale = (scale != 1.0);
+    const std::string scale_lit = msl_exact_float_literal(scale);
+
+    if (kp == 1u) {
+      for (uint32_t i = 0u; i < s.tm; ++i) {
+        os << ind << "{\n"
+           << ind << "  uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n";
+        if (has_m) os << ind << "  if (m1_gr < m1_M) {\n";
+        for (uint32_t j = 0u; j < s.tn; ++j) {
+          os << ind << "    { uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;\n";
+          if (has_n) os << ind << "      if (m1_gc < m1_N) {\n";
+          else os << ind << "      {\n";
+          os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".x;\n";
+          emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "        ");
+          if (apply_scale) os << ind << "        m1_ev = m1_ev * " << scale_lit << ";\n";
+          os << ind << "        (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_gc) * " << scn_l
+             << "] = m1_ev;\n"
+             << ind << "      }\n";
+          if (has_n) os << ind << "      if (m1_gc + 1u < m1_N) {\n";
+          else os << ind << "      {\n";
+          os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".y;\n";
+          emit_epi_on("m1_ev", "(m1_gc + 1u)", make_elem_idx_expr(plan, "m1_gr", "m1_gc + 1u", true),
+                      ind + "        ");
+          if (apply_scale) os << ind << "        m1_ev = m1_ev * " << scale_lit << ";\n";
+          os << ind << "        (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_gc + 1u) * " << scn_l
+             << "] = m1_ev;\n"
+             << ind << "      }\n"
+             << ind << "    }\n";
+        }
+        if (has_m) os << ind << "  }\n";
+        os << ind << "}\n";
+      }
+      return;
+    }
+
+    if (kp == 2u) {
+      for (uint32_t i = 0u; i < s.tm; ++i) {
+        os << ind << "{\n"
+           << ind << "  uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n";
+        if (has_m) os << ind << "  if (m1_gr < m1_M) {\n";
+        for (uint32_t j = 0u; j < s.tn; ++j) {
+          os << ind << "    { uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;\n";
+          if (has_n) os << ind << "      if (m1_gc + 1u < m1_N) {\n";
+          else os << ind << "      {\n";
+          os << ind << "        float m1_vx = m1_c_" << i << "_" << j << ".x;\n";
+          if (plan.epilogue_dag.has_value()) {
+            os << ind << "        {\n";
+            emit_epi_on("m1_vx", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "          ");
+            os << ind << "        }\n";
+          }
+          os << ind << "        float m1_vy = m1_c_" << i << "_" << j << ".y;\n";
+          if (plan.epilogue_dag.has_value()) {
+            os << ind << "        {\n";
+            emit_epi_on("m1_vy", "(m1_gc + 1u)", make_elem_idx_expr(plan, "m1_gr", "m1_gc + 1u", true),
+                        ind + "          ");
+            os << ind << "        }\n";
+          }
+          os << ind << "        float m1_pv = " << (is_max ? "m1_nanmax(m1_vx, m1_vy)" : "(m1_vx + m1_vy)") << ";\n";
+          if (apply_scale) os << ind << "        m1_pv = m1_pv * " << scale_lit << ";\n";
+          os << ind << "        (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_gc >> 1u) * " << scn_l
+             << "] = m1_pv;\n"
+             << ind << "      }\n"
+             << ind << "    }\n";
+        }
+        if (has_m) os << ind << "  }\n";
+        os << ind << "}\n";
+      }
+      return;
+    }
+
+    if (kp == 4u) {
+      for (uint32_t i = 0u; i < s.tm; ++i) {
+        os << ind << "{\n"
+           << ind << "  uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n";
+        for (uint32_t j = 0u; j < s.tn; ++j) {
+          os << ind << "  {\n"
+             << ind << "    uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;\n"
+             << ind << "    uint m1_w0 = m1_gc & ~3u;\n"
+             << ind << "    float m1_p2 = " << (is_max ? "-INFINITY" : "0.0f") << ";\n";
+          std::string cond = (has_m ? "(m1_gr < m1_M)" : std::string("true"));
+          if (has_n) cond += " && (m1_w0 + 4u <= m1_N)";
+          os << ind << "    if (" << cond << ") {\n"
+             << ind << "      float m1_vx = m1_c_" << i << "_" << j << ".x;\n";
+          if (plan.epilogue_dag.has_value()) {
+            os << ind << "      {\n";
+            emit_epi_on("m1_vx", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "        ");
+            os << ind << "      }\n";
+          }
+          os << ind << "      float m1_vy = m1_c_" << i << "_" << j << ".y;\n";
+          if (plan.epilogue_dag.has_value()) {
+            os << ind << "      {\n";
+            emit_epi_on("m1_vy", "(m1_gc + 1u)", make_elem_idx_expr(plan, "m1_gr", "m1_gc + 1u", true),
+                        ind + "        ");
+            os << ind << "      }\n";
+          }
+          os << ind << "      m1_p2 = " << (is_max ? "m1_nanmax(m1_vx, m1_vy)" : "(m1_vx + m1_vy)") << ";\n"
+             << ind << "    }\n"
+             << ind << "    float m1_o1 = simd_shuffle_xor(m1_p2, 1);\n"
+             << ind << "    float m1_p4 = " << (is_max ? "m1_nanmax(m1_p2, m1_o1)" : "(m1_p2 + m1_o1)") << ";\n"
+             << ind << "    if (((m1_lane & 1u) == 0u) && " << cond << ") {\n";
+          if (apply_scale) os << ind << "      m1_p4 = m1_p4 * " << scale_lit << ";\n";
+          os << ind << "      (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_w0 >> 2u) * " << scn_l
+             << "] = m1_p4;\n"
+             << ind << "    }\n"
+             << ind << "  }\n";
+        }
+        os << ind << "}\n";
+      }
+      return;
+    }
+
+    const uint32_t frags_per_win = kp / 8u;
+    const uint32_t wins_per_sg = (s.tn * 8u) / kp;
+    for (uint32_t i = 0u; i < s.tm; ++i) {
+      os << ind << "{\n"
+         << ind << "  uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n";
+      for (uint32_t w = 0u; w < wins_per_sg; ++w) {
+        os << ind << "  {\n"
+           << ind << "    uint m1_w0 = m1_col0 + m1_sg_col + " << (w * kp) << "u;\n"
+           << ind << "    float m1_acc = " << (is_max ? "-INFINITY" : "0.0f") << ";\n";
+        std::string cond = (has_m ? "(m1_gr < m1_M)" : std::string("true"));
+        if (has_n) cond += " && (m1_w0 + " + std::to_string(kp) + "u <= m1_N)";
+        os << ind << "    if (" << cond << ") {\n";
+        for (uint32_t jf = 0u; jf < frags_per_win; ++jf) {
+          const uint32_t j = w * frags_per_win + jf;
+          os << ind << "      { uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;\n"
+             << ind << "        float m1_vx = m1_c_" << i << "_" << j << ".x;\n";
+          if (plan.epilogue_dag.has_value()) {
+            os << ind << "        {\n";
+            emit_epi_on("m1_vx", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "          ");
+            os << ind << "        }\n";
+          }
+          os << ind << "        float m1_vy = m1_c_" << i << "_" << j << ".y;\n";
+          if (plan.epilogue_dag.has_value()) {
+            os << ind << "        {\n";
+            emit_epi_on("m1_vy", "(m1_gc + 1u)", make_elem_idx_expr(plan, "m1_gr", "m1_gc + 1u", true),
+                        ind + "          ");
+            os << ind << "        }\n";
+          }
+          if (is_max) {
+            os << ind << "        m1_acc = m1_nanmax(m1_acc, m1_nanmax(m1_vx, m1_vy));\n";
+          } else {
+            os << ind << "        m1_acc += (m1_vx + m1_vy);\n";
+          }
+          os << ind << "      }\n";
+        }
+        os << ind << "    }\n"
+           << ind << "    float m1_o1 = simd_shuffle_xor(m1_acc, 1);\n"
+           << ind << "    m1_acc = " << (is_max ? "m1_nanmax(m1_acc, m1_o1)" : "(m1_acc + m1_o1)") << ";\n"
+           << ind << "    float m1_o8 = simd_shuffle_xor(m1_acc, 8);\n"
+           << ind << "    m1_acc = " << (is_max ? "m1_nanmax(m1_acc, m1_o8)" : "(m1_acc + m1_o8)") << ";\n"
+           << ind << "    if (((m1_lane & 9u) == 0u) && " << cond << ") {\n";
+        if (apply_scale) os << ind << "      m1_acc = m1_acc * " << scale_lit << ";\n";
+        os << ind << "      (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_w0 / " << kp << "u) * "
+           << scn_l << "] = m1_acc;\n"
+           << ind << "    }\n"
+           << ind << "  }\n";
+      }
+      os << ind << "}\n";
+    }
+    return;
+  }
+
+  os << ind << "uint m1_tile_n = m1_col0 / " << s.bn << "u;\n";
+  if (s.sg_n > 1u) {
+    os << ind << "threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+  }
+
+  if (tail.kind == ir::TailKind::RowLogSumExp) {
+    for (uint32_t i = 0u; i < s.tm; ++i) {
+      os << ind << "{\n"
+         << ind << "  uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n"
+         << ind << "  float2 m1_lse = float2(-INFINITY, 0.0f);\n";
+      if (has_m) os << ind << "  if (m1_gr < m1_M) {\n";
+      for (uint32_t j = 0u; j < s.tn; ++j) {
+        os << ind << "    { uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;\n";
+        if (has_n) os << ind << "      if (m1_gc < m1_N) {\n";
+        else os << ind << "      {\n";
+        os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".x;\n";
+        emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "        ");
+        os << ind << "        m1_lse = m1_lse_merge(m1_lse, float2(m1_ev, 1.0f));\n"
+           << ind << "      }\n";
+        if (has_n) os << ind << "      if (m1_gc + 1u < m1_N) {\n";
+        else os << ind << "      {\n";
+        os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".y;\n";
+        emit_epi_on("m1_ev", "(m1_gc + 1u)", make_elem_idx_expr(plan, "m1_gr", "m1_gc + 1u", true), ind + "        ");
+        os << ind << "        m1_lse = m1_lse_merge(m1_lse, float2(m1_ev, 1.0f));\n"
+           << ind << "      }\n"
+           << ind << "    }\n";
+      }
+      if (has_m) os << ind << "  }\n";
+      os << ind << "  m1_lse = m1_lse_merge(m1_lse, float2(simd_shuffle_xor(m1_lse.x, 1), simd_shuffle_xor(m1_lse.y, 1)));\n"
+         << ind << "  m1_lse = m1_lse_merge(m1_lse, float2(simd_shuffle_xor(m1_lse.x, 8), simd_shuffle_xor(m1_lse.y, 8)));\n";
+      if (s.sg_n == 1u) {
+        os << ind << "  if ((m1_lane & 9u) == 0u" << (has_m ? " && m1_gr < m1_M" : "") << ") {\n"
+           << ind << "    (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_tile_n) * 2l + 0l] = m1_lse.x;\n"
+           << ind << "    (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_tile_n) * 2l + 1l] = m1_lse.y;\n"
+           << ind << "  }\n";
+      } else {
+        os << ind << "  if ((m1_lane & 9u) == 0u) {\n"
+           << ind << "    uint m1_lr = m1_sg_row + " << (i * 8u) << "u + m1_fr;\n"
+           << ind << "    uint m1_off = m1_lr * " << (s.sg_n * 2u) << "u + (m1_simd_id % " << s.sg_n << "u) * 2u;\n"
+           << ind << "    m1_sa[m1_off + 0u] = m1_lse.x;\n"
+           << ind << "    m1_sa[m1_off + 1u] = m1_lse.y;\n"
+           << ind << "  }\n";
+      }
+      os << ind << "}\n";
+    }
+    if (s.sg_n > 1u) {
+      os << ind << "threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+         << ind << "for (uint m1_r = m1_tid_linear; m1_r < " << s.bm << "u; m1_r += " << s.num_threads << "u) {\n"
+         << ind << "  uint m1_gr = m1_row0 + m1_r;\n";
+      if (has_m) os << ind << "  if (m1_gr < m1_M) {\n";
+      os << ind << "    float2 m1_res = float2(m1_sa[m1_r * " << (s.sg_n * 2u) << "u], m1_sa[m1_r * " << (s.sg_n * 2u)
+         << "u + 1u]);\n"
+         << ind << "    for (uint m1_s = 1u; m1_s < " << s.sg_n << "u; ++m1_s) {\n"
+         << ind << "      m1_res = m1_lse_merge(m1_res, float2(m1_sa[m1_r * " << (s.sg_n * 2u)
+         << "u + m1_s * 2u], m1_sa[m1_r * " << (s.sg_n * 2u) << "u + m1_s * 2u + 1u]));\n"
+         << ind << "    }\n"
+         << ind << "    (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_tile_n) * 2l + 0l] = m1_res.x;\n"
+         << ind << "    (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_tile_n) * 2l + 1l] = m1_res.y;\n";
+      if (has_m) os << ind << "  }\n";
+      os << ind << "}\n";
+    }
+    return;
+  }
+
+  const bool is_max = (tail.kind == ir::TailKind::RowMax);
+  const bool is_min = (tail.kind == ir::TailKind::RowMin);
+  const bool is_mean = (tail.kind == ir::TailKind::RowMean);
+  const std::string init_v = is_max ? "-INFINITY" : (is_min ? "INFINITY" : "0.0f");
+  auto combine_expr = [&](const std::string& a, const std::string& b) -> std::string {
+    if (is_max) return "m1_nanmax(" + a + ", " + b + ")";
+    if (is_min) return "m1_nanmin(" + a + ", " + b + ")";
+    return "(" + a + " + " + b + ")";
+  };
+  const std::string n_total_f =
+      plan.n_bound.has_value()
+          ? "float(m1_N)"
+          : ("float(m1_grid_dim." + axis_component(plan.pid_n_axis) + " * " + std::to_string(s.bn) + "u)");
+  const std::string pscale_lit = msl_exact_float_literal(tail.post_scale);
+  auto emit_post_scale = [&](const std::string& var, const std::string& sub_ind) {
+    if (is_mean) {
+      os << sub_ind << var << " = " << var << " * (" << pscale_lit << " / " << n_total_f << ");\n";
+    } else if (!is_max && !is_min && tail.post_scale != 1.0f) {
+      os << sub_ind << var << " = " << var << " * " << pscale_lit << ";\n";
+    } else if ((is_max || is_min) && tail.post_scale != 1.0f) {
+      os << sub_ind << "if (m1_grid_dim." << axis_component(plan.pid_n_axis) << " == 1u) " << var << " = " << var
+         << " * " << pscale_lit << ";\n";
+    }
+  };
+
+  for (uint32_t i = 0u; i < s.tm; ++i) {
+    os << ind << "{\n"
+       << ind << "  uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n"
+       << ind << "  float m1_racc = " << init_v << ";\n";
+    if (has_m) os << ind << "  if (m1_gr < m1_M) {\n";
+    for (uint32_t j = 0u; j < s.tn; ++j) {
+      os << ind << "    { uint m1_gc = m1_col0 + m1_sg_col + " << (j * 8u) << "u + m1_fc;\n";
+      if (has_n) os << ind << "      if (m1_gc < m1_N) {\n";
+      else os << ind << "      {\n";
+      os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".x;\n";
+      emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "        ");
+      os << ind << "        m1_racc = " << combine_expr("m1_racc", "m1_ev") << ";\n"
+         << ind << "      }\n";
+      if (has_n) os << ind << "      if (m1_gc + 1u < m1_N) {\n";
+      else os << ind << "      {\n";
+      os << ind << "        float m1_ev = m1_c_" << i << "_" << j << ".y;\n";
+      emit_epi_on("m1_ev", "(m1_gc + 1u)", make_elem_idx_expr(plan, "m1_gr", "m1_gc + 1u", true), ind + "        ");
+      os << ind << "        m1_racc = " << combine_expr("m1_racc", "m1_ev") << ";\n"
+         << ind << "      }\n"
+         << ind << "    }\n";
+    }
+    if (has_m) os << ind << "  }\n";
+    os << ind << "  m1_racc = " << combine_expr("m1_racc", "simd_shuffle_xor(m1_racc, 1)") << ";\n"
+       << ind << "  m1_racc = " << combine_expr("m1_racc", "simd_shuffle_xor(m1_racc, 8)") << ";\n";
+    if (s.sg_n == 1u) {
+      os << ind << "  if ((m1_lane & 9u) == 0u" << (has_m ? " && m1_gr < m1_M" : "") << ") {\n";
+      emit_post_scale("m1_racc", ind + "    ");
+      os << ind << "    (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_tile_n) * " << scn_l
+         << "] = m1_racc;\n"
+         << ind << "  }\n";
+    } else {
+      os << ind << "  if ((m1_lane & 9u) == 0u) {\n"
+         << ind << "    uint m1_lr = m1_sg_row + " << (i * 8u) << "u + m1_fr;\n"
+         << ind << "    m1_sa[m1_lr * " << s.sg_n << "u + (m1_simd_id % " << s.sg_n << "u)] = m1_racc;\n"
+         << ind << "  }\n";
+    }
+    os << ind << "}\n";
+  }
+  if (s.sg_n > 1u) {
+    os << ind << "threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+       << ind << "for (uint m1_r = m1_tid_linear; m1_r < " << s.bm << "u; m1_r += " << s.num_threads << "u) {\n"
+       << ind << "  uint m1_gr = m1_row0 + m1_r;\n";
+    if (has_m) os << ind << "  if (m1_gr < m1_M) {\n";
+    os << ind << "    float m1_res = m1_sa[m1_r * " << s.sg_n << "u];\n"
+       << ind << "    for (uint m1_s = 1u; m1_s < " << s.sg_n << "u; ++m1_s) {\n"
+       << ind << "      m1_res = " << combine_expr("m1_res", "m1_sa[m1_r * " + std::to_string(s.sg_n) + "u + m1_s]")
+       << ";\n"
+       << ind << "    }\n";
+    emit_post_scale("m1_res", ind + "    ");
+    os << ind << "    (" << c_ptr_expr << ")[long(m1_gr) * " << scm_l << " + long(m1_tile_n) * " << scn_l
+       << "] = m1_res;\n";
+    if (has_m) os << ind << "  }\n";
+    os << ind << "}\n";
+  }
+}
+
+void emit_sram_fused_tail(std::ostringstream& os, const Kernel& kernel, const SgmmPlan& plan, HelperFlags& helpers,
+                          const std::string& ind) {
+  const auto& s = plan.sched;
+  const auto& tail = *plan.fused_tail;
+  auto param_fn = make_param_name_fn(kernel, plan);
+  const std::string acc_t = msl_scalar_type(plan.acc_dt);
+  const std::string c_t = msl_scalar_type(plan.c_elem_dt);
+  const uint32_t band_rows = s.tm * 8u;
+  const std::string m_cond = plan.m_bound.has_value() ? "(m1_gr < m1_M)" : "true";
+  const std::string n_cond = plan.n_bound.has_value() ? "(m1_gc < m1_N)" : "true";
+
+  auto emit_epi_on = [&](const std::string& var, const std::string& col_e, const std::string& elem_e,
+                         const std::string& sub_ind) {
+    if (plan.epilogue_dag.has_value()) {
+      emit_epilogue_dag_msl(os, kernel, *plan.epilogue_dag, var, col_e, elem_e, param_fn, helpers, sub_ind);
+    }
+  };
+
+  os << ind << "threadgroup " << acc_t << "* m1_epi = reinterpret_cast<threadgroup " << acc_t << "*>(m1_smem);\n"
+     << ind << "uint m1_tile_n = m1_col0 / " << s.bn << "u;\n"
+     << ind << "for (uint m1_rb = 0u; m1_rb < " << s.sg_m << "u; ++m1_rb) {\n"
+     << ind << "  if ((m1_simd_id / " << s.sg_n << "u) == m1_rb) {\n";
+  for (uint32_t i = 0u; i < s.tm; ++i) {
+    for (uint32_t j = 0u; j < s.tn; ++j) {
+      os << ind << "    simdgroup_store(m1_acc[" << i << "][" << j << "], m1_epi + " << (i * 8u) << "u * " << s.bn
+         << "u + (m1_sg_col + " << (j * 8u) << "u), " << s.bn << "u);\n";
+    }
+  }
+  os << ind << "  }\n"
+     << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+
+  if (is_pool1d_tail(tail.kind)) {
+    const uint32_t kp = static_cast<uint32_t>(tail.kernel_size);
+    const uint32_t wins = s.bn / kp;
+    const bool is_max = (tail.kind == ir::TailKind::Pool1DMax);
+    const double scale =
+        is_max ? static_cast<double>(tail.post_scale) : (static_cast<double>(tail.post_scale) / static_cast<double>(kp));
+    const std::string scale_lit = msl_exact_float_literal(scale);
+    os << ind << "  for (uint m1_idx = m1_tid_linear; m1_idx < " << (band_rows * wins) << "u; m1_idx += "
+       << s.num_threads << "u) {\n"
+       << ind << "    uint m1_lr = m1_idx / " << wins << "u;\n"
+       << ind << "    uint m1_w = m1_idx % " << wins << "u;\n"
+       << ind << "    uint m1_gr = m1_row0 + m1_rb * " << band_rows << "u + m1_lr;\n"
+       << ind << "    uint m1_w0 = m1_col0 + m1_w * " << kp << "u;\n"
+       << ind << "    if (" << m_cond << (plan.n_bound.has_value() ? (" && (m1_w0 + " + std::to_string(kp) + "u <= m1_N)") : "")
+       << ") {\n"
+       << ind << "      float m1_acc_p = " << (is_max ? "-INFINITY" : "0.0f") << ";\n"
+       << ind << "      for (uint m1_pk = 0u; m1_pk < " << kp << "u; ++m1_pk) {\n"
+       << ind << "        uint m1_gc = m1_w0 + m1_pk;\n"
+       << ind << "        float m1_ev = float(m1_epi[m1_lr * " << s.bn << "u + m1_w * " << kp << "u + m1_pk]);\n";
+    emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "        ");
+    os << ind << "        m1_acc_p = " << (is_max ? "m1_nanmax(m1_acc_p, m1_ev)" : "(m1_acc_p + m1_ev)") << ";\n"
+       << ind << "      }\n";
+    if (scale != 1.0) os << ind << "      m1_acc_p = m1_acc_p * " << scale_lit << ";\n";
+    os << ind << "      m1_C[long(m1_gr) * m1_scm + long(m1_w0 / " << kp << "u) * m1_scn] = " << c_t
+       << "(m1_acc_p);\n"
+       << ind << "    }\n"
+       << ind << "  }\n";
+  } else if (tail.kind == ir::TailKind::RowLogSumExp) {
+    os << ind << "  for (uint m1_lr = m1_tid_linear; m1_lr < " << band_rows << "u; m1_lr += " << s.num_threads
+       << "u) {\n"
+       << ind << "    uint m1_gr = m1_row0 + m1_rb * " << band_rows << "u + m1_lr;\n"
+       << ind << "    if (" << m_cond << ") {\n"
+       << ind << "      float2 m1_lse = float2(-INFINITY, 0.0f);\n"
+       << ind << "      for (uint m1_lc = 0u; m1_lc < " << s.bn << "u; ++m1_lc) {\n"
+       << ind << "        uint m1_gc = m1_col0 + m1_lc;\n"
+       << ind << "        if (" << n_cond << ") {\n"
+       << ind << "          float m1_ev = float(m1_epi[m1_lr * " << s.bn << "u + m1_lc]);\n";
+    emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "          ");
+    os << ind << "          m1_lse = m1_lse_merge(m1_lse, float2(m1_ev, 1.0f));\n"
+       << ind << "        }\n"
+       << ind << "      }\n"
+       << ind << "      m1_C[long(m1_gr) * m1_scm + long(m1_tile_n) * 2l + 0l] = " << c_t << "(m1_lse.x);\n"
+       << ind << "      m1_C[long(m1_gr) * m1_scm + long(m1_tile_n) * 2l + 1l] = " << c_t << "(m1_lse.y);\n"
+       << ind << "    }\n"
+       << ind << "  }\n";
+  } else {
+    const bool is_max = (tail.kind == ir::TailKind::RowMax);
+    const bool is_min = (tail.kind == ir::TailKind::RowMin);
+    const bool is_mean = (tail.kind == ir::TailKind::RowMean);
+    const std::string init_v = is_max ? "-INFINITY" : (is_min ? "INFINITY" : "0.0f");
+    const std::string n_total_f =
+        plan.n_bound.has_value()
+            ? "float(m1_N)"
+            : ("float(m1_grid_dim." + axis_component(plan.pid_n_axis) + " * " + std::to_string(s.bn) + "u)");
+    const std::string pscale_lit = msl_exact_float_literal(tail.post_scale);
+    os << ind << "  for (uint m1_lr = m1_tid_linear; m1_lr < " << band_rows << "u; m1_lr += " << s.num_threads
+       << "u) {\n"
+       << ind << "    uint m1_gr = m1_row0 + m1_rb * " << band_rows << "u + m1_lr;\n"
+       << ind << "    if (" << m_cond << ") {\n"
+       << ind << "      float m1_racc = " << init_v << ";\n"
+       << ind << "      for (uint m1_lc = 0u; m1_lc < " << s.bn << "u; ++m1_lc) {\n"
+       << ind << "        uint m1_gc = m1_col0 + m1_lc;\n"
+       << ind << "        if (" << n_cond << ") {\n"
+       << ind << "          float m1_ev = float(m1_epi[m1_lr * " << s.bn << "u + m1_lc]);\n";
+    emit_epi_on("m1_ev", "m1_gc", make_elem_idx_expr(plan, "m1_gr", "m1_gc", true), ind + "          ");
+    os << ind << "          m1_racc = "
+       << (is_max ? "m1_nanmax(m1_racc, m1_ev)" : (is_min ? "m1_nanmin(m1_racc, m1_ev)" : "(m1_racc + m1_ev)")) << ";\n"
+       << ind << "        }\n"
+       << ind << "      }\n";
+    if (is_mean) {
+      os << ind << "      m1_racc = m1_racc * (" << pscale_lit << " / " << n_total_f << ");\n";
+    } else if (!is_max && !is_min && tail.post_scale != 1.0f) {
+      os << ind << "      m1_racc = m1_racc * " << pscale_lit << ";\n";
+    } else if ((is_max || is_min) && tail.post_scale != 1.0f) {
+      os << ind << "      if (m1_grid_dim." << axis_component(plan.pid_n_axis) << " == 1u) m1_racc = m1_racc * "
+         << pscale_lit << ";\n";
+    }
+    os << ind << "      m1_C[long(m1_gr) * m1_scm + long(m1_tile_n) * m1_scn] = " << c_t << "(m1_racc);\n"
+       << ind << "    }\n"
+       << ind << "  }\n";
+  }
+
+  os << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+     << ind << "}\n";
+}
+
 std::string emit_mma2_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
   const auto& s = plan.sched;
   const uint32_t a_ld = s.bk + s.pad_a;
   const uint32_t b_ld = s.bn + s.pad_b;
+  HelperFlags helpers;
+  if (plan.epilogue_dag.has_value()) {
+    collect_epilogue_dag_helpers(*plan.epilogue_dag, helpers);
+  }
   std::ostringstream os;
   os << "#include <metal_stdlib>\n"
      << "#include <metal_simdgroup_matrix>\n"
-     << "using namespace metal;\n\n"
-     << "static inline float2 m1_mma2(float2 a, float2 b, float2 c) {\n"
+     << "using namespace metal;\n\n";
+  emit_helper_functions(os, helpers);
+  if (tail_uses_nanminmax_helper(plan)) {
+    emit_nanminmax_helpers(os);
+  }
+  if (tail_uses_lse_helper(plan)) {
+    emit_lse_merge_helper(os);
+  }
+  os << "static inline float2 m1_mma2(float2 a, float2 b, float2 c) {\n"
      << "  simdgroup_float8x8 am, bm, cm;\n"
      << "  reinterpret_cast<thread float2&>(am.thread_elements()) = a;\n"
      << "  reinterpret_cast<thread float2&>(bm.thread_elements()) = b;\n"
@@ -2460,11 +3089,16 @@ std::string emit_mma2_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
        << "  uint m1_k_full_end = m1_k_end;\n";
     emit_mma2_fast_loop_body(os, plan, a_ptr_expr, b_ptr_expr, sam_u, sak_u, sbk_u, sbn_u, a_ld, b_ld, a_always_cm,
                              b_always_cm, use_reg_prefetch, false, "  ");
-    for (uint32_t i = 0u; i < s.tm; ++i) {
-      for (uint32_t j = 0u; j < s.tn; ++j) {
-        os << "  { simdgroup_float8x8 m1_cm; reinterpret_cast<thread float2&>(m1_cm.thread_elements()) = m1_c_" << i
-           << "_" << j << "; simdgroup_store(m1_cm, " << c_ptr_expr << " + ulong(m1_row0 + m1_sg_row + " << (i * 8u)
-           << "u) * " << scm_u << " + ulong(m1_col0 + m1_sg_col + " << (j * 8u) << "u), " << scm_u << "); }\n";
+    if (plan.fused_tail.has_value()) {
+      emit_mma2_fused_tail(os, kernel, plan, c_ptr_expr, helpers, false, "  ");
+    } else {
+      emit_mma2_epilogue_regs(os, kernel, plan, helpers, false, "  ");
+      for (uint32_t i = 0u; i < s.tm; ++i) {
+        for (uint32_t j = 0u; j < s.tn; ++j) {
+          os << "  { simdgroup_float8x8 m1_cm; reinterpret_cast<thread float2&>(m1_cm.thread_elements()) = m1_c_" << i
+             << "_" << j << "; simdgroup_store(m1_cm, " << c_ptr_expr << " + ulong(m1_row0 + m1_sg_row + " << (i * 8u)
+             << "u) * " << scm_u << " + ulong(m1_col0 + m1_sg_col + " << (j * 8u) << "u), " << scm_u << "); }\n";
+        }
       }
     }
     os << "}\n";
@@ -2510,8 +3144,15 @@ std::string emit_mma2_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
      << "    }\n"
      << "  }\n";
 
+  if (plan.fused_tail.has_value()) {
+    emit_mma2_fused_tail(os, kernel, plan, c_ptr_expr, helpers, true, "  ");
+    os << "}\n";
+    return os.str();
+  }
+
   std::string c_rm_cond = c_always_rm ? "" : (" && (long(" + plan.stride_cn_expr + ") == 1l)");
   os << "  if (" << full_m_expr << " && " << full_n_expr << c_rm_cond << ") {\n";
+  emit_mma2_epilogue_regs(os, kernel, plan, helpers, false, "    ");
   for (uint32_t i = 0u; i < s.tm; ++i) {
     for (uint32_t j = 0u; j < s.tn; ++j) {
       os << "    { simdgroup_float8x8 m1_cm; reinterpret_cast<thread float2&>(m1_cm.thread_elements()) = m1_c_" << i
@@ -2520,6 +3161,7 @@ std::string emit_mma2_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
     }
   }
   os << "  } else {\n";
+  emit_mma2_epilogue_regs(os, kernel, plan, helpers, true, "    ");
   for (uint32_t i = 0u; i < s.tm; ++i) {
     os << "    {\n"
        << "      uint m1_gr = m1_row0 + m1_sg_row + " << (i * 8u) << "u + m1_fr;\n";
@@ -2569,11 +3211,22 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
     return emit_mma2_sgmm_msl(kernel, plan);
   }
   const auto& s = plan.sched;
+  HelperFlags helpers;
+  if (plan.epilogue_dag.has_value()) {
+    collect_epilogue_dag_helpers(*plan.epilogue_dag, helpers);
+  }
   std::ostringstream os;
   os << "#include <metal_stdlib>\n"
      << "#include <metal_simdgroup_matrix>\n"
-     << "using namespace metal;\n\n"
-     << "[[max_total_threads_per_threadgroup(" << s.num_threads << ")]]\n";
+     << "using namespace metal;\n\n";
+  emit_helper_functions(os, helpers);
+  if (tail_uses_nanminmax_helper(plan)) {
+    emit_nanminmax_helpers(os);
+  }
+  if (tail_uses_lse_helper(plan)) {
+    emit_lse_merge_helper(os);
+  }
+  os << "[[max_total_threads_per_threadgroup(" << s.num_threads << ")]]\n";
 
   os << "kernel void " << kernel.name << "(\n";
   emit_param_slot_decls(os, plan.params.slots);
@@ -2639,7 +3292,7 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
      << "  device " << msl_scalar_type(plan.c_elem_dt) << "* m1_C = " << plan.c_param << " + long(" << plan.c_batch_off
      << ");\n";
 
-  if (plan.structure == MatrixStructure::UpperTriangular) {
+  if (plan.structure == MatrixStructure::UpperTriangular && !plan.epilogue_dag.has_value()) {
     os << "  if (int(m1_row0) >= int(m1_col0) + " << static_cast<int32_t>(s.bn) - plan.diagonal_offset << ") {\n";
     if (!plan.is_atomic) {
       std::string m_end = plan.m_bound ? ("min(m1_M, m1_row0 + " + std::to_string(s.bm) + "u)")
@@ -2658,7 +3311,7 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
     }
     os << "    return;\n"
        << "  }\n";
-  } else if (plan.structure == MatrixStructure::LowerTriangular) {
+  } else if (plan.structure == MatrixStructure::LowerTriangular && !plan.epilogue_dag.has_value()) {
     os << "  if (int(m1_col0) >= int(m1_row0) + " << static_cast<int32_t>(s.bm) + plan.diagonal_offset << ") {\n";
     if (!plan.is_atomic) {
       std::string m_end = plan.m_bound ? ("min(m1_M, m1_row0 + " + std::to_string(s.bm) + "u)")
@@ -2863,7 +3516,13 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
                 std::to_string(plan.diagonal_offset) + ")";
   }
 
-  if (plan.acc_dt == plan.c_elem_dt) {
+  if (plan.fused_tail.has_value()) {
+    emit_sram_fused_tail(os, kernel, plan, helpers, "  ");
+    os << "}\n";
+    return os.str();
+  }
+
+  if (plan.acc_dt == plan.c_elem_dt && !plan.epilogue_dag.has_value()) {
     os << "  if (m1_full_m && m1_full_n && (m1_scn == 1l)" << diag_cond << ") {\n";
     for (uint32_t i = 0; i < s.tm; ++i) {
       for (uint32_t j = 0; j < s.tn; ++j) {
@@ -2882,6 +3541,7 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
   std::string m_cond = plan.m_bound.has_value() ? "(m1_gr < m1_M)" : "true";
   std::string n_cond = plan.n_bound.has_value() ? "(m1_gc < m1_N)" : "true";
   std::string c_t = msl_scalar_type(plan.c_elem_dt);
+  auto param_fn = make_param_name_fn(kernel, plan);
 
   os << "  threadgroup " << acc_t << "* m1_epi = reinterpret_cast<threadgroup " << acc_t << "*>(m1_smem);\n"
      << "  for (uint m1_sb = 0u; m1_sb < " << s.num_sgs << "u; m1_sb += " << max_sgs << "u) {\n"
@@ -2914,6 +3574,14 @@ std::string emit_sgmm_msl(const Kernel& kernel, const SgmmPlan& plan) {
   } else if (plan.structure == MatrixStructure::LowerTriangular) {
     os << "        m1_val = (int(m1_gc) <= int(m1_gr) + " << plan.diagonal_offset << ") ? m1_val : " << acc_t
        << "(0.0f);\n";
+  }
+  if (plan.epilogue_dag.has_value()) {
+    os << "        {\n"
+       << "          float m1_ev = float(m1_val);\n";
+    emit_epilogue_dag_msl(os, kernel, *plan.epilogue_dag, "m1_ev", "m1_gc",
+                          make_elem_idx_expr(plan, "m1_gr", "m1_gc", false), param_fn, helpers, "          ");
+    os << "          m1_val = " << acc_t << "(m1_ev);\n"
+       << "        }\n";
   }
   os << "        m1_C[long(m1_gr) * m1_scm + long(m1_gc) * m1_scn] = " << c_t << "(m1_val);\n"
      << "      }\n"

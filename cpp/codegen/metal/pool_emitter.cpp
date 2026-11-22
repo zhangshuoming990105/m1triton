@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <variant>
@@ -57,7 +58,18 @@ struct PoolPlan {
   bool sram = false;
   int64_t smem_w = 0;
   int64_t smem_h = 0;
+  const ir::EpilogueDAGAttr* epilogue_dag = nullptr;
 };
+
+const ir::EpilogueDAGAttr* active_epilogue_dag(const Kernel& kernel, const Op* op) {
+  if (op != nullptr && op->hints.epilogue_dag.has_value() && !op->hints.epilogue_dag->steps.empty()) {
+    return &*op->hints.epilogue_dag;
+  }
+  if (kernel.hints.epilogue_dag.has_value() && !kernel.hints.epilogue_dag->steps.empty()) {
+    return &*kernel.hints.epilogue_dag;
+  }
+  return nullptr;
+}
 
 int64_t halo(int64_t tile, const PoolDim& dim) {
   return (tile - 1) * dim.s + static_cast<int64_t>(dim.d) * (dim.k - 1) + 1;
@@ -115,6 +127,17 @@ std::optional<PoolPlan> build_plan(const Kernel& kernel, const ir::TargetSpec& t
   plan.x_name = kernel.params[*x_idx].name;
   plan.out_name = kernel.params[*o_idx].name;
   plan.elem = msl_scalar_type(x_dt);
+  plan.epilogue_dag = active_epilogue_dag(kernel, plan.op);
+  if (plan.epilogue_dag != nullptr) {
+    std::set<uint32_t> read_params;
+    collect_epilogue_dag_param_indices(*plan.epilogue_dag, read_params);
+    for (uint32_t idx : read_params) {
+      if (idx >= kernel.params.size()) {
+        err = "pool epilogue_dag references out-of-range kernel parameter";
+        return std::nullopt;
+      }
+    }
+  }
 
   std::vector<std::string> exprs;
   for (size_t i = 2; i < ops.size(); ++i) {
@@ -200,6 +223,9 @@ class PoolWriter {
   PoolWriter(const Kernel& kernel, const PoolPlan& plan) : kernel_(kernel), plan_(plan) {}
 
   std::string emit() {
+    if (plan_.epilogue_dag != nullptr) {
+      collect_epilogue_dag_helpers(*plan_.epilogue_dag, helpers_);
+    }
     emit_signature();
     emit_prologue();
     if (plan_.reg_sw) {
@@ -223,6 +249,18 @@ class PoolWriter {
   bool is_f16() const { return plan_.elem == "half"; }
   std::string pad_value() const { return is_max() ? "-INFINITY" : "0.0f"; }
 
+  std::string epilogue_param_name(uint32_t idx) const {
+    const ir::KernelParam& kp = kernel_.params[idx];
+    if (kp.is_constexpr) return msl_int_literal(kp.constexpr_val);
+    return kp.name;
+  }
+
+  void emit_scalar_epilogue(const std::string& val_var, const std::string& elem_idx_expr, const std::string& indent) {
+    emit_epilogue_dag_msl(
+        os_, kernel_, *plan_.epilogue_dag, val_var, "m1_ep_c", elem_idx_expr,
+        [this](uint32_t idx) { return epilogue_param_name(idx); }, helpers_, indent);
+  }
+
   std::string load_v4_expr(const std::string& ptr) const {
     if (is_f16()) return "float4(half4(*(device const packed_half4*)(" + ptr + ")))";
     return "float4(*(device const packed_float4*)(" + ptr + "))";
@@ -242,6 +280,7 @@ class PoolWriter {
 
   void emit_signature() {
     os_ << "#include <metal_stdlib>\nusing namespace metal;\n\n";
+    emit_helper_functions(os_, helpers_);
     if (plan_.reg_sw) {
       os_ << "static inline float4 m1_max4(float4 a, float4 b) {\n";
       os_ << "  return select(b, a, (a > b) || isnan(a));\n";
@@ -281,6 +320,11 @@ class PoolWriter {
     os_ << "  device " << plan_.elem << "* m1_ob = " << plan_.out_name
         << " + (m1_nc * m1_Dout + m1_od) * m1_out_plane;\n";
     os_ << "  (void)m1_in_plane; (void)m1_oh0; (void)m1_od;\n";
+    if (plan_.epilogue_dag != nullptr) {
+      os_ << "  const long m1_ep_c = m1_nc % (" << plan_.c_expr << ");\n";
+      os_ << "  const long m1_ep_base = (m1_nc * m1_Dout + m1_od) * m1_out_plane;\n";
+      os_ << "  (void)m1_ep_c; (void)m1_ep_base;\n";
+    }
   }
 
   void emit_combine(const std::string& v, int depth) {
@@ -304,7 +348,17 @@ class PoolWriter {
         value = "m1_acc / m1_div";
       }
     }
-    os_ << ind << "m1_ob[m1_oh * m1_Wout + m1_ow] = " << plan_.elem << "(" << value << ");\n";
+    if (plan_.epilogue_dag == nullptr) {
+      os_ << ind << "m1_ob[m1_oh * m1_Wout + m1_ow] = " << plan_.elem << "(" << value << ");\n";
+    } else {
+      os_ << ind << "{\n";
+      os_ << ind << "  float m1_ep_v = " << value << ";\n";
+      os_ << ind << "  const long m1_ep_idx = m1_ep_base + m1_oh * m1_Wout + m1_ow;\n";
+      os_ << ind << "  (void)m1_ep_idx;\n";
+      emit_scalar_epilogue("m1_ep_v", "m1_ep_idx", ind + "  ");
+      os_ << ind << "  m1_ob[m1_oh * m1_Wout + m1_ow] = " << plan_.elem << "(m1_ep_v);\n";
+      os_ << ind << "}\n";
+    }
   }
 
   void emit_divisor(int depth) {
@@ -449,14 +503,47 @@ class PoolWriter {
     }
   }
 
+  void emit_reg_sw_fast_store(const std::string& val_expr, const std::string& oh_expr, const std::string& ind) {
+    if (plan_.epilogue_dag == nullptr) {
+      os_ << ind << "*(device " << packed4_type() << "*)m1_op = " << store_v4_expr(val_expr) << ";\n";
+      return;
+    }
+    os_ << ind << "{\n";
+    os_ << ind << "  float4 m1_ep_v4 = " << val_expr << ";\n";
+    os_ << ind << "  const long m1_ep_row = m1_ep_base + (" << oh_expr << ") * m1_Wout + m1_ow;\n";
+    os_ << ind << "  #pragma unroll\n";
+    os_ << ind << "  for (uint m1_ep_lane = 0u; m1_ep_lane < 4u; ++m1_ep_lane) {\n";
+    os_ << ind << "    float m1_ep_v = m1_ep_v4[m1_ep_lane];\n";
+    os_ << ind << "    const long m1_ep_idx = m1_ep_row + long(m1_ep_lane);\n";
+    os_ << ind << "    (void)m1_ep_idx;\n";
+    emit_scalar_epilogue("m1_ep_v", "m1_ep_idx", ind + "    ");
+    os_ << ind << "    m1_ep_v4[m1_ep_lane] = m1_ep_v;\n";
+    os_ << ind << "  }\n";
+    os_ << ind << "  *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_ep_v4") << ";\n";
+    os_ << ind << "}\n";
+  }
+
   void emit_reg_sw_store(const std::string& val, const std::string& oh_expr, const std::string& ind) {
     os_ << ind << "device " << plan_.elem << "* m1_op = m1_ob + (" << oh_expr << ") * m1_Wout + m1_ow;\n";
     os_ << ind << "if (m1_o_full) {\n";
-    os_ << ind << "  *(device " << packed4_type() << "*)m1_op = " << store_v4_expr(val) << ";\n";
+    emit_reg_sw_fast_store(val, oh_expr, ind + "  ");
     os_ << ind << "} else {\n";
-    os_ << ind << "  m1_op[0] = " << plan_.elem << "(" << val << ".x);\n";
-    os_ << ind << "  if (m1_ow + 1 < m1_Wout) m1_op[1] = " << plan_.elem << "(" << val << ".y);\n";
-    os_ << ind << "  if (m1_ow + 2 < m1_Wout) m1_op[2] = " << plan_.elem << "(" << val << ".z);\n";
+    if (plan_.epilogue_dag == nullptr) {
+      os_ << ind << "  m1_op[0] = " << plan_.elem << "(" << val << ".x);\n";
+      os_ << ind << "  if (m1_ow + 1 < m1_Wout) m1_op[1] = " << plan_.elem << "(" << val << ".y);\n";
+      os_ << ind << "  if (m1_ow + 2 < m1_Wout) m1_op[2] = " << plan_.elem << "(" << val << ".z);\n";
+    } else {
+      os_ << ind << "  const long m1_ep_row = m1_ep_base + (" << oh_expr << ") * m1_Wout + m1_ow;\n";
+      os_ << ind << "  for (uint m1_ep_lane = 0u; m1_ep_lane < 3u; ++m1_ep_lane) {\n";
+      os_ << ind << "    if (m1_ow + long(m1_ep_lane) < m1_Wout) {\n";
+      os_ << ind << "      float m1_ep_v = (" << val << ")[m1_ep_lane];\n";
+      os_ << ind << "      const long m1_ep_idx = m1_ep_row + long(m1_ep_lane);\n";
+      os_ << ind << "      (void)m1_ep_idx;\n";
+      emit_scalar_epilogue("m1_ep_v", "m1_ep_idx", ind + "      ");
+      os_ << ind << "      m1_op[m1_ep_lane] = " << plan_.elem << "(m1_ep_v);\n";
+      os_ << ind << "    }\n";
+      os_ << ind << "  }\n";
+    }
     os_ << ind << "}\n";
   }
 
@@ -503,7 +590,7 @@ class PoolWriter {
     if (kh == 1) {
       os_ << "    for (int m1_ry = 0; m1_ry < m1_rows; ++m1_ry) {\n";
       emit_reg_sw_row_hmax_fast("m1_hnew", "m1_rs", "      ");
-      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_hnew") << ";\n";
+      emit_reg_sw_fast_store("m1_hnew", "m1_oh_base + m1_ry", "      ");
       os_ << "      m1_rs += m1_Win;\n";
       os_ << "      m1_op += m1_Wout;\n";
       os_ << "    }\n";
@@ -519,17 +606,15 @@ class PoolWriter {
       emit_reg_sw_row_hmax_fast("m1_h4", "m1_rs", "      ");
       os_ << "      m1_rs += m1_Win;\n";
       os_ << "      const float4 m1_m123 = m1_max4(m1_max4(m1_h1, m1_h2), m1_h3);\n";
-      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_max4(m1_h0, m1_m123)")
-          << ";\n";
+      emit_reg_sw_fast_store("m1_max4(m1_h0, m1_m123)", "m1_oh_base + m1_ry", "      ");
       os_ << "      m1_op += m1_Wout;\n";
-      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_max4(m1_m123, m1_h4)")
-          << ";\n";
+      emit_reg_sw_fast_store("m1_max4(m1_m123, m1_h4)", "m1_oh_base + m1_ry + 1", "      ");
       os_ << "      m1_op += m1_Wout;\n";
       os_ << "      m1_h0 = m1_h2; m1_h1 = m1_h3; m1_h2 = m1_h4;\n";
       os_ << "    }\n";
       os_ << "    if (m1_ry < m1_rows) {\n";
       emit_reg_sw_row_hmax_fast("m1_hnew", "m1_rs", "      ");
-      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr(vmax_expr) << ";\n";
+      emit_reg_sw_fast_store(vmax_expr, "m1_oh_base + m1_ry", "      ");
       os_ << "    }\n";
     } else {
       for (int pr = 0; pr < kh - 1; ++pr) {
@@ -539,7 +624,7 @@ class PoolWriter {
       os_ << "    for (int m1_ry = 0; m1_ry < m1_rows; ++m1_ry) {\n";
       emit_reg_sw_row_hmax_fast("m1_hnew", "m1_rs", "      ");
       os_ << "      const float4 m1_out = " << vmax_expr << ";\n";
-      os_ << "      *(device " << packed4_type() << "*)m1_op = " << store_v4_expr("m1_out") << ";\n";
+      emit_reg_sw_fast_store("m1_out", "m1_oh_base + m1_ry", "      ");
       for (int i = 0; i < kh - 2; ++i) {
         os_ << "      m1_h" << i << " = m1_h" << (i + 1) << ";\n";
       }
@@ -700,6 +785,7 @@ class PoolWriter {
 
   const Kernel& kernel_;
   const PoolPlan& plan_;
+  HelperFlags helpers_;
   std::ostringstream os_;
 };
 
