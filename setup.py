@@ -41,6 +41,56 @@ class CMakeBuildExt(build_ext):
         opt_dst.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         return opt_dst
 
+    def _find_working_tool(self, name: str, module_dir_attr: tuple[str, str] | None = None) -> str | None:
+        candidates: list[str] = []
+        if module_dir_attr is not None:
+            mod_name, attr_name = module_dir_attr
+            try:
+                mod = __import__(mod_name)
+                bin_dir = getattr(mod, attr_name, None)
+                if bin_dir:
+                    candidates.append(str(Path(bin_dir) / name))
+            except Exception:
+                pass
+
+        seen: set[str] = set()
+        search_dirs = os.environ.get("PATH", "").split(os.pathsep) + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+        for d in search_dirs:
+            if not d:
+                continue
+            cand = str(Path(d) / name)
+            if cand not in candidates:
+                candidates.append(cand)
+
+        for cand in candidates:
+            if cand in seen:
+                continue
+            seen.add(cand)
+            if not (os.path.isfile(cand) and os.access(cand, os.X_OK)):
+                continue
+            try:
+                proc = subprocess.run(
+                    [cand, "--version"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=10,
+                )
+                if proc.returncode == 0:
+                    return cand
+            except OSError:
+                continue
+        return None
+
+    def _clean_cmake_env(self, cxx_bin: str) -> dict[str, str]:
+        env = dict(os.environ)
+        if cxx_bin == "/usr/bin/clang++":
+            for var in ("LDFLAGS", "CPPFLAGS", "CFLAGS", "CXXFLAGS"):
+                val = env.get(var, "")
+                if "/opt/llvm/" in val or "/opt/homebrew/opt/llvm" in val:
+                    env.pop(var, None)
+        return env
+
     def build_extension(self, ext: Extension) -> None:
         if not isinstance(ext, CMakeExtension):
             super().build_extension(ext)
@@ -48,11 +98,12 @@ class CMakeBuildExt(build_ext):
 
         import pybind11
 
-        cmake_bin = shutil.which("cmake")
+        cmake_bin = self._find_working_tool("cmake", ("cmake", "CMAKE_BIN_DIR"))
         if not cmake_bin:
-            raise RuntimeError("`cmake` was not found on PATH.")
+            raise RuntimeError("A working `cmake` binary was not found (install via `brew install cmake` or `pip install cmake`).")
 
         cxx_bin = self._find_cxx_compiler()
+        cmake_env = self._clean_cmake_env(cxx_bin)
         build_temp = Path(self.build_temp).resolve() / ext.name.replace(".", "_")
         build_temp.mkdir(parents=True, exist_ok=True)
 
@@ -69,15 +120,17 @@ class CMakeBuildExt(build_ext):
             f"-DPython3_EXECUTABLE={sys.executable}",
             f"-Dpybind11_DIR={pybind11.get_cmake_dir()}",
         ]
-        if shutil.which("ninja"):
-            cmake_args.extend(["-G", "Ninja"])
+        ninja_bin = self._find_working_tool("ninja", ("ninja", "BIN_DIR"))
+        if ninja_bin:
+            cmake_args.extend(["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja_bin}"])
 
-        subprocess.run(cmake_args, check=True)
+        subprocess.run(cmake_args, check=True, env=cmake_env)
 
         jobs = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL") or str(os.cpu_count() or 4)
         subprocess.run(
             [cmake_bin, "--build", str(build_temp), "--target", "_C", "m1triton-opt", "-j", jobs],
             check=True,
+            env=cmake_env,
         )
 
         built_sos = sorted((build_temp / "m1triton").glob("_C*.so"))

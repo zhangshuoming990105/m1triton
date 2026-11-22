@@ -51,7 +51,7 @@ Median dispatches per forward: **`2`** (`24/100` single-dispatch `dpf=1`; min sp
 ```bash
 git clone https://github.com/zhangshuoming990105/m1triton.git && cd m1triton
 python3 -m venv .venv && source .venv/bin/activate
-pip install --no-build-isolation -e ".[dev]"   # builds _C extension + m1triton-opt CLI
+pip install torch && pip install -e ".[dev]"   # builds _C extension + m1triton-opt CLI
 
 # Verify GPU, Metal 3 / ICB, caches, and run built-in bandwidth & SGMM smoke checks
 m1triton doctor

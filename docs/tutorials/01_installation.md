@@ -29,15 +29,18 @@ cd m1triton
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install PyTorch (Apple Silicon MPS) + build/runtime Python dependencies
-pip install --upgrade pip wheel setuptools pybind11 numpy torch
+# Install PyTorch (Apple Silicon MPS)
+pip install --upgrade pip torch
 
 # Build and install M1Triton (_C native Metal extension + m1triton-opt CLI)
-# Editable install (recommended for development & running examples):
-pip install --no-build-isolation -e ".[dev]"
+# Standard PEP 517 editable install (automatically fetches setuptools/wheel/pybind11):
+pip install -e ".[dev]"
 
 # Or standard non-editable install:
-# pip install --no-build-isolation .
+# pip install .
+
+# Offline / preinstalled build environment (requires setuptools, wheel, pybind11 installed in the venv):
+# pip install --no-build-isolation -e ".[dev]"
 ```
 
 > [!NOTE]
@@ -100,7 +103,8 @@ All runtime and debugging environment variables:
 
 ## 6. Troubleshooting
 
-- **`pybind11` or `cmake` not found during `pip install`**: Ensure `cmake` is on `PATH` (`brew install cmake ninja`) and `pip install pybind11` is installed in the active virtualenv before running `pip install --no-build-isolation -e .`.
+- **`Cannot import 'setuptools.build_meta'`**: Python 3.12+ virtual environments no longer pre-install `setuptools`. Run standard `pip install -e ".[dev]"` (without `--no-build-isolation`), or install `pip install setuptools wheel pybind11` first when using `--no-build-isolation`.
+- **`pybind11` or `cmake` not found during `pip install`**: Ensure `cmake` is on `PATH` (`brew install cmake ninja`). If using `--no-build-isolation`, install `pip install setuptools wheel pybind11` in the active virtualenv first.
 - **`Apple Clang compiler (/usr/bin/clang++) is required`**: Run `xcode-select --install`. Avoid pointing `CXX` to Homebrew GCC/LLVM when building Objective-C++ `Metal.framework` sources (`setup.py` prefers `/usr/bin/clang++` automatically).
 - **`torch.backends.mps.is_available()` is `False`**: Verify you installed an `arm64` native Python and PyTorch build (not Rosetta x86_64): `python -c "import platform, torch; print(platform.machine(), torch.backends.mps.is_available())"` should print `arm64 True`.
 - **Non-contiguous CPU tensor error**: PyTorch MPS tensors support arbitrary strided views directly (zero-copy `MTLBuffer` + byte offset), while CPU NumPy/PyTorch buffers must be contiguous (`x.contiguous()` or `np.ascontiguousarray(x)`).
