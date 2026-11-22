@@ -265,6 +265,11 @@ uint64_t MetalRuntime::compile_kernel(
     NSError* err = nil;
     MTLCompileOptions* opts = [[MTLCompileOptions alloc] init];
     opts.mathMode = fast_math ? MTLMathModeFast : MTLMathModeSafe;
+    if (impl_->supports_metal3) {
+      if (@available(macOS 13.0, *)) {
+        opts.languageVersion = MTLLanguageVersion3_0;
+      }
+    }
 
     id<MTLLibrary> lib = [impl_->device newLibraryWithSource:[NSString stringWithUTF8String:msl_source.c_str()]
                                                      options:opts
