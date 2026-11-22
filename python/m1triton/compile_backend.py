@@ -51,12 +51,6 @@ def _env_strict() -> bool:
     return os.environ.get("M1TRITON_STRICT_COMPILE", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _is_16b_aligned(t: torch.Tensor) -> bool:
-    if t.device.type == "mps":
-        return (int(t.storage_offset()) * int(t.element_size())) % 16 == 0
-    return (int(t.data_ptr()) % 16) == 0
-
-
 def _cdiv(a: int, b: int) -> int:
     return (a + b - 1) // b
 
@@ -157,6 +151,8 @@ def _sgmm_gemm_kernel(
     offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     offs_k = tl.arange(0, BLOCK_K)
+    offs_m64 = offs_m.to(tl.int64)
+    offs_n64 = offs_n.to(tl.int64)
 
     if IS_BATCHED == 0:
         a_base = a_ptr
@@ -171,14 +167,15 @@ def _sgmm_gemm_kernel(
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for k in range(0, K, BLOCK_K):
         k_idx = k + offs_k
+        k_idx64 = k_idx.to(tl.int64)
         if TRANS_A == 0:
-            a_ptrs = a_base + offs_m[:, None] * stride_am + k_idx[None, :]
+            a_ptrs = a_base + offs_m64[:, None] * stride_am + k_idx64[None, :]
         else:
-            a_ptrs = a_base + offs_m[:, None] + k_idx[None, :] * stride_ak
+            a_ptrs = a_base + offs_m64[:, None] + k_idx64[None, :] * stride_ak
         if TRANS_B == 0:
-            b_ptrs = b_base + k_idx[:, None] * stride_bk + offs_n[None, :]
+            b_ptrs = b_base + k_idx64[:, None] * stride_bk + offs_n64[None, :]
         else:
-            b_ptrs = b_base + k_idx[:, None] + offs_n[None, :] * stride_bn
+            b_ptrs = b_base + k_idx64[:, None] + offs_n64[None, :] * stride_bn
         if ALIGNED_MNK == 1:
             a = tl.load(a_ptrs)
             b = tl.load(b_ptrs)
@@ -189,7 +186,7 @@ def _sgmm_gemm_kernel(
             b = tl.load(b_ptrs, mask=b_mask, other=0.0)
         acc = tl.dot(a, b, acc=acc)
 
-    c_ptrs = c_base + offs_m[:, None] * stride_cm + offs_n[None, :]
+    c_ptrs = c_base + offs_m64[:, None] * stride_cm + offs_n64[None, :]
     if ALIGNED_MNK == 1:
         tl.store(c_ptrs, acc)
     else:
@@ -198,235 +195,7 @@ def _sgmm_gemm_kernel(
 
 
 @m1triton.jit
-def _conv1d_kernel(
-    x_ptr,
-    w_ptr,
-    out_ptr,
-    N: tl.constexpr,
-    C_in: tl.constexpr,
-    C_out: tl.constexpr,
-    W_in: tl.constexpr,
-    W_out: tl.constexpr,
-    K_W: tl.constexpr,
-    S_W: tl.constexpr,
-    P_W: tl.constexpr,
-    D_W: tl.constexpr,
-    GROUPS: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    NUM_SG: tl.constexpr,
-):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        N,
-        C_in,
-        C_out,
-        W_in,
-        W_out,
-        ndim=1,
-        kernel_size=(K_W,),
-        stride=(S_W,),
-        padding=(P_W,),
-        dilation=(D_W,),
-        groups=GROUPS,
-    )
-
-
-@m1triton.jit
-def _conv1d_bias_kernel(
-    x_ptr,
-    w_ptr,
-    out_ptr,
-    b_ptr,
-    N: tl.constexpr,
-    C_in: tl.constexpr,
-    C_out: tl.constexpr,
-    W_in: tl.constexpr,
-    W_out: tl.constexpr,
-    K_W: tl.constexpr,
-    S_W: tl.constexpr,
-    P_W: tl.constexpr,
-    D_W: tl.constexpr,
-    GROUPS: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    NUM_SG: tl.constexpr,
-):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        b_ptr,
-        N,
-        C_in,
-        C_out,
-        W_in,
-        W_out,
-        ndim=1,
-        kernel_size=(K_W,),
-        stride=(S_W,),
-        padding=(P_W,),
-        dilation=(D_W,),
-        groups=GROUPS,
-        has_bias=True,
-    )
-
-
-@m1triton.jit
-def _conv2d_kernel(
-    x_ptr,
-    w_ptr,
-    out_ptr,
-    N: tl.constexpr,
-    C_in: tl.constexpr,
-    C_out: tl.constexpr,
-    H_in: tl.constexpr,
-    W_in: tl.constexpr,
-    H_out: tl.constexpr,
-    W_out: tl.constexpr,
-    K_H: tl.constexpr,
-    K_W: tl.constexpr,
-    S_H: tl.constexpr,
-    S_W: tl.constexpr,
-    P_H: tl.constexpr,
-    P_W: tl.constexpr,
-    D_H: tl.constexpr,
-    D_W: tl.constexpr,
-    GROUPS: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    NUM_SG: tl.constexpr,
-):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        N,
-        C_in,
-        C_out,
-        H_in,
-        W_in,
-        H_out,
-        W_out,
-        ndim=2,
-        kernel_size=(K_H, K_W),
-        stride=(S_H, S_W),
-        padding=(P_H, P_W),
-        dilation=(D_H, D_W),
-        groups=GROUPS,
-    )
-
-
-@m1triton.jit
-def _conv2d_bias_kernel(
-    x_ptr,
-    w_ptr,
-    out_ptr,
-    b_ptr,
-    N: tl.constexpr,
-    C_in: tl.constexpr,
-    C_out: tl.constexpr,
-    H_in: tl.constexpr,
-    W_in: tl.constexpr,
-    H_out: tl.constexpr,
-    W_out: tl.constexpr,
-    K_H: tl.constexpr,
-    K_W: tl.constexpr,
-    S_H: tl.constexpr,
-    S_W: tl.constexpr,
-    P_H: tl.constexpr,
-    P_W: tl.constexpr,
-    D_H: tl.constexpr,
-    D_W: tl.constexpr,
-    GROUPS: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    NUM_SG: tl.constexpr,
-):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        b_ptr,
-        N,
-        C_in,
-        C_out,
-        H_in,
-        W_in,
-        H_out,
-        W_out,
-        ndim=2,
-        kernel_size=(K_H, K_W),
-        stride=(S_H, S_W),
-        padding=(P_H, P_W),
-        dilation=(D_H, D_W),
-        groups=GROUPS,
-        has_bias=True,
-    )
-
-
-@m1triton.jit
-def _conv3d_kernel(
-    x_ptr,
-    w_ptr,
-    out_ptr,
-    N: tl.constexpr,
-    C_in: tl.constexpr,
-    C_out: tl.constexpr,
-    D_in: tl.constexpr,
-    H_in: tl.constexpr,
-    W_in: tl.constexpr,
-    D_out: tl.constexpr,
-    H_out: tl.constexpr,
-    W_out: tl.constexpr,
-    K_D: tl.constexpr,
-    K_H: tl.constexpr,
-    K_W: tl.constexpr,
-    S_D: tl.constexpr,
-    S_H: tl.constexpr,
-    S_W: tl.constexpr,
-    P_D: tl.constexpr,
-    P_H: tl.constexpr,
-    P_W: tl.constexpr,
-    D_D: tl.constexpr,
-    D_H: tl.constexpr,
-    D_W: tl.constexpr,
-    GROUPS: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    NUM_SG: tl.constexpr,
-):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        N,
-        C_in,
-        C_out,
-        D_in,
-        H_in,
-        W_in,
-        D_out,
-        H_out,
-        W_out,
-        ndim=3,
-        kernel_size=(K_D, K_H, K_W),
-        stride=(S_D, S_H, S_W),
-        padding=(P_D, P_H, P_W),
-        dilation=(D_D, D_H, D_W),
-        groups=GROUPS,
-    )
-
-
-@m1triton.jit
-def _conv3d_bias_kernel(
+def _conv_std_kernel(
     x_ptr,
     w_ptr,
     out_ptr,
@@ -457,79 +226,50 @@ def _conv3d_bias_kernel(
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
     NUM_SG: tl.constexpr,
+    NDIM: tl.constexpr = 2,
+    HAS_BIAS: tl.constexpr = 0,
 ):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        b_ptr,
-        N,
-        C_in,
-        C_out,
-        D_in,
-        H_in,
-        W_in,
-        D_out,
-        H_out,
-        W_out,
-        ndim=3,
-        kernel_size=(K_D, K_H, K_W),
-        stride=(S_D, S_H, S_W),
-        padding=(P_D, P_H, P_W),
-        dilation=(D_D, D_H, D_W),
-        groups=GROUPS,
-        has_bias=True,
-    )
+    if NDIM == 1:
+        if HAS_BIAS:
+            tlx.implicit_gemm_conv(
+                x_ptr, w_ptr, out_ptr, b_ptr, N, C_in, C_out, W_in, W_out,
+                ndim=1, kernel_size=(K_W,), stride=(S_W,), padding=(P_W,), dilation=(D_W,), groups=GROUPS, has_bias=True,
+            )
+        else:
+            tlx.implicit_gemm_conv(
+                x_ptr, w_ptr, out_ptr, N, C_in, C_out, W_in, W_out,
+                ndim=1, kernel_size=(K_W,), stride=(S_W,), padding=(P_W,), dilation=(D_W,), groups=GROUPS,
+            )
+    elif NDIM == 2:
+        if HAS_BIAS:
+            tlx.implicit_gemm_conv(
+                x_ptr, w_ptr, out_ptr, b_ptr, N, C_in, C_out, H_in, W_in, H_out, W_out,
+                ndim=2, kernel_size=(K_H, K_W), stride=(S_H, S_W), padding=(P_H, P_W), dilation=(D_H, D_W),
+                groups=GROUPS, has_bias=True,
+            )
+        else:
+            tlx.implicit_gemm_conv(
+                x_ptr, w_ptr, out_ptr, N, C_in, C_out, H_in, W_in, H_out, W_out,
+                ndim=2, kernel_size=(K_H, K_W), stride=(S_H, S_W), padding=(P_H, P_W), dilation=(D_H, D_W),
+                groups=GROUPS,
+            )
+    else:
+        if HAS_BIAS:
+            tlx.implicit_gemm_conv(
+                x_ptr, w_ptr, out_ptr, b_ptr, N, C_in, C_out, D_in, H_in, W_in, D_out, H_out, W_out,
+                ndim=3, kernel_size=(K_D, K_H, K_W), stride=(S_D, S_H, S_W), padding=(P_D, P_H, P_W),
+                dilation=(D_D, D_H, D_W), groups=GROUPS, has_bias=True,
+            )
+        else:
+            tlx.implicit_gemm_conv(
+                x_ptr, w_ptr, out_ptr, N, C_in, C_out, D_in, H_in, W_in, D_out, H_out, W_out,
+                ndim=3, kernel_size=(K_D, K_H, K_W), stride=(S_D, S_H, S_W), padding=(P_D, P_H, P_W),
+                dilation=(D_D, D_H, D_W), groups=GROUPS,
+            )
 
 
 @m1triton.jit
 def _conv_dw2d_kernel(
-    x_ptr,
-    w_ptr,
-    out_ptr,
-    N,
-    C_in,
-    C_out,
-    H_in,
-    W_in,
-    H_out,
-    W_out,
-    K_H: tl.constexpr,
-    K_W: tl.constexpr,
-    S_H: tl.constexpr,
-    S_W: tl.constexpr,
-    P_H: tl.constexpr,
-    P_W: tl.constexpr,
-    D_H: tl.constexpr,
-    D_W: tl.constexpr,
-    BLOCK_W: tl.constexpr,
-    BLOCK_H: tl.constexpr,
-    VEC_W: tl.constexpr = 1,
-    ROWS_PER_THREAD: tl.constexpr = 0,
-):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        N,
-        C_in,
-        C_out,
-        H_in,
-        W_in,
-        H_out,
-        W_out,
-        ndim=2,
-        kernel_size=(K_H, K_W),
-        stride=(S_H, S_W),
-        padding=(P_H, P_W),
-        dilation=(D_H, D_W),
-        is_depthwise=True,
-        has_bias=False,
-    )
-
-
-@m1triton.jit
-def _conv_dw2d_bias_kernel(
     x_ptr,
     w_ptr,
     out_ptr,
@@ -553,27 +293,20 @@ def _conv_dw2d_bias_kernel(
     BLOCK_H: tl.constexpr,
     VEC_W: tl.constexpr = 1,
     ROWS_PER_THREAD: tl.constexpr = 0,
+    HAS_BIAS: tl.constexpr = 0,
 ):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        w_ptr,
-        out_ptr,
-        bias_ptr,
-        N,
-        C_in,
-        C_out,
-        H_in,
-        W_in,
-        H_out,
-        W_out,
-        ndim=2,
-        kernel_size=(K_H, K_W),
-        stride=(S_H, S_W),
-        padding=(P_H, P_W),
-        dilation=(D_H, D_W),
-        is_depthwise=True,
-        has_bias=True,
-    )
+    if HAS_BIAS:
+        tlx.implicit_gemm_conv(
+            x_ptr, w_ptr, out_ptr, bias_ptr, N, C_in, C_out, H_in, W_in, H_out, W_out,
+            ndim=2, kernel_size=(K_H, K_W), stride=(S_H, S_W), padding=(P_H, P_W), dilation=(D_H, D_W),
+            is_depthwise=True, has_bias=True,
+        )
+    else:
+        tlx.implicit_gemm_conv(
+            x_ptr, w_ptr, out_ptr, N, C_in, C_out, H_in, W_in, H_out, W_out,
+            ndim=2, kernel_size=(K_H, K_W), stride=(S_H, S_W), padding=(P_H, P_W), dilation=(D_H, D_W),
+            is_depthwise=True, has_bias=False,
+        )
 
 
 @m1triton.jit
@@ -587,7 +320,7 @@ def _wino2x3_filter_kernel(
     BLOCK_SIZE: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    idx = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    idx = pid.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)
     total = C_OUT_PAD * C_IN_PAD
     valid = idx < total
     co = idx // C_IN_PAD
@@ -604,9 +337,7 @@ def _wino2x3_filter_kernel(
     g21 = tl.load(w_ptr + (base + 7), mask=in_bounds, other=0.0)
     g22 = tl.load(w_ptr + (base + 8), mask=in_bounds, other=0.0)
 
-    s0 = g00 + g20
-    s1 = g01 + g21
-    s2 = g02 + g22
+    s0, s1, s2 = g00 + g20, g01 + g21, g02 + g22
     t00, t01, t02 = g00, g01, g02
     t10, t11, t12 = 0.5 * (s0 + g10), 0.5 * (s1 + g11), 0.5 * (s2 + g12)
     t20, t21, t22 = 0.5 * (s0 - g10), 0.5 * (s1 - g11), 0.5 * (s2 - g12)
@@ -652,49 +383,6 @@ def _conv2d_wino2x3_kernel(
     x_ptr,
     u_ptr,
     out_ptr,
-    N: tl.constexpr,
-    C_in: tl.constexpr,
-    C_out: tl.constexpr,
-    H_in: tl.constexpr,
-    W_in: tl.constexpr,
-    H_out: tl.constexpr,
-    W_out: tl.constexpr,
-    P_H: tl.constexpr,
-    P_W: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    TILE_TH: tl.constexpr,
-    TILE_TW: tl.constexpr,
-    NUM_SG: tl.constexpr = 8,
-    WINOGRAD: tl.constexpr = 1,
-    WINO_PAD: tl.constexpr = 1,
-):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        u_ptr,
-        out_ptr,
-        N,
-        C_in,
-        C_out,
-        H_in,
-        W_in,
-        H_out,
-        W_out,
-        ndim=2,
-        kernel_size=(3, 3),
-        stride=(1, 1),
-        padding=(P_H, P_W),
-        dilation=(1, 1),
-        groups=1,
-    )
-
-
-@m1triton.jit
-def _conv2d_wino2x3_bias_kernel(
-    x_ptr,
-    u_ptr,
-    out_ptr,
     b_ptr,
     N: tl.constexpr,
     C_in: tl.constexpr,
@@ -713,112 +401,22 @@ def _conv2d_wino2x3_bias_kernel(
     NUM_SG: tl.constexpr = 8,
     WINOGRAD: tl.constexpr = 1,
     WINO_PAD: tl.constexpr = 1,
+    HAS_BIAS: tl.constexpr = 0,
 ):
-    tlx.implicit_gemm_conv(
-        x_ptr,
-        u_ptr,
-        out_ptr,
-        b_ptr,
-        N,
-        C_in,
-        C_out,
-        H_in,
-        W_in,
-        H_out,
-        W_out,
-        ndim=2,
-        kernel_size=(3, 3),
-        stride=(1, 1),
-        padding=(P_H, P_W),
-        dilation=(1, 1),
-        groups=1,
-        has_bias=True,
-    )
+    if HAS_BIAS:
+        tlx.implicit_gemm_conv(
+            x_ptr, u_ptr, out_ptr, b_ptr, N, C_in, C_out, H_in, W_in, H_out, W_out,
+            ndim=2, kernel_size=(3, 3), stride=(1, 1), padding=(P_H, P_W), dilation=(1, 1), groups=1, has_bias=True,
+        )
+    else:
+        tlx.implicit_gemm_conv(
+            x_ptr, u_ptr, out_ptr, N, C_in, C_out, H_in, W_in, H_out, W_out,
+            ndim=2, kernel_size=(3, 3), stride=(1, 1), padding=(P_H, P_W), dilation=(1, 1), groups=1,
+        )
 
 
 @m1triton.jit
-def _pool1d_kernel(
-    x_ptr,
-    out_ptr,
-    N,
-    C,
-    W_in,
-    W_out,
-    KIND: tl.constexpr,
-    K_W: tl.constexpr,
-    S_W: tl.constexpr,
-    P_W: tl.constexpr,
-    D_W: tl.constexpr,
-    COUNT_INCLUDE_PAD: tl.constexpr,
-    CEIL_MODE: tl.constexpr,
-    BLOCK_W: tl.constexpr,
-):
-    tlx.pool(
-        x_ptr,
-        out_ptr,
-        N,
-        C,
-        W_in,
-        W_out,
-        kind=KIND,
-        ndim=1,
-        kernel_size=(K_W,),
-        stride=(S_W,),
-        padding=(P_W,),
-        dilation=(D_W,),
-        count_include_pad=COUNT_INCLUDE_PAD,
-        ceil_mode=CEIL_MODE,
-    )
-
-
-@m1triton.jit
-def _pool2d_kernel(
-    x_ptr,
-    out_ptr,
-    N,
-    C,
-    H_in,
-    W_in,
-    H_out,
-    W_out,
-    KIND: tl.constexpr,
-    K_H: tl.constexpr,
-    K_W: tl.constexpr,
-    S_H: tl.constexpr,
-    S_W: tl.constexpr,
-    P_H: tl.constexpr,
-    P_W: tl.constexpr,
-    D_H: tl.constexpr,
-    D_W: tl.constexpr,
-    COUNT_INCLUDE_PAD: tl.constexpr,
-    CEIL_MODE: tl.constexpr,
-    BLOCK_W: tl.constexpr,
-    BLOCK_H: tl.constexpr,
-    VEC_W: tl.constexpr = 1,
-    ROWS_PER_THREAD: tl.constexpr = 0,
-):
-    tlx.pool(
-        x_ptr,
-        out_ptr,
-        N,
-        C,
-        H_in,
-        W_in,
-        H_out,
-        W_out,
-        kind=KIND,
-        ndim=2,
-        kernel_size=(K_H, K_W),
-        stride=(S_H, S_W),
-        padding=(P_H, P_W),
-        dilation=(D_H, D_W),
-        count_include_pad=COUNT_INCLUDE_PAD,
-        ceil_mode=CEIL_MODE,
-    )
-
-
-@m1triton.jit
-def _pool3d_kernel(
+def _pool_nd_kernel(
     x_ptr,
     out_ptr,
     N,
@@ -845,28 +443,29 @@ def _pool3d_kernel(
     COUNT_INCLUDE_PAD: tl.constexpr,
     CEIL_MODE: tl.constexpr,
     BLOCK_W: tl.constexpr,
-    BLOCK_H: tl.constexpr,
+    BLOCK_H: tl.constexpr = 1,
+    VEC_W: tl.constexpr = 1,
+    ROWS_PER_THREAD: tl.constexpr = 0,
+    NDIM: tl.constexpr = 2,
 ):
-    tlx.pool(
-        x_ptr,
-        out_ptr,
-        N,
-        C,
-        D_in,
-        H_in,
-        W_in,
-        D_out,
-        H_out,
-        W_out,
-        kind=KIND,
-        ndim=3,
-        kernel_size=(K_D, K_H, K_W),
-        stride=(S_D, S_H, S_W),
-        padding=(P_D, P_H, P_W),
-        dilation=(D_D, D_H, D_W),
-        count_include_pad=COUNT_INCLUDE_PAD,
-        ceil_mode=CEIL_MODE,
-    )
+    if NDIM == 1:
+        tlx.pool(
+            x_ptr, out_ptr, N, C, W_in, W_out,
+            kind=KIND, ndim=1, kernel_size=(K_W,), stride=(S_W,), padding=(P_W,), dilation=(D_W,),
+            count_include_pad=COUNT_INCLUDE_PAD, ceil_mode=CEIL_MODE,
+        )
+    elif NDIM == 2:
+        tlx.pool(
+            x_ptr, out_ptr, N, C, H_in, W_in, H_out, W_out,
+            kind=KIND, ndim=2, kernel_size=(K_H, K_W), stride=(S_H, S_W), padding=(P_H, P_W), dilation=(D_H, D_W),
+            count_include_pad=COUNT_INCLUDE_PAD, ceil_mode=CEIL_MODE,
+        )
+    else:
+        tlx.pool(
+            x_ptr, out_ptr, N, C, D_in, H_in, W_in, D_out, H_out, W_out,
+            kind=KIND, ndim=3, kernel_size=(K_D, K_H, K_W), stride=(S_D, S_H, S_W), padding=(P_D, P_H, P_W),
+            dilation=(D_D, D_H, D_W), count_include_pad=COUNT_INCLUDE_PAD, ceil_mode=CEIL_MODE,
+        )
 
 
 @m1triton.jit
@@ -890,30 +489,37 @@ def _max_pool2d_with_indices_kernel(
     BLOCK_SIZE: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    total = NC * H_out * W_out
+    offs = pid.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)
+    h_out_i64 = H_out.to(tl.int64)
+    w_out_i64 = W_out.to(tl.int64)
+    h_in_i64 = H_in.to(tl.int64)
+    w_in_i64 = W_in.to(tl.int64)
+    total = NC.to(tl.int64) * h_out_i64 * w_out_i64
     mask = offs < total
-    ow = offs % W_out
-    tmp = offs // W_out
-    oh = tmp % H_out
-    nc = tmp // H_out
-    in_base = nc.to(tl.int64) * (H_in * W_in)
+    ow = offs % w_out_i64
+    tmp = offs // w_out_i64
+    oh = tmp % h_out_i64
+    nc = tmp // h_out_i64
+    in_base = nc * (h_in_i64 * w_in_i64)
 
     best_val = tl.full((BLOCK_SIZE,), -float("inf"), dtype=tl.float32)
     best_idx = tl.zeros((BLOCK_SIZE,), dtype=tl.int64)
+    has_best = tl.zeros((BLOCK_SIZE,), dtype=tl.int32) != 0
     for kh in tl.static_range(0, K_H):
         ih = oh * S_H - P_H + kh * D_H
-        valid_h = (ih >= 0) & (ih < H_in)
+        valid_h = (ih >= 0) & (ih < h_in_i64)
         for kw in tl.static_range(0, K_W):
             iw = ow * S_W - P_W + kw * D_W
-            valid = mask & valid_h & (iw >= 0) & (iw < W_in)
-            spatial_idx = ih.to(tl.int64) * W_in + iw.to(tl.int64)
+            valid = mask & valid_h & (iw >= 0) & (iw < w_in_i64)
+            spatial_idx = ih * w_in_i64 + iw
             v = tl.load(x_ptr + (in_base + spatial_idx), mask=valid, other=-float("inf"))
-            better = valid & (v > best_val)
+            is_nan_v = v != v
+            better = valid & ((~has_best) | (v > best_val) | (is_nan_v & (best_val == best_val)))
             best_val = tl.where(better, v, best_val)
             best_idx = tl.where(better, spatial_idx, best_idx)
-    tl.store(out_ptr + offs.to(tl.int64), best_val, mask=mask)
-    tl.store(idx_ptr + offs.to(tl.int64), best_idx, mask=mask)
+            has_best = has_best | valid
+    tl.store(out_ptr + offs, best_val, mask=mask)
+    tl.store(idx_ptr + offs, best_idx, mask=mask)
 
 
 @m1triton.jit
@@ -977,265 +583,68 @@ def _strided_softmax_kernel(
 
 
 @m1triton.jit
-def _layer_norm_stats_kernel(x_ptr, partial_ptr, N: tl.constexpr, NORM_SIZE: tl.constexpr, CHUNKS: tl.constexpr):
-    tlx.welford_norm("layer_norm", x_ptr, partial_ptr, N, NORM_SIZE, CHUNKS, stage=1)
+def _welford_norm_stats_kernel(
+    x_ptr,
+    partial_ptr,
+    N: tl.constexpr,
+    D1: tl.constexpr,
+    D2: tl.constexpr,
+    CHUNKS: tl.constexpr,
+    KIND: tl.constexpr = 0,
+    GROUPS: tl.constexpr = 1,
+):
+    if KIND == 0:
+        tlx.welford_norm("layer_norm", x_ptr, partial_ptr, N, D1, CHUNKS, stage=1)
+    elif KIND == 1:
+        tlx.welford_norm("group_norm", x_ptr, partial_ptr, N, D1, D2, CHUNKS, num_groups=GROUPS, stage=1, axis=1)
+    else:
+        tlx.welford_norm("batch_norm", x_ptr, partial_ptr, N, D1, D2, CHUNKS, stage=1, axis=1)
 
 
 @m1triton.jit
-def _layer_norm_apply_wb_kernel(
+def _welford_norm_apply_kernel(
     x_ptr,
     out_ptr,
     weight_ptr,
     bias_ptr,
     partial_ptr,
     N: tl.constexpr,
-    NORM_SIZE: tl.constexpr,
+    D1: tl.constexpr,
+    D2: tl.constexpr,
     CHUNKS: tl.constexpr,
     EPS: tl.constexpr,
+    KIND: tl.constexpr = 0,
+    HAS_WEIGHT: tl.constexpr = 0,
+    HAS_BIAS: tl.constexpr = 0,
+    GROUPS: tl.constexpr = 1,
 ):
-    tlx.welford_norm(
-        "layer_norm",
-        x_ptr,
-        out_ptr,
-        weight_ptr,
-        bias_ptr,
-        partial_ptr,
-        N,
-        NORM_SIZE,
-        CHUNKS,
-        eps=EPS,
-        stage=2,
-        has_weight=True,
-        has_bias=True,
-    )
-
-
-@m1triton.jit
-def _layer_norm_apply_w_kernel(
-    x_ptr,
-    out_ptr,
-    weight_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    NORM_SIZE: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    tlx.welford_norm(
-        "layer_norm",
-        x_ptr,
-        out_ptr,
-        weight_ptr,
-        partial_ptr,
-        N,
-        NORM_SIZE,
-        CHUNKS,
-        eps=EPS,
-        stage=2,
-        has_weight=True,
-        has_bias=False,
-    )
-
-
-@m1triton.jit
-def _layer_norm_apply_b_kernel(
-    x_ptr,
-    out_ptr,
-    bias_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    NORM_SIZE: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    tlx.welford_norm(
-        "layer_norm",
-        x_ptr,
-        out_ptr,
-        bias_ptr,
-        partial_ptr,
-        N,
-        NORM_SIZE,
-        CHUNKS,
-        eps=EPS,
-        stage=2,
-        has_weight=False,
-        has_bias=True,
-    )
-
-
-@m1triton.jit
-def _layer_norm_apply_none_kernel(
-    x_ptr,
-    out_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    NORM_SIZE: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    tlx.welford_norm(
-        "layer_norm",
-        x_ptr,
-        out_ptr,
-        partial_ptr,
-        N,
-        NORM_SIZE,
-        CHUNKS,
-        eps=EPS,
-        stage=2,
-        has_weight=False,
-        has_bias=False,
-    )
-
-
-@m1triton.jit
-def _group_norm_stats_kernel(
-    x_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    C: tl.constexpr,
-    HW: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    GROUPS: tl.constexpr,
-):
-    tlx.welford_norm("group_norm", x_ptr, partial_ptr, N, C, HW, CHUNKS, num_groups=GROUPS, stage=1, axis=1)
-
-
-@m1triton.jit
-def _group_norm_apply_wb_kernel(
-    x_ptr,
-    out_ptr,
-    weight_ptr,
-    bias_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    C: tl.constexpr,
-    HW: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    GROUPS: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    tlx.welford_norm(
-        "group_norm",
-        x_ptr,
-        out_ptr,
-        weight_ptr,
-        bias_ptr,
-        partial_ptr,
-        N,
-        C,
-        HW,
-        CHUNKS,
-        eps=EPS,
-        num_groups=GROUPS,
-        stage=2,
-        axis=1,
-        has_weight=True,
-        has_bias=True,
-    )
-
-
-@m1triton.jit
-def _group_norm_apply_none_kernel(
-    x_ptr,
-    out_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    C: tl.constexpr,
-    HW: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    GROUPS: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    tlx.welford_norm(
-        "group_norm",
-        x_ptr,
-        out_ptr,
-        partial_ptr,
-        N,
-        C,
-        HW,
-        CHUNKS,
-        eps=EPS,
-        num_groups=GROUPS,
-        stage=2,
-        axis=1,
-        has_weight=False,
-        has_bias=False,
-    )
-
-
-@m1triton.jit
-def _batch_norm_stats_kernel(
-    x_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    C: tl.constexpr,
-    HW: tl.constexpr,
-    CHUNKS: tl.constexpr,
-):
-    tlx.welford_norm("batch_norm", x_ptr, partial_ptr, N, C, HW, CHUNKS, stage=1, axis=1)
-
-
-@m1triton.jit
-def _batch_norm_apply_wb_kernel(
-    x_ptr,
-    out_ptr,
-    weight_ptr,
-    bias_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    C: tl.constexpr,
-    HW: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    tlx.welford_norm(
-        "batch_norm",
-        x_ptr,
-        out_ptr,
-        weight_ptr,
-        bias_ptr,
-        partial_ptr,
-        N,
-        C,
-        HW,
-        CHUNKS,
-        eps=EPS,
-        stage=2,
-        axis=1,
-        has_weight=True,
-        has_bias=True,
-    )
-
-
-@m1triton.jit
-def _batch_norm_apply_none_kernel(
-    x_ptr,
-    out_ptr,
-    partial_ptr,
-    N: tl.constexpr,
-    C: tl.constexpr,
-    HW: tl.constexpr,
-    CHUNKS: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    tlx.welford_norm(
-        "batch_norm",
-        x_ptr,
-        out_ptr,
-        partial_ptr,
-        N,
-        C,
-        HW,
-        CHUNKS,
-        eps=EPS,
-        stage=2,
-        axis=1,
-        has_weight=False,
-        has_bias=False,
-    )
+    if KIND == 0:
+        if HAS_WEIGHT and HAS_BIAS:
+            tlx.welford_norm("layer_norm", x_ptr, out_ptr, weight_ptr, bias_ptr, partial_ptr, N, D1, CHUNKS, eps=EPS, stage=2, has_weight=True, has_bias=True)
+        elif HAS_WEIGHT:
+            tlx.welford_norm("layer_norm", x_ptr, out_ptr, weight_ptr, partial_ptr, N, D1, CHUNKS, eps=EPS, stage=2, has_weight=True, has_bias=False)
+        elif HAS_BIAS:
+            tlx.welford_norm("layer_norm", x_ptr, out_ptr, bias_ptr, partial_ptr, N, D1, CHUNKS, eps=EPS, stage=2, has_weight=False, has_bias=True)
+        else:
+            tlx.welford_norm("layer_norm", x_ptr, out_ptr, partial_ptr, N, D1, CHUNKS, eps=EPS, stage=2, has_weight=False, has_bias=False)
+    elif KIND == 1:
+        if HAS_WEIGHT and HAS_BIAS:
+            tlx.welford_norm("group_norm", x_ptr, out_ptr, weight_ptr, bias_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, num_groups=GROUPS, stage=2, axis=1, has_weight=True, has_bias=True)
+        elif HAS_WEIGHT:
+            tlx.welford_norm("group_norm", x_ptr, out_ptr, weight_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, num_groups=GROUPS, stage=2, axis=1, has_weight=True, has_bias=False)
+        elif HAS_BIAS:
+            tlx.welford_norm("group_norm", x_ptr, out_ptr, bias_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, num_groups=GROUPS, stage=2, axis=1, has_weight=False, has_bias=True)
+        else:
+            tlx.welford_norm("group_norm", x_ptr, out_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, num_groups=GROUPS, stage=2, axis=1, has_weight=False, has_bias=False)
+    else:
+        if HAS_WEIGHT and HAS_BIAS:
+            tlx.welford_norm("batch_norm", x_ptr, out_ptr, weight_ptr, bias_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, stage=2, axis=1, has_weight=True, has_bias=True)
+        elif HAS_WEIGHT:
+            tlx.welford_norm("batch_norm", x_ptr, out_ptr, weight_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, stage=2, axis=1, has_weight=True, has_bias=False)
+        elif HAS_BIAS:
+            tlx.welford_norm("batch_norm", x_ptr, out_ptr, bias_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, stage=2, axis=1, has_weight=False, has_bias=True)
+        else:
+            tlx.welford_norm("batch_norm", x_ptr, out_ptr, partial_ptr, N, D1, D2, CHUNKS, eps=EPS, stage=2, axis=1, has_weight=False, has_bias=False)
 
 
 @m1triton.jit
@@ -1257,9 +666,10 @@ def _batch_norm_eval_kernel(
     pid_hw = tl.program_id(0)
     nc = tl.program_id(1)
     c_idx = nc % C
-    offs = pid_hw * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    mask = offs < HW
-    base = nc.to(tl.int64) * HW
+    hw_i64 = HW.to(tl.int64)
+    offs = pid_hw.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)
+    mask = offs < hw_i64
+    base = nc.to(tl.int64) * hw_i64
     m = tl.load(mean_ptr + c_idx)
     v = tl.load(var_ptr + c_idx)
     inv_std = tl.rsqrt(v + eps)
@@ -1285,8 +695,8 @@ def _welford_partials_extract_kernel(
     BLOCK_SIZE: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    mask = offs < num_groups
+    offs = pid.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)
+    mask = offs < num_groups.to(tl.int64)
     n_tot = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)
     mean_tot = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)
     m2_tot = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)
@@ -1310,13 +720,14 @@ def _welford_partials_extract_kernel(
 
 
 @m1triton.jit
-def _axis_sum_strided_kernel(
+def _axis_reduce_strided_kernel(
     x_ptr,
     out_ptr,
     R,
     inner,
     scale,
     BLOCK_INNER: tl.constexpr,
+    OP_KIND: tl.constexpr = 0,
     APPLY_SCALE: tl.constexpr = 0,
 ):
     pid_c = tl.program_id(0)
@@ -1328,97 +739,67 @@ def _axis_sum_strided_kernel(
     offs = pid_c.to(tl.int64) * BLOCK_INNER + tl.arange(0, BLOCK_INNER).to(tl.int64)
     mask = offs < inner_i64
     p = x_ptr + (base_o + offs)
-    acc = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
-    for _ in range(0, R):
-        acc = acc + tl.load(p, mask=mask, other=0.0)
+    if OP_KIND == 0:
+        acc = tl.zeros((BLOCK_INNER,), dtype=tl.float32)
+        for _ in range(0, R):
+            acc = acc + tl.load(p, mask=mask, other=0.0)
+            p = p + inner_i64
+        if APPLY_SCALE:
+            acc = acc * scale
+    else:
+        acc = tl.load(p, mask=mask, other=0.0)
         p = p + inner_i64
-    if APPLY_SCALE:
-        acc = acc * scale
+        for _ in range(1, R):
+            v = tl.load(p, mask=mask, other=0.0)
+            if OP_KIND == 1:
+                acc = tl.maximum(acc, v)
+            else:
+                acc = tl.minimum(acc, v)
+            p = p + inner_i64
     tl.store(out_ptr + (out_base + offs), acc, mask=mask)
 
 
 @m1triton.jit
-def _axis_extrema_strided_kernel(
-    x_ptr,
-    out_ptr,
-    R,
-    inner,
-    BLOCK_INNER: tl.constexpr,
-    IS_MAX: tl.constexpr = 1,
-):
-    pid_c = tl.program_id(0)
-    pid_o = tl.program_id(1)
-    r_i64 = R.to(tl.int64)
-    inner_i64 = inner.to(tl.int64)
-    base_o = pid_o.to(tl.int64) * (r_i64 * inner_i64)
-    out_base = pid_o.to(tl.int64) * inner_i64
-    offs = pid_c.to(tl.int64) * BLOCK_INNER + tl.arange(0, BLOCK_INNER).to(tl.int64)
-    mask = offs < inner_i64
-    p = x_ptr + (base_o + offs)
-    acc = tl.load(p, mask=mask, other=0.0)
-    p = p + inner_i64
-    for _ in range(1, R):
-        v = tl.load(p, mask=mask, other=0.0)
-        if IS_MAX:
-            acc = tl.maximum(acc, v)
-        else:
-            acc = tl.minimum(acc, v)
-        p = p + inner_i64
-    tl.store(out_ptr + (out_base + offs), acc, mask=mask)
-
-
-@m1triton.jit
-def _last_axis_sum_kernel(
+def _last_axis_reduce_kernel(
     x_ptr,
     out_ptr,
     R,
     scale,
     BLOCK_K: tl.constexpr,
+    OP_KIND: tl.constexpr = 0,
     APPLY_SCALE: tl.constexpr = 0,
 ):
     row = tl.program_id(0)
     row_base = x_ptr + row.to(tl.int64) * R.to(tl.int64)
     ar = tl.arange(0, BLOCK_K)
-    acc = tl.zeros((BLOCK_K,), dtype=tl.float32)
-    for k in range(0, R, BLOCK_K):
-        k_offs = k + ar
-        k_mask = k_offs < R
-        vals = tl.load(row_base + k_offs.to(tl.int64), mask=k_mask, other=0.0)
-        acc = acc + vals
-    res = tl.sum(acc, axis=0)
-    if APPLY_SCALE:
-        res = res * scale
-    tl.store(out_ptr + row.to(tl.int64), res)
-
-
-@m1triton.jit
-def _last_axis_extrema_kernel(
-    x_ptr,
-    out_ptr,
-    R,
-    BLOCK_K: tl.constexpr,
-    IS_MAX: tl.constexpr = 1,
-):
-    row = tl.program_id(0)
-    row_base = x_ptr + row.to(tl.int64) * R.to(tl.int64)
-    ar = tl.arange(0, BLOCK_K)
-    if IS_MAX:
-        init_v = -float("inf")
+    if OP_KIND == 0:
+        acc = tl.zeros((BLOCK_K,), dtype=tl.float32)
+        for k in range(0, R, BLOCK_K):
+            k_offs = k + ar
+            k_mask = k_offs < R
+            vals = tl.load(row_base + k_offs.to(tl.int64), mask=k_mask, other=0.0)
+            acc = acc + vals
+        res = tl.sum(acc, axis=0)
+        if APPLY_SCALE:
+            res = res * scale
     else:
-        init_v = float("inf")
-    acc = tl.full((BLOCK_K,), init_v, dtype=tl.float32)
-    for k in range(0, R, BLOCK_K):
-        k_offs = k + ar
-        k_mask = k_offs < R
-        vals = tl.load(row_base + k_offs.to(tl.int64), mask=k_mask, other=init_v)
-        if IS_MAX:
-            acc = tl.maximum(acc, vals)
+        if OP_KIND == 1:
+            init_v = -float("inf")
         else:
-            acc = tl.minimum(acc, vals)
-    if IS_MAX:
-        res = tl.max(acc, axis=0)
-    else:
-        res = tl.min(acc, axis=0)
+            init_v = float("inf")
+        acc = tl.full((BLOCK_K,), init_v, dtype=tl.float32)
+        for k in range(0, R, BLOCK_K):
+            k_offs = k + ar
+            k_mask = k_offs < R
+            vals = tl.load(row_base + k_offs.to(tl.int64), mask=k_mask, other=init_v)
+            if OP_KIND == 1:
+                acc = tl.maximum(acc, vals)
+            else:
+                acc = tl.minimum(acc, vals)
+        if OP_KIND == 1:
+            res = tl.max(acc, axis=0)
+        else:
+            res = tl.min(acc, axis=0)
     tl.store(out_ptr + row.to(tl.int64), res)
 
 
@@ -1454,7 +835,7 @@ def _fill_const_kernel(
 ):
     tlx.vec_width(4)
     pid = tl.program_id(0)
-    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    offs = pid.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)
     mask = offs < n_elements
     tl.store(out_ptr + offs, fill_val, mask=mask)
 
@@ -1467,7 +848,7 @@ def _cast_kernel(
     BLOCK_SIZE: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    offs = pid.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)
     mask = offs < n_elements
     x = tl.load(x_ptr + offs, mask=mask, other=0)
     tl.store(out_ptr + offs, x, mask=mask)
@@ -1495,7 +876,6 @@ _POINTWISE_TARGETS: frozenset[Any] = frozenset(
         aten.pow.Tensor_Tensor,
         aten.pow.Scalar,
         aten.relu.default,
-        aten.relu_.default,
         aten.leaky_relu.default,
         aten.sigmoid.default,
         aten.tanh.default,
@@ -1691,17 +1071,6 @@ def _node_tensor_meta(node: fx.Node) -> tuple[tuple[int, ...] | None, torch.dtyp
     return None, None, None
 
 
-def _is_tensor_node(node: Any) -> bool:
-    if not isinstance(node, fx.Node):
-        return False
-    val = _node_val(node)
-    if isinstance(val, torch.Tensor):
-        return True
-    if node.meta.get("tensor_meta") is not None:
-        return True
-    return False
-
-
 def _is_supported_pointwise_node(node: fx.Node) -> bool:
     if node.op != "call_function" or node.target not in _POINTWISE_TARGETS:
         return False
@@ -1711,14 +1080,28 @@ def _is_supported_pointwise_node(node: fx.Node) -> bool:
             mode = node.args[2]
         if mode not in (None, "floor"):
             return False
+    shape, dtype, dev = _node_tensor_meta(node)
     if node.target == aten._to_copy.default:
         out_dt = node.kwargs.get("dtype")
         if out_dt is not None and out_dt not in _SUPPORTED_PW_DTYPES:
             return False
-        dev = node.kwargs.get("device")
-        if dev is not None and getattr(dev, "type", str(dev)) not in _SUPPORTED_DEVICES:
+        req_dev = node.kwargs.get("device")
+        req_dev_type = (
+            req_dev.type
+            if isinstance(req_dev, torch.device)
+            else (str(req_dev).split(":")[0] if req_dev is not None else None)
+        )
+        if req_dev_type is not None and req_dev_type not in _SUPPORTED_DEVICES:
             return False
-    shape, dtype, dev = _node_tensor_meta(node)
+        in_node = node.args[0] if node.args else None
+        if isinstance(in_node, fx.Node):
+            _, _, in_dev = _node_tensor_meta(in_node)
+            if req_dev_type is not None and (in_dev is None or req_dev_type != in_dev):
+                return False
+            if in_dev is not None and dev is not None and in_dev != dev:
+                return False
+        elif req_dev_type is not None:
+            return False
     if dtype is not None and dtype not in _SUPPORTED_PW_DTYPES:
         return False
     if dev is not None and dev not in _SUPPORTED_DEVICES:
@@ -1731,6 +1114,8 @@ def _is_supported_pointwise_node(node: fx.Node) -> bool:
             if adt is not None and adt not in _SUPPORTED_PW_DTYPES:
                 return False
             if adev is not None and adev not in _SUPPORTED_DEVICES:
+                return False
+            if adev is not None and dev is not None and adev != dev:
                 return False
     return True
 
@@ -1879,7 +1264,7 @@ def _emit_pw_op_lines(var_name: str, expr: _PWExprNode, ref_map: dict[Any, str])
                 return [f"{var_name} = 1.0 / {a}"]
         return [f"{var_name} = {a} ** {arg_ref(raw_b)}"]
 
-    if t in (aten.relu.default, aten.relu_.default):
+    if t == aten.relu.default:
         return [f"{var_name} = tl.maximum({arg_ref(ops[0])}, 0.0)"]
 
     if t == aten.leaky_relu.default:
@@ -1920,8 +1305,7 @@ def _emit_pw_op_lines(var_name: str, expr: _PWExprNode, ref_map: dict[Any, str])
     if t == aten.hardswish.default:
         x = arg_ref(ops[0])
         return [
-            f"{var_name}_hs = tl.where({x} <= -3.0, 0.0, tl.where({x} >= 3.0, 1.0, ({x} + 3.0) * 0.16666666666666666))",
-            f"{var_name} = {x} * {var_name}_hs",
+            f"{var_name} = tl.where({x} <= -3.0, 0.0, tl.where({x} >= 3.0, {x}, {x} * ({x} + 3.0) * 0.16666666666666666))"
         ]
 
     if t == aten.hardtanh.default:
@@ -2014,6 +1398,15 @@ def _emit_pw_op_lines(var_name: str, expr: _PWExprNode, ref_map: dict[Any, str])
     if t in (aten.where.self, aten.where.ScalarOther, aten.where.ScalarSelf):
         return [f"{var_name} = tl.where({arg_ref(ops[0])}, {arg_ref(ops[1])}, {arg_ref(ops[2])})"]
 
+    if t == aten.logical_and.default:
+        return [f"{var_name} = (({arg_ref(ops[0])} != 0) & ({arg_ref(ops[1])} != 0))"]
+
+    if t == aten.logical_or.default:
+        return [f"{var_name} = (({arg_ref(ops[0])} != 0) | ({arg_ref(ops[1])} != 0))"]
+
+    if t == aten.logical_not.default:
+        return [f"{var_name} = ({arg_ref(ops[0])} == 0)"]
+
     cmp_ops = {
         aten.gt.Tensor: ">",
         aten.gt.Scalar: ">",
@@ -2027,15 +1420,13 @@ def _emit_pw_op_lines(var_name: str, expr: _PWExprNode, ref_map: dict[Any, str])
         aten.eq.Scalar: "==",
         aten.ne.Tensor: "!=",
         aten.ne.Scalar: "!=",
-        aten.logical_and.default: "&",
         aten.bitwise_and.Tensor: "&",
-        aten.logical_or.default: "|",
         aten.bitwise_or.Tensor: "|",
     }
     if t in cmp_ops:
         return [f"{var_name} = ({arg_ref(ops[0])} {cmp_ops[t]} {arg_ref(ops[1])})"]
 
-    if t in (aten.logical_not.default, aten.bitwise_not.default):
+    if t == aten.bitwise_not.default:
         return [f"{var_name} = ~({arg_ref(ops[0])})"]
 
     if t == aten._to_copy.default:
@@ -2267,20 +1658,26 @@ def _synthesize_pointwise_plan(
             body_lines.append("    tlx.vec_width(4)")
 
         if launch_mode == "row_bcast":
-            params.extend(["row_len", "BLOCK_SIZE: tl.constexpr"])
+            params.extend(["row_len", "BLOCK_SIZE: tl.constexpr", "USE_INT64: tl.constexpr = 0"])
             body_lines.append("    pid_col = tl.program_id(0)")
             body_lines.append("    row = tl.program_id(1)")
-            body_lines.append("    offs = pid_col * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)")
+            body_lines.append("    if USE_INT64:")
+            body_lines.append("        offs = pid_col.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)")
+            body_lines.append("    else:")
+            body_lines.append("        offs = pid_col * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)")
             body_lines.append("    mask = offs < row_len")
             body_lines.append("    row_off = row.to(tl.int64) * row_len")
         elif launch_mode == "chan_bcast":
             for idx, mode in enumerate(input_modes_list):
                 if mode == "bcast":
                     params.append(f"c_dim_{idx}")
-            params.extend(["inner_len", "BLOCK_SIZE: tl.constexpr"])
+            params.extend(["inner_len", "BLOCK_SIZE: tl.constexpr", "USE_INT64: tl.constexpr = 0"])
             body_lines.append("    pid_hw = tl.program_id(0)")
             body_lines.append("    nc = tl.program_id(1)")
-            body_lines.append("    offs = pid_hw * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)")
+            body_lines.append("    if USE_INT64:")
+            body_lines.append("        offs = pid_hw.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)")
+            body_lines.append("    else:")
+            body_lines.append("        offs = pid_hw * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)")
             body_lines.append("    mask = offs < inner_len")
             body_lines.append("    base_off = nc.to(tl.int64) * inner_len")
         else:
@@ -2290,9 +1687,12 @@ def _synthesize_pointwise_plan(
                         params.append(f"b{idx}_div_{t_i}")
                         params.append(f"b{idx}_mod_{t_i}")
                         params.append(f"b{idx}_st_{t_i}")
-            params.extend(["n_elements", "BLOCK_SIZE: tl.constexpr"])
+            params.extend(["n_elements", "BLOCK_SIZE: tl.constexpr", "USE_INT64: tl.constexpr = 0"])
             body_lines.append("    pid = tl.program_id(0)")
-            body_lines.append("    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)")
+            body_lines.append("    if USE_INT64:")
+            body_lines.append("        offs = pid.to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE).to(tl.int64)")
+            body_lines.append("    else:")
+            body_lines.append("        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)")
             body_lines.append("    mask = offs < n_elements")
 
         ref_map: dict[str, str] = {}
@@ -2379,6 +1779,8 @@ class _BatchRunner:
     def __init__(self) -> None:
         self._ctx: Any = None
         self._mps_dirty: bool = True
+        self._pending_cache_commits: list[Callable[[], None]] = []
+        self._batch_wino: dict[tuple[Any, ...], torch.Tensor] = {}
 
     def ensure_contig(self, t: torch.Tensor) -> torch.Tensor:
         if t.is_contiguous():
@@ -2398,13 +1800,27 @@ class _BatchRunner:
             self._ctx = ctx
             self._mps_dirty = False
 
+    def defer_cache_commit(self, fn: Callable[[], None]) -> None:
+        if self._ctx is None:
+            fn()
+        else:
+            self._pending_cache_commits.append(fn)
+
     def flush(self) -> None:
         if self._ctx is not None:
             ctx = self._ctx
             self._ctx = None
             ctx.__exit__(None, None, None)
+        self._batch_wino.clear()
+        if self._pending_cache_commits:
+            commits = self._pending_cache_commits
+            self._pending_cache_commits = []
+            for commit in commits:
+                commit()
 
     def abort(self) -> None:
+        self._pending_cache_commits.clear()
+        self._batch_wino.clear()
         if self._ctx is not None:
             ctx = self._ctx
             self._ctx = None
@@ -2440,6 +1856,7 @@ def _run_fused_pointwise(plan: _FusedPointwisePlan, env: dict[str, Any], runner:
             env[name] = out_t
         return
 
+    use_int64 = 1 if n_elements > _INT32_FAST_LIMIT else 0
     runner.begin_m1(device.type == "mps")
     if plan.launch_mode == "row_bcast":
         row_len = plan.inner_len
@@ -2451,6 +1868,7 @@ def _run_fused_pointwise(plan: _FusedPointwisePlan, env: dict[str, Any], runner:
             *outputs,
             row_len,
             BLOCK_SIZE=block_size,
+            USE_INT64=use_int64,
             wait=False,
             sync_mps=False,
         )
@@ -2465,6 +1883,7 @@ def _run_fused_pointwise(plan: _FusedPointwisePlan, env: dict[str, Any], runner:
             *plan.chan_dims,
             inner_len,
             BLOCK_SIZE=block_size,
+            USE_INT64=use_int64,
             wait=False,
             sync_mps=False,
         )
@@ -2491,6 +1910,7 @@ def _run_fused_pointwise(plan: _FusedPointwisePlan, env: dict[str, Any], runner:
             *bcast_scalars,
             n_elements,
             BLOCK_SIZE=block_size,
+            USE_INT64=use_int64,
             wait=False,
             sync_mps=False,
         )
@@ -2698,6 +2118,7 @@ def _get_or_transform_wino2x3_filter(
     c_out: int,
     c_in_pad: int,
     c_out_pad: int,
+    runner: _BatchRunner,
 ) -> torch.Tensor:
     key = (id(weight_orig), c_in, c_out, c_in_pad, c_out_pad, str(w_c.device))
     ver = int(getattr(weight_orig, "_version", -1))
@@ -2705,7 +2126,13 @@ def _get_or_transform_wino2x3_filter(
     if cached is not None:
         w_ref, cached_ver, u_cached = cached
         if w_ref() is weight_orig and cached_ver == ver:
+            del _WINO_FILTER_CACHE[key]
+            _WINO_FILTER_CACHE[key] = cached
             return u_cached
+    batch_key = (key, ver)
+    pending_u = runner._batch_wino.get(batch_key)
+    if pending_u is not None:
+        return pending_u
     u = torch.empty((16, c_in_pad // 8, c_out_pad // 8, 8, 8), dtype=torch.float32, device=w_c.device)
     _wino2x3_filter_kernel[(_cdiv(c_out_pad * c_in_pad, 256),)](
         w_c,
@@ -2718,9 +2145,16 @@ def _get_or_transform_wino2x3_filter(
         wait=False,
         sync_mps=False,
     )
-    if len(_WINO_FILTER_CACHE) >= 64:
-        _WINO_FILTER_CACHE.clear()
-    _WINO_FILTER_CACHE[key] = (TensorWeakRef(weight_orig), ver, u)
+    runner._batch_wino[batch_key] = u
+
+    def _commit() -> None:
+        if key in _WINO_FILTER_CACHE:
+            del _WINO_FILTER_CACHE[key]
+        elif len(_WINO_FILTER_CACHE) >= 64:
+            del _WINO_FILTER_CACHE[next(iter(_WINO_FILTER_CACHE))]
+        _WINO_FILTER_CACHE[key] = (TensorWeakRef(weight_orig), ver, u)
+
+    runner.defer_cache_commit(_commit)
     return u
 
 
@@ -2746,6 +2180,8 @@ def _launch_conv(
     x_c = runner.ensure_contig(x)
     w_c = runner.ensure_contig(weight.detach())
     b_c = runner.ensure_contig(bias.detach()) if bias is not None else None
+    b_arg = b_c if b_c is not None else x_c
+    has_bias = 1 if b_c is not None else 0
 
     n, c_in = int(x_c.shape[0]), int(x_c.shape[1])
     c_out = int(w_c.shape[0])
@@ -2766,41 +2202,11 @@ def _launch_conv(
     if ndim == 2 and groups == c_in and groups > 1 and int(w_c.shape[1]) == 1 and (c_out % c_in == 0):
         bw, bh, vw, rpt = _select_dw2d_tile(spatial_out[0], spatial_out[1], (k[0], k[1]), (s[0], s[1]), (d[0], d[1]))
         grid = (_cdiv(spatial_out[1], bw), _cdiv(spatial_out[0], bh), n * c_out)
-        consts = dict(
-            K_H=k[0],
-            K_W=k[1],
-            S_H=s[0],
-            S_W=s[1],
-            P_H=p[0],
-            P_W=p[1],
-            D_H=d[0],
-            D_W=d[1],
-            BLOCK_W=bw,
-            BLOCK_H=bh,
-            VEC_W=vw,
-            ROWS_PER_THREAD=rpt,
-            wait=False,
-            sync_mps=False,
+        _conv_dw2d_kernel[grid](
+            x_c, w_c, out, b_arg, n, c_in, c_out, spatial_in[0], spatial_in[1], spatial_out[0], spatial_out[1],
+            K_H=k[0], K_W=k[1], S_H=s[0], S_W=s[1], P_H=p[0], P_W=p[1], D_H=d[0], D_W=d[1],
+            BLOCK_W=bw, BLOCK_H=bh, VEC_W=vw, ROWS_PER_THREAD=rpt, HAS_BIAS=has_bias, wait=False, sync_mps=False,
         )
-        if b_c is None:
-            _conv_dw2d_kernel[grid](
-                x_c, w_c, out, n, c_in, c_out, spatial_in[0], spatial_in[1], spatial_out[0], spatial_out[1], **consts
-            )
-        else:
-            _conv_dw2d_bias_kernel[grid](
-                x_c,
-                w_c,
-                out,
-                b_c,
-                n,
-                c_in,
-                c_out,
-                spatial_in[0],
-                spatial_in[1],
-                spatial_out[0],
-                spatial_out[1],
-                **consts,
-            )
         return out
 
     # Winograd F(2x2, 3x3) fast path for 2D 3x3 stride=1 dilation=1 groups=1 f32.
@@ -2825,61 +2231,16 @@ def _launch_conv(
             bm, bn, tth, ttw, nsg = 32, 32, 2, 16, (16 if pow2_w else 8)
         c_in_pad = _cdiv(c_in, bk) * bk
         c_out_pad = _cdiv(c_out, bm) * bm
-        u = _get_or_transform_wino2x3_filter(weight, w_c, c_in, c_out, c_in_pad, c_out_pad)
-        th = _cdiv(spatial_out[0], 2)
-        tw = _cdiv(spatial_out[1], 2)
+        u = _get_or_transform_wino2x3_filter(weight, w_c, c_in, c_out, c_in_pad, c_out_pad, runner)
+        th, tw = _cdiv(spatial_out[0], 2), _cdiv(spatial_out[1], 2)
         grid = (_cdiv(th, tth) * _cdiv(tw, ttw), _cdiv(c_out, bm), n)
-        if b_c is not None:
-            _conv2d_wino2x3_bias_kernel[grid](
-                x_c,
-                u,
-                out,
-                b_c,
-                N=n,
-                C_in=c_in,
-                C_out=c_out,
-                H_in=spatial_in[0],
-                W_in=spatial_in[1],
-                H_out=spatial_out[0],
-                W_out=spatial_out[1],
-                P_H=p[0],
-                P_W=p[1],
-                BLOCK_M=bm,
-                BLOCK_N=bn,
-                BLOCK_K=bk,
-                TILE_TH=tth,
-                TILE_TW=ttw,
-                NUM_SG=nsg,
-                WINOGRAD=1,
-                WINO_PAD=1,
-                wait=False,
-                sync_mps=False,
-            )
-        else:
-            _conv2d_wino2x3_kernel[grid](
-                x_c,
-                u,
-                out,
-                N=n,
-                C_in=c_in,
-                C_out=c_out,
-                H_in=spatial_in[0],
-                W_in=spatial_in[1],
-                H_out=spatial_out[0],
-                W_out=spatial_out[1],
-                P_H=p[0],
-                P_W=p[1],
-                BLOCK_M=bm,
-                BLOCK_N=bn,
-                BLOCK_K=bk,
-                TILE_TH=tth,
-                TILE_TW=ttw,
-                NUM_SG=nsg,
-                WINOGRAD=1,
-                WINO_PAD=1,
-                wait=False,
-                sync_mps=False,
-            )
+        _conv2d_wino2x3_kernel[grid](
+            x_c, u, out, b_arg,
+            N=n, C_in=c_in, C_out=c_out, H_in=spatial_in[0], W_in=spatial_in[1],
+            H_out=spatial_out[0], W_out=spatial_out[1], P_H=p[0], P_W=p[1],
+            BLOCK_M=bm, BLOCK_N=bn, BLOCK_K=bk, TILE_TH=tth, TILE_TW=ttw,
+            NUM_SG=nsg, WINOGRAD=1, WINO_PAD=1, HAS_BIAS=has_bias, wait=False, sync_mps=False,
+        )
         return out
 
     pixels = n * math.prod(spatial_out)
@@ -2888,44 +2249,21 @@ def _launch_conv(
     bm, bn, bk, num_sg = _select_conv_tile(c_in // groups, c_out_g, math.prod(k), pointwise, ndim=ndim, stride_w=s[-1])
     grid = (_cdiv(pixels, bn), _cdiv(c_out_g, bm), groups)
 
-    shape_names = {
-        1: ("W_in", "W_out"),
-        2: ("H_in", "W_in", "H_out", "W_out"),
-        3: ("D_in", "H_in", "W_in", "D_out", "H_out", "W_out"),
-    }[ndim]
-    prefixes = {1: ("W",), 2: ("H", "W"), 3: ("D", "H", "W")}[ndim]
-    consts = dict(zip(shape_names, (*spatial_in, *spatial_out)))
-    for i, tag in enumerate(prefixes):
-        consts[f"K_{tag}"] = k[i]
-        consts[f"S_{tag}"] = s[i]
-        consts[f"P_{tag}"] = p[i]
-        consts[f"D_{tag}"] = d[i]
-
-    kernel_map = {
-        (1, False): _conv1d_kernel,
-        (1, True): _conv1d_bias_kernel,
-        (2, False): _conv2d_kernel,
-        (2, True): _conv2d_bias_kernel,
-        (3, False): _conv3d_kernel,
-        (3, True): _conv3d_bias_kernel,
-    }
-    kernel = kernel_map[(ndim, b_c is not None)]
-    args: list[Any] = [x_c, w_c, out]
-    if b_c is not None:
-        args.append(b_c)
-    kernel[grid](
-        *args,
-        N=n,
-        C_in=c_in,
-        C_out=c_out,
-        GROUPS=int(groups),
-        BLOCK_M=bm,
-        BLOCK_N=bn,
-        BLOCK_K=bk,
-        NUM_SG=num_sg,
-        wait=False,
-        sync_mps=False,
-        **consts,
+    pad_n = 3 - ndim
+    si3 = (1,) * pad_n + tuple(spatial_in)
+    so3 = (1,) * pad_n + tuple(spatial_out)
+    k3 = (1,) * pad_n + k
+    s3 = (1,) * pad_n + s
+    p3 = (0,) * pad_n + p
+    d3 = (1,) * pad_n + d
+    _conv_std_kernel[grid](
+        x_c, w_c, out, b_arg,
+        N=n, C_in=c_in, C_out=c_out,
+        D_in=si3[0], H_in=si3[1], W_in=si3[2], D_out=so3[0], H_out=so3[1], W_out=so3[2],
+        K_D=k3[0], K_H=k3[1], K_W=k3[2], S_D=s3[0], S_H=s3[1], S_W=s3[2],
+        P_D=p3[0], P_H=p3[1], P_W=p3[2], D_D=d3[0], D_H=d3[1], D_W=d3[2],
+        GROUPS=int(groups), BLOCK_M=bm, BLOCK_N=bn, BLOCK_K=bk, NUM_SG=num_sg,
+        NDIM=ndim, HAS_BIAS=has_bias, wait=False, sync_mps=False,
     )
     return out
 
@@ -3016,93 +2354,28 @@ def _launch_pool(
         total = n * c * spatial_out[0] * spatial_out[1]
         block = 256
         _max_pool2d_with_indices_kernel[(_cdiv(total, block),)](
-            x_c,
-            out,
-            idx_out,
-            n * c,
-            spatial_in[0],
-            spatial_in[1],
-            spatial_out[0],
-            spatial_out[1],
-            K_H=k[0],
-            K_W=k[1],
-            S_H=s[0],
-            S_W=s[1],
-            P_H=p[0],
-            P_W=p[1],
-            D_H=d[0],
-            D_W=d[1],
-            BLOCK_SIZE=block,
-            wait=False,
-            sync_mps=False,
+            x_c, out, idx_out, n * c, spatial_in[0], spatial_in[1], spatial_out[0], spatial_out[1],
+            K_H=k[0], K_W=k[1], S_H=s[0], S_W=s[1], P_H=p[0], P_W=p[1], D_H=d[0], D_W=d[1],
+            BLOCK_SIZE=block, wait=False, sync_mps=False,
         )
-        if squeezed:
-            return out.squeeze(0), idx_out.squeeze(0)
-        return out, idx_out
+        return (out.squeeze(0), idx_out.squeeze(0)) if squeezed else (out, idx_out)
 
     bw, bh, vw, rpt = _select_pool_block(ndim, kind, k, s, d, spatial_out)
-    w_out = spatial_out[-1]
-    h_out = spatial_out[-2] if ndim >= 2 else 1
-    d_out = spatial_out[-3] if ndim == 3 else 1
-    grid = (_cdiv(w_out, bw), _cdiv(h_out, bh), n * c * d_out)
-    common = dict(
-        KIND=kind,
-        COUNT_INCLUDE_PAD=bool(count_include_pad),
-        CEIL_MODE=bool(ceil_mode),
-        BLOCK_W=bw,
-        wait=False,
-        sync_mps=False,
+    pad_n = 3 - ndim
+    si3 = (1,) * pad_n + tuple(spatial_in)
+    so3 = (1,) * pad_n + tuple(spatial_out)
+    k3 = (1,) * pad_n + k
+    s3 = (1,) * pad_n + s
+    p3 = (0,) * pad_n + p
+    d3 = (1,) * pad_n + d
+    grid = (_cdiv(so3[2], bw), _cdiv(so3[1], bh), n * c * so3[0])
+    _pool_nd_kernel[grid](
+        x_c, out, n, c, si3[0], si3[1], si3[2], so3[0], so3[1], so3[2],
+        KIND=kind, K_D=k3[0], K_H=k3[1], K_W=k3[2], S_D=s3[0], S_H=s3[1], S_W=s3[2],
+        P_D=p3[0], P_H=p3[1], P_W=p3[2], D_D=d3[0], D_H=d3[1], D_W=d3[2],
+        COUNT_INCLUDE_PAD=bool(count_include_pad), CEIL_MODE=bool(ceil_mode),
+        BLOCK_W=bw, BLOCK_H=bh, VEC_W=vw, ROWS_PER_THREAD=rpt, NDIM=ndim, wait=False, sync_mps=False,
     )
-    if ndim == 1:
-        _pool1d_kernel[grid](
-            x_c, out, n, c, spatial_in[0], spatial_out[0], K_W=k[0], S_W=s[0], P_W=p[0], D_W=d[0], **common
-        )
-    elif ndim == 2:
-        _pool2d_kernel[grid](
-            x_c,
-            out,
-            n,
-            c,
-            spatial_in[0],
-            spatial_in[1],
-            spatial_out[0],
-            spatial_out[1],
-            K_H=k[0],
-            K_W=k[1],
-            S_H=s[0],
-            S_W=s[1],
-            P_H=p[0],
-            P_W=p[1],
-            D_H=d[0],
-            D_W=d[1],
-            BLOCK_H=bh,
-            VEC_W=vw,
-            ROWS_PER_THREAD=rpt,
-            **common,
-        )
-    else:
-        _pool3d_kernel[grid](
-            x_c,
-            out,
-            n,
-            c,
-            *spatial_in,
-            *spatial_out,
-            K_D=k[0],
-            K_H=k[1],
-            K_W=k[2],
-            S_D=s[0],
-            S_H=s[1],
-            S_W=s[2],
-            P_D=p[0],
-            P_H=p[1],
-            P_W=p[2],
-            D_D=d[0],
-            D_H=d[1],
-            D_W=d[2],
-            BLOCK_H=bh,
-            **common,
-        )
     if squeezed:
         out = out.squeeze(0)
     return out, None
@@ -3174,6 +2447,41 @@ def _launch_softmax(
     return out
 
 
+def _prepare_norm_inputs(
+    x: torch.Tensor,
+    weight: torch.Tensor | None,
+    bias: torch.Tensor | None,
+    runner: _BatchRunner,
+) -> tuple[torch.dtype, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    x_c = runner.ensure_contig(x)
+    orig_dtype = x_c.dtype
+    work = _cast_tensor_m1(x_c, torch.float32, runner) if orig_dtype == torch.float16 else x_c
+    w_c = _cast_tensor_m1(runner.ensure_contig(weight), torch.float32, runner) if weight is not None else None
+    b_c = _cast_tensor_m1(runner.ensure_contig(bias), torch.float32, runner) if bias is not None else None
+    return orig_dtype, work, w_c, b_c
+
+
+def _extract_norm_stats(
+    partial: torch.Tensor,
+    stat_shape: tuple[int, ...],
+    num_groups: int,
+    chunks: int,
+    eps: float,
+    need_stats: bool,
+    device: torch.device,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    if not need_stats:
+        return None, None
+    mean_t = torch.empty(stat_shape, dtype=torch.float32, device=device)
+    rstd_t = torch.empty(stat_shape, dtype=torch.float32, device=device)
+    if num_groups > 0:
+        blk = 256
+        _welford_partials_extract_kernel[(_cdiv(num_groups, blk),)](
+            partial, mean_t, rstd_t, num_groups, CHUNKS=chunks, eps=float(eps), BLOCK_SIZE=blk, wait=False, sync_mps=False
+        )
+    return mean_t, rstd_t
+
+
 def _launch_layer_norm(
     x: torch.Tensor,
     normalized_shape: Sequence[int],
@@ -3183,20 +2491,7 @@ def _launch_layer_norm(
     need_stats: bool,
     runner: _BatchRunner,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
-    x_c = runner.ensure_contig(x)
-    orig_dtype = x_c.dtype
-    work = _cast_tensor_m1(x_c, torch.float32, runner) if orig_dtype == torch.float16 else x_c
-    w_c = (
-        _cast_tensor_m1(runner.ensure_contig(weight), torch.float32, runner)
-        if weight is not None
-        else None
-    )
-    b_c = (
-        _cast_tensor_m1(runner.ensure_contig(bias), torch.float32, runner)
-        if bias is not None
-        else None
-    )
-
+    orig_dtype, work, w_c, b_c = _prepare_norm_inputs(x, weight, bias, runner)
     norm_size = int(math.prod(int(v) for v in normalized_shape))
     outer_shape = tuple(int(v) for v in work.shape[: work.ndim - len(normalized_shape)])
     n = work.numel() // max(norm_size, 1)
@@ -3206,37 +2501,20 @@ def _launch_layer_norm(
 
     if out.numel() > 0:
         runner.begin_m1(work.device.type == "mps")
-        _layer_norm_stats_kernel[(chunks, n, 1)](work, partial, n, norm_size, chunks, wait=False, sync_mps=False)
+        _welford_norm_stats_kernel[(chunks, n, 1)](
+            work, partial, N=n, D1=norm_size, D2=1, CHUNKS=chunks, KIND=0, wait=False, sync_mps=False
+        )
         tiles = max(1, _cdiv(norm_size, 8192))
-        if w_c is not None and b_c is not None:
-            _layer_norm_apply_wb_kernel[(tiles, n, 1)](
-                work, out, w_c, b_c, partial, n, norm_size, chunks, float(eps), wait=False, sync_mps=False
-            )
-        elif w_c is not None:
-            _layer_norm_apply_w_kernel[(tiles, n, 1)](
-                work, out, w_c, partial, n, norm_size, chunks, float(eps), wait=False, sync_mps=False
-            )
-        elif b_c is not None:
-            _layer_norm_apply_b_kernel[(tiles, n, 1)](
-                work, out, b_c, partial, n, norm_size, chunks, float(eps), wait=False, sync_mps=False
-            )
-        else:
-            _layer_norm_apply_none_kernel[(tiles, n, 1)](
-                work, out, partial, n, norm_size, chunks, float(eps), wait=False, sync_mps=False
-            )
+        _welford_norm_apply_kernel[(tiles, n, 1)](
+            work, out, w_c if w_c is not None else work, b_c if b_c is not None else work, partial,
+            N=n, D1=norm_size, D2=1, CHUNKS=chunks, EPS=float(eps), KIND=0,
+            HAS_WEIGHT=1 if w_c is not None else 0, HAS_BIAS=1 if b_c is not None else 0,
+            wait=False, sync_mps=False,
+        )
 
-    mean_t: torch.Tensor | None = None
-    rstd_t: torch.Tensor | None = None
-    if need_stats:
-        stat_shape = outer_shape + (1,) * len(normalized_shape)
-        mean_t = torch.empty(stat_shape, dtype=torch.float32, device=work.device)
-        rstd_t = torch.empty(stat_shape, dtype=torch.float32, device=work.device)
-        if n > 0:
-            blk = 256
-            _welford_partials_extract_kernel[(_cdiv(n, blk),)](
-                partial, mean_t, rstd_t, n, CHUNKS=chunks, eps=float(eps), BLOCK_SIZE=blk, wait=False, sync_mps=False
-            )
-
+    mean_t, rstd_t = _extract_norm_stats(
+        partial, outer_shape + (1,) * len(normalized_shape), n, chunks, eps, need_stats, work.device
+    )
     final_out = _cast_tensor_m1(out, orig_dtype, runner) if orig_dtype == torch.float16 else out
     return final_out, mean_t, rstd_t
 
@@ -3250,56 +2528,29 @@ def _launch_group_norm(
     need_stats: bool,
     runner: _BatchRunner,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
-    x_c = runner.ensure_contig(x)
-    orig_dtype = x_c.dtype
-    work = _cast_tensor_m1(x_c, torch.float32, runner) if orig_dtype == torch.float16 else x_c
-    w_c = _cast_tensor_m1(runner.ensure_contig(weight), torch.float32, runner) if weight is not None else None
-    b_c = _cast_tensor_m1(runner.ensure_contig(bias), torch.float32, runner) if bias is not None else None
-
+    orig_dtype, work, w_c, b_c = _prepare_norm_inputs(x, weight, bias, runner)
     n, c = int(work.shape[0]), int(work.shape[1])
     hw = work.numel() // max(n * c, 1)
-    group_elems = (c // num_groups) * hw
-    chunks = max(1, min(32, _cdiv(group_elems, 65536)))
+    chunks = max(1, min(32, _cdiv((c // num_groups) * hw, 65536)))
     partial = torch.empty(max(n * num_groups * chunks * 3, 1), dtype=torch.float32, device=work.device)
     out = torch.empty_like(work)
 
     if out.numel() > 0:
         runner.begin_m1(work.device.type == "mps")
-        _group_norm_stats_kernel[(chunks, n * num_groups, 1)](
-            work, partial, n, c, hw, chunks, int(num_groups), wait=False, sync_mps=False
+        _welford_norm_stats_kernel[(chunks, n * num_groups, 1)](
+            work, partial, N=n, D1=c, D2=hw, CHUNKS=chunks, KIND=1, GROUPS=int(num_groups), wait=False, sync_mps=False
         )
         tiles = max(1, _cdiv(hw, 8192))
-        if w_c is not None and b_c is not None:
-            _group_norm_apply_wb_kernel[(tiles, n * c, 1)](
-                work, out, w_c, b_c, partial, n, c, hw, chunks, int(num_groups), float(eps), wait=False, sync_mps=False
-            )
-        elif w_c is None and b_c is None:
-            _group_norm_apply_none_kernel[(tiles, n * c, 1)](
-                work, out, partial, n, c, hw, chunks, int(num_groups), float(eps), wait=False, sync_mps=False
-            )
-        else:
-            if w_c is None:
-                w_c = torch.empty((c,), dtype=torch.float32, device=work.device)
-                _fill_const_kernel[(_cdiv(c, 256),)](w_c, 1.0, c, BLOCK_SIZE=256, wait=False, sync_mps=False)
-            if b_c is None:
-                b_c = torch.empty((c,), dtype=torch.float32, device=work.device)
-                _fill_const_kernel[(_cdiv(c, 256),)](b_c, 0.0, c, BLOCK_SIZE=256, wait=False, sync_mps=False)
-            _group_norm_apply_wb_kernel[(tiles, n * c, 1)](
-                work, out, w_c, b_c, partial, n, c, hw, chunks, int(num_groups), float(eps), wait=False, sync_mps=False
-            )
+        _welford_norm_apply_kernel[(tiles, n * c, 1)](
+            work, out, w_c if w_c is not None else work, b_c if b_c is not None else work, partial,
+            N=n, D1=c, D2=hw, CHUNKS=chunks, EPS=float(eps), KIND=1,
+            HAS_WEIGHT=1 if w_c is not None else 0, HAS_BIAS=1 if b_c is not None else 0,
+            GROUPS=int(num_groups), wait=False, sync_mps=False,
+        )
 
-    mean_t: torch.Tensor | None = None
-    rstd_t: torch.Tensor | None = None
-    if need_stats:
-        mean_t = torch.empty((n, num_groups), dtype=torch.float32, device=work.device)
-        rstd_t = torch.empty((n, num_groups), dtype=torch.float32, device=work.device)
-        ng = n * num_groups
-        if ng > 0:
-            blk = 256
-            _welford_partials_extract_kernel[(_cdiv(ng, blk),)](
-                partial, mean_t, rstd_t, ng, CHUNKS=chunks, eps=float(eps), BLOCK_SIZE=blk, wait=False, sync_mps=False
-            )
-
+    mean_t, rstd_t = _extract_norm_stats(
+        partial, (n, num_groups), n * num_groups, chunks, eps, need_stats, work.device
+    )
     final_out = _cast_tensor_m1(out, orig_dtype, runner) if orig_dtype == torch.float16 else out
     return final_out, mean_t, rstd_t
 
@@ -3315,41 +2566,29 @@ def _launch_batch_norm(
     need_stats: bool,
     runner: _BatchRunner,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
-    x_c = runner.ensure_contig(x)
-    orig_dtype = x_c.dtype
-    work = _cast_tensor_m1(x_c, torch.float32, runner) if orig_dtype == torch.float16 else x_c
-    w_c = _cast_tensor_m1(runner.ensure_contig(weight), torch.float32, runner) if weight is not None else None
-    b_c = _cast_tensor_m1(runner.ensure_contig(bias), torch.float32, runner) if bias is not None else None
-
+    orig_dtype, work, w_c, b_c = _prepare_norm_inputs(x, weight, bias, runner)
     n, c = int(work.shape[0]), int(work.shape[1])
     hw = work.numel() // max(n * c, 1)
     out = torch.empty_like(work)
     if out.numel() == 0:
         final_out = _cast_tensor_m1(out, orig_dtype, runner) if orig_dtype == torch.float16 else out
+        if need_stats:
+            return (
+                final_out,
+                torch.empty((c,), dtype=torch.float32, device=work.device),
+                torch.empty((c,), dtype=torch.float32, device=work.device),
+            )
         return final_out, None, None
 
     if not training and running_mean is not None and running_var is not None:
         rm_c = _cast_tensor_m1(runner.ensure_contig(running_mean), torch.float32, runner)
         rv_c = _cast_tensor_m1(runner.ensure_contig(running_var), torch.float32, runner)
-        dummy_w = w_c if w_c is not None else rm_c
-        dummy_b = b_c if b_c is not None else rm_c
         block = 1024 if hw >= 1024 else (512 if hw >= 512 else 256)
         runner.begin_m1(work.device.type == "mps")
         _batch_norm_eval_kernel[(_cdiv(hw, block), n * c)](
-            work,
-            out,
-            rm_c,
-            rv_c,
-            dummy_w,
-            dummy_b,
-            c,
-            hw,
-            float(eps),
-            HAS_WEIGHT=1 if w_c is not None else 0,
-            HAS_BIAS=1 if b_c is not None else 0,
-            BLOCK_SIZE=block,
-            wait=False,
-            sync_mps=False,
+            work, out, rm_c, rv_c, w_c if w_c is not None else rm_c, b_c if b_c is not None else rm_c,
+            c, hw, float(eps), HAS_WEIGHT=1 if w_c is not None else 0, HAS_BIAS=1 if b_c is not None else 0,
+            BLOCK_SIZE=block, wait=False, sync_mps=False,
         )
         final_out = _cast_tensor_m1(out, orig_dtype, runner) if orig_dtype == torch.float16 else out
         return final_out, None, None
@@ -3357,39 +2596,36 @@ def _launch_batch_norm(
     chunks = max(1, min(n, _cdiv(n * hw, 65536)))
     partial = torch.empty(max(c * chunks * 3, 1), dtype=torch.float32, device=work.device)
     runner.begin_m1(work.device.type == "mps")
-    _batch_norm_stats_kernel[(chunks, c, 1)](work, partial, n, c, hw, chunks, wait=False, sync_mps=False)
+    _welford_norm_stats_kernel[(chunks, c, 1)](
+        work, partial, N=n, D1=c, D2=hw, CHUNKS=chunks, KIND=2, wait=False, sync_mps=False
+    )
     tiles = max(1, _cdiv(hw, 8192))
-    if w_c is not None and b_c is not None:
-        _batch_norm_apply_wb_kernel[(tiles, n * c, 1)](
-            work, out, w_c, b_c, partial, n, c, hw, chunks, float(eps), wait=False, sync_mps=False
-        )
-    elif w_c is None and b_c is None:
-        _batch_norm_apply_none_kernel[(tiles, n * c, 1)](
-            work, out, partial, n, c, hw, chunks, float(eps), wait=False, sync_mps=False
-        )
-    else:
-        if w_c is None:
-            w_c = torch.empty((c,), dtype=torch.float32, device=work.device)
-            _fill_const_kernel[(_cdiv(c, 256),)](w_c, 1.0, c, BLOCK_SIZE=256, wait=False, sync_mps=False)
-        if b_c is None:
-            b_c = torch.empty((c,), dtype=torch.float32, device=work.device)
-            _fill_const_kernel[(_cdiv(c, 256),)](b_c, 0.0, c, BLOCK_SIZE=256, wait=False, sync_mps=False)
-        _batch_norm_apply_wb_kernel[(tiles, n * c, 1)](
-            work, out, w_c, b_c, partial, n, c, hw, chunks, float(eps), wait=False, sync_mps=False
-        )
+    _welford_norm_apply_kernel[(tiles, n * c, 1)](
+        work, out, w_c if w_c is not None else work, b_c if b_c is not None else work, partial,
+        N=n, D1=c, D2=hw, CHUNKS=chunks, EPS=float(eps), KIND=2,
+        HAS_WEIGHT=1 if w_c is not None else 0, HAS_BIAS=1 if b_c is not None else 0,
+        wait=False, sync_mps=False,
+    )
 
-    mean_t: torch.Tensor | None = None
-    rstd_t: torch.Tensor | None = None
-    if need_stats:
-        mean_t = torch.empty((c,), dtype=torch.float32, device=work.device)
-        rstd_t = torch.empty((c,), dtype=torch.float32, device=work.device)
-        blk = 256
-        _welford_partials_extract_kernel[(_cdiv(c, blk),)](
-            partial, mean_t, rstd_t, c, CHUNKS=chunks, eps=float(eps), BLOCK_SIZE=blk, wait=False, sync_mps=False
-        )
-
+    mean_t, rstd_t = _extract_norm_stats(partial, (c,), c, chunks, eps, need_stats, work.device)
     final_out = _cast_tensor_m1(out, orig_dtype, runner) if orig_dtype == torch.float16 else out
     return final_out, mean_t, rstd_t
+
+
+def _reduce_op_kind(kind: str) -> int:
+    return 0 if kind in ("sum", "mean") else (1 if kind == "amax" else 2)
+
+
+def _fill_empty_reduce_output(out: torch.Tensor, kind: str, dim_label: str, runner: _BatchRunner) -> torch.Tensor:
+    if kind in ("amax", "amin"):
+        raise RuntimeError(f"{kind}(): cannot perform reduction on empty {dim_label}")
+    n_out = out.numel()
+    if n_out > 0:
+        fill_val = 0.0 if kind == "sum" else float("nan")
+        blk = 1024 if n_out >= 1024 else (256 if n_out > 32 else 32)
+        runner.begin_m1(out.device.type == "mps")
+        _fill_const_kernel[(_cdiv(n_out, blk),)](out, fill_val, n_out, BLOCK_SIZE=blk, wait=False, sync_mps=False)
+    return out
 
 
 def _launch_single_axis_reduce(
@@ -3410,48 +2646,28 @@ def _launch_single_axis_reduce(
     inner = math.prod(shape[d + 1 :]) if (d + 1) < ndim else 1
     out_shape = (shape[:d] + (1,) + shape[d + 1 :]) if keepdim else (shape[:d] + shape[d + 1 :])
     out = torch.empty(out_shape, dtype=x_c.dtype, device=x_c.device)
+    if reduce_len == 0:
+        return _fill_empty_reduce_output(out, kind, f"dim {d}", runner)
     if outer == 0 or inner == 0:
         return out
     runner.begin_m1(x_c.device.type == "mps")
-    apply_scale = 1 if (scale is not None and scale != 1.0) else 0
+    op_kind = _reduce_op_kind(kind)
+    apply_scale = 1 if (op_kind == 0 and scale is not None and scale != 1.0) else 0
     scale_f = 1.0 if scale is None else float(scale)
 
     if inner == 1:
         block_k = 256 if reduce_len <= 256 else 1024
-        if kind in ("sum", "mean"):
-            _last_axis_sum_kernel[(outer,)](
-                x_c, out, reduce_len, scale_f, BLOCK_K=block_k, APPLY_SCALE=apply_scale, wait=False, sync_mps=False
-            )
-        else:
-            _last_axis_extrema_kernel[(outer,)](
-                x_c, out, reduce_len, BLOCK_K=block_k, IS_MAX=1 if kind == "amax" else 0, wait=False, sync_mps=False
-            )
+        _last_axis_reduce_kernel[(outer,)](
+            x_c, out, reduce_len, scale_f, BLOCK_K=block_k, OP_KIND=op_kind, APPLY_SCALE=apply_scale,
+            wait=False, sync_mps=False,
+        )
     else:
         block_inner = 128
         grid = (_cdiv(inner, block_inner), outer)
-        if kind in ("sum", "mean"):
-            _axis_sum_strided_kernel[grid](
-                x_c,
-                out,
-                reduce_len,
-                inner,
-                scale_f,
-                BLOCK_INNER=block_inner,
-                APPLY_SCALE=apply_scale,
-                wait=False,
-                sync_mps=False,
-            )
-        else:
-            _axis_extrema_strided_kernel[grid](
-                x_c,
-                out,
-                reduce_len,
-                inner,
-                BLOCK_INNER=block_inner,
-                IS_MAX=1 if kind == "amax" else 0,
-                wait=False,
-                sync_mps=False,
-            )
+        _axis_reduce_strided_kernel[grid](
+            x_c, out, reduce_len, inner, scale_f, BLOCK_INNER=block_inner, OP_KIND=op_kind, APPLY_SCALE=apply_scale,
+            wait=False, sync_mps=False,
+        )
     return out
 
 
@@ -3482,37 +2698,30 @@ def _launch_reduce(
         out_shape = (1,) * ndim if keepdim else ()
         out = torch.empty(out_shape, dtype=torch.float32, device=work.device)
         if n == 0:
-            return _cast_tensor_m1(out, orig_dtype, runner)
+            _fill_empty_reduce_output(out, kind, "tensor", runner)
+            return _cast_tensor_m1(out, orig_dtype, runner) if orig_dtype != out.dtype else out
         runner.begin_m1(work.device.type == "mps")
+        op_kind = _reduce_op_kind(kind)
         scale = (1.0 / float(n)) if kind == "mean" else 1.0
         apply_scale = 1 if kind == "mean" else 0
         if n > 8192:
             block = 1024
             num_blocks = _cdiv(n, block)
             partial = torch.empty((num_blocks,), dtype=torch.float32, device=work.device)
-            op_kind = 0 if kind in ("sum", "mean") else (1 if kind == "amax" else 2)
             _full_reduce_stage1_kernel[(num_blocks,)](
                 work, partial, n, BLOCK_SIZE=block, OP_KIND=op_kind, wait=False, sync_mps=False
             )
             block_k = 256 if num_blocks <= 256 else 1024
-            if kind in ("sum", "mean"):
-                _last_axis_sum_kernel[(1,)](
-                    partial, out, num_blocks, scale, BLOCK_K=block_k, APPLY_SCALE=apply_scale, wait=False, sync_mps=False
-                )
-            else:
-                _last_axis_extrema_kernel[(1,)](
-                    partial, out, num_blocks, BLOCK_K=block_k, IS_MAX=1 if kind == "amax" else 0, wait=False, sync_mps=False
-                )
+            _last_axis_reduce_kernel[(1,)](
+                partial, out, num_blocks, scale, BLOCK_K=block_k, OP_KIND=op_kind, APPLY_SCALE=apply_scale,
+                wait=False, sync_mps=False,
+            )
         else:
             block_k = 256 if n <= 256 else 1024
-            if kind in ("sum", "mean"):
-                _last_axis_sum_kernel[(1,)](
-                    work, out, n, scale, BLOCK_K=block_k, APPLY_SCALE=apply_scale, wait=False, sync_mps=False
-                )
-            else:
-                _last_axis_extrema_kernel[(1,)](
-                    work, out, n, BLOCK_K=block_k, IS_MAX=1 if kind == "amax" else 0, wait=False, sync_mps=False
-                )
+            _last_axis_reduce_kernel[(1,)](
+                work, out, n, scale, BLOCK_K=block_k, OP_KIND=op_kind, APPLY_SCALE=apply_scale,
+                wait=False, sync_mps=False,
+            )
         return _cast_tensor_m1(out, orig_dtype, runner) if orig_dtype != out.dtype else out
 
     # Contiguous trailing dims (e.g. spatial dims [2, 3] on NCHW) collapse into one last-axis reduction.
@@ -3520,7 +2729,7 @@ def _launch_reduce(
         lead_shape = tuple(int(s) for s in work.shape[: norm_dims[0]])
         red_size = int(math.prod(int(s) for s in work.shape[norm_dims[0] :]))
         flat = work.view(*lead_shape, red_size)
-        scale = (1.0 / float(red_size)) if kind == "mean" else None
+        scale = (1.0 / float(red_size)) if (kind == "mean" and red_size > 0) else None
         reduced = _launch_single_axis_reduce(
             flat, len(lead_shape), kind=kind, keepdim=False, scale=scale, runner=runner
         )
@@ -3530,9 +2739,9 @@ def _launch_reduce(
 
     # Sequential multi-dim reduction in descending dim order.
     cur = work
-    for idx, d in enumerate(reversed(norm_dims)):
+    for d in reversed(norm_dims):
         red_len = int(cur.shape[d])
-        scale = (1.0 / float(red_len)) if kind == "mean" else None
+        scale = (1.0 / float(red_len)) if (kind == "mean" and red_len > 0) else None
         cur = _launch_single_axis_reduce(cur, d, kind=kind, keepdim=keepdim, scale=scale, runner=runner)
     return _cast_tensor_m1(cur, orig_dtype, runner) if orig_dtype != cur.dtype else cur
 
@@ -3644,25 +2853,51 @@ def _arg_node_names(node: fx.Node) -> list[str]:
     return names
 
 
-def _resolve_2d_transpose_source(
-    arg_node: fx.Node, node_by_name: dict[str, fx.Node], absorbed_transposes: set[str]
-) -> tuple[str, bool]:
-    """Absorb a single-use 2D transpose (`aten.t` or `aten.transpose(0, 1)`) into GEMM `TRANS_A/B`."""
-    if arg_node.op == "call_function" and len(arg_node.users) == 1:
-        if arg_node.target == aten.t.default and isinstance(arg_node.args[0], fx.Node):
-            src = arg_node.args[0]
-            shape, _, _ = _node_tensor_meta(src)
-            if shape is not None and len(shape) == 2:
-                absorbed_transposes.add(arg_node.name)
-                return src.name, True
-        if arg_node.target == aten.transpose.int and isinstance(arg_node.args[0], fx.Node):
-            d0, d1 = int(arg_node.args[1]), int(arg_node.args[2])
-            src = arg_node.args[0]
-            shape, _, _ = _node_tensor_meta(src)
-            if shape is not None and len(shape) == 2 and ({d0 % 2, d1 % 2} == {0, 1}):
-                absorbed_transposes.add(arg_node.name)
-                return src.name, True
-    return arg_node.name, False
+def _extract_2d_transpose_src(arg_node: fx.Node) -> fx.Node | None:
+    if arg_node.op != "call_function" or len(arg_node.users) != 1:
+        return None
+    if arg_node.target == aten.t.default and isinstance(arg_node.args[0], fx.Node):
+        src = arg_node.args[0]
+        shape, _, _ = _node_tensor_meta(src)
+        if shape is not None and len(shape) == 2:
+            return src
+    if arg_node.target == aten.transpose.int and isinstance(arg_node.args[0], fx.Node):
+        d0, d1 = int(arg_node.args[1]), int(arg_node.args[2])
+        src = arg_node.args[0]
+        shape, _, _ = _node_tensor_meta(src)
+        if shape is not None and len(shape) == 2 and ({d0 % 2, d1 % 2} == {0, 1}):
+            return src
+    return None
+
+
+def _resolve_gemm_2d_transposes(
+    gemm_node: fx.Node,
+    a_node: fx.Node,
+    b_node: fx.Node,
+    absorbed_transposes: set[str],
+) -> tuple[str, bool, str, bool]:
+    """Absorb single-use 2D transpose inputs into GEMM `TRANS_A/B` only when every slot using the node is absorbed."""
+    all_refs = _arg_node_names(gemm_node)
+    if a_node is b_node:
+        src = _extract_2d_transpose_src(a_node)
+        if src is not None and all_refs.count(a_node.name) == 2:
+            absorbed_transposes.add(a_node.name)
+            return src.name, True, src.name, True
+        return a_node.name, False, b_node.name, False
+
+    a_name, ta = a_node.name, False
+    src_a = _extract_2d_transpose_src(a_node)
+    if src_a is not None and all_refs.count(a_node.name) == 1:
+        absorbed_transposes.add(a_node.name)
+        a_name, ta = src_a.name, True
+
+    b_name, tb = b_node.name, False
+    src_b = _extract_2d_transpose_src(b_node)
+    if src_b is not None and all_refs.count(b_node.name) == 1:
+        absorbed_transposes.add(b_node.name)
+        b_name, tb = src_b.name, True
+
+    return a_name, ta, b_name, tb
 
 
 def _tuple_needs_index(node: fx.Node, idx: int) -> bool:
@@ -3743,9 +2978,32 @@ def _is_supported_norm(node: fx.Node) -> bool:
     x_sh, x_dt, x_dev = _node_tensor_meta(x_node)
     if x_sh is None or x_dt not in _SUPPORTED_FLOAT_DTYPES or x_dev not in _SUPPORTED_DEVICES:
         return False
-    if node.target == aten._native_batch_norm_legit_functional.default:
-        # Functional batch norm returns updated running_mean/running_var at indices 3 and 4.
+    t = node.target
+    need_stats = _tuple_needs_index(node, 1) or _tuple_needs_index(node, 2)
+    if t == aten._native_batch_norm_legit_functional.default:
         if _tuple_needs_index(node, 3) or _tuple_needs_index(node, 4):
+            return False
+        r_mean = node.args[3] if len(node.args) > 3 else None
+        r_var = node.args[4] if len(node.args) > 4 else None
+        training = node.args[5] if len(node.args) > 5 else True
+        if not isinstance(training, bool):
+            return False
+        if training and (r_mean is not None or r_var is not None):
+            return False
+        if not training and need_stats:
+            return False
+    elif t == aten._native_batch_norm_legit_no_training.default:
+        if need_stats:
+            return False
+    elif t in (aten.native_batch_norm.default, aten._native_batch_norm_legit.default):
+        r_mean = node.args[3] if len(node.args) > 3 else None
+        r_var = node.args[4] if len(node.args) > 4 else None
+        training = node.args[5] if len(node.args) > 5 else True
+        if not isinstance(training, bool):
+            return False
+        if training and (r_mean is not None or r_var is not None):
+            return False
+        if not training and need_stats:
             return False
     return True
 
@@ -3756,8 +3014,21 @@ def _is_supported_reduce(node: fx.Node) -> bool:
     x_node = node.args[0]
     if not isinstance(x_node, fx.Node):
         return False
-    _, x_dt, x_dev = _node_tensor_meta(x_node)
-    return x_dt in _SUPPORTED_FLOAT_DTYPES and x_dev in _SUPPORTED_DEVICES
+    x_sh, x_dt, x_dev = _node_tensor_meta(x_node)
+    if x_dt not in _SUPPORTED_FLOAT_DTYPES or x_dev not in _SUPPORTED_DEVICES:
+        return False
+    if node.target in (aten.amax.default, aten.amin.default) and x_sh is not None:
+        ndim = len(x_sh)
+        dims = node.args[1] if len(node.args) > 1 else node.kwargs.get("dim", [])
+        if not dims:
+            if math.prod(x_sh) == 0:
+                return False
+        else:
+            for d in dims:
+                nd = int(d) if int(d) >= 0 else int(d) + ndim
+                if 0 <= nd < ndim and x_sh[nd] == 0:
+                    return False
+    return True
 
 
 def _is_supported_fill(node: fx.Node) -> bool:
@@ -3784,14 +3055,14 @@ def _build_fused_plan(
     gemm_transpose_info: dict[str, tuple[str, bool, str, bool]] = {}
     for n in nodes:
         if n.op == "call_function" and _is_supported_gemm(n):
-            if n.target == aten.mm.default or n.target == aten.matmul.default:
-                a_name, ta = _resolve_2d_transpose_source(n.args[0], node_by_name, absorbed_transposes)
-                b_name, tb = _resolve_2d_transpose_source(n.args[1], node_by_name, absorbed_transposes)
-                gemm_transpose_info[n.name] = (a_name, ta, b_name, tb)
+            if n.target in (aten.mm.default, aten.matmul.default):
+                gemm_transpose_info[n.name] = _resolve_gemm_2d_transposes(
+                    n, n.args[0], n.args[1], absorbed_transposes
+                )
             elif n.target == aten.addmm.default:
-                a_name, ta = _resolve_2d_transpose_source(n.args[1], node_by_name, absorbed_transposes)
-                b_name, tb = _resolve_2d_transpose_source(n.args[2], node_by_name, absorbed_transposes)
-                gemm_transpose_info[n.name] = (a_name, ta, b_name, tb)
+                gemm_transpose_info[n.name] = _resolve_gemm_2d_transposes(
+                    n, n.args[1], n.args[2], absorbed_transposes
+                )
 
     # Identify which node outputs are consumed by the graph output node.
     graph_output_names: set[str] = set()

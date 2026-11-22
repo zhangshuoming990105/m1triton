@@ -309,3 +309,257 @@ def test_example_03_torch_compile_fusion_runs_cleanly():
     assert "Vision" in proc.stdout
     assert "vs Eager" in proc.stdout
     assert "vs Inductor" in proc.stdout
+
+
+def test_hardswish_special_values():
+    torch._dynamo.reset()
+    x = torch.tensor(
+        [-float("inf"), -4.0, -3.0, -1.5, 0.0, 1.5, 3.0, 4.0, float("inf"), float("nan")],
+        device="mps",
+        dtype=torch.float32,
+    )
+    compiled = torch.compile(F.hardswish, backend="m1triton", options={"strict": True})
+    with torch.no_grad():
+        _ = compiled(x)
+        rt.reset_dispatch_count()
+        out = compiled(x).cpu()
+        assert rt.get_dispatch_count() == 1
+
+    assert out[0].item() == 0.0
+    assert torch.isposinf(out[8])
+    assert torch.isnan(out[9])
+    ref_finite = F.hardswish(x[1:8].cpu())
+    torch.testing.assert_close(out[1:8], ref_finite, atol=1e-5, rtol=1e-5)
+
+
+def test_max_pool2d_with_indices_nan_propagation():
+    cases = (
+        ([[[[1.0, float("nan")], [2.0, 3.0]]]], 1),
+        ([[[[float("nan"), float("nan")], [2.0, 3.0]]]], 0),
+        ([[[[1.0, 2.0], [float("nan"), 4.0]]]], 2),
+    )
+    for raw, expected_idx in cases:
+        x_mps = torch.tensor(raw, dtype=torch.float32, device="mps")
+        torch._dynamo.reset()
+        compiled = torch.compile(
+            lambda t: F.max_pool2d_with_indices(t, 2), backend="m1triton", options={"strict": True}
+        )
+        with torch.no_grad():
+            _ = compiled(x_mps)
+            rt.reset_dispatch_count()
+            out_val, out_idx = compiled(x_mps)
+            assert rt.get_dispatch_count() == 1
+        assert torch.isnan(out_val.cpu()).all()
+        assert out_idx.cpu().item() == expected_idx
+
+    # All -inf windows must select each window's first valid spatial index, not default 0.
+    x_inf = torch.full((1, 1, 4, 4), -float("inf"), dtype=torch.float32, device="mps")
+    torch._dynamo.reset()
+    c_inf = torch.compile(
+        lambda t: F.max_pool2d_with_indices(t, 2, stride=2),
+        backend="m1triton",
+        options={"strict": True},
+    )
+    with torch.no_grad():
+        val_inf, idx_inf = c_inf(x_inf)
+    assert torch.isneginf(val_inf.cpu()).all()
+    assert idx_inf.cpu().flatten().tolist() == [0, 2, 8, 10]
+
+
+def test_logical_ops_non_bool_inputs():
+    for dt in (torch.bool, torch.int32, torch.int64, torch.float32):
+        if dt == torch.float32:
+            a = torch.tensor([0.0, -0.0, 1.5, -2.0, float("nan"), 0.0], dtype=dt, device="mps")
+            b = torch.tensor([0.0, 2.0, 3.0, 0.0, 1.0, float("nan")], dtype=dt, device="mps")
+        elif dt == torch.bool:
+            a = torch.tensor([False, False, True, True], dtype=dt, device="mps")
+            b = torch.tensor([False, True, False, True], dtype=dt, device="mps")
+        else:
+            a = torch.tensor([0, 1, 2, -3, 0], dtype=dt, device="mps")
+            b = torch.tensor([0, 2, 0, 4, 5], dtype=dt, device="mps")
+
+        out_and, _ = _run_and_verify(torch.logical_and, a, b, strict=True, expect_dispatches=1)
+        out_or, _ = _run_and_verify(torch.logical_or, a, b, strict=True, expect_dispatches=1)
+        out_not, _ = _run_and_verify(torch.logical_not, a, strict=True, expect_dispatches=1)
+        assert out_and.dtype == torch.bool
+        assert out_or.dtype == torch.bool
+        assert out_not.dtype == torch.bool
+
+    # Fused float32 pointwise chain using logical_and/logical_not intermediates (vec4 path).
+    af = torch.tensor([0.0, 1.5, -2.0, 0.0, 3.0, -0.0, 4.0, 5.0], dtype=torch.float32, device="mps")
+    bf = torch.tensor([1.0, 2.0, 0.0, 0.0, -1.0, 2.0, 0.0, 1.0], dtype=torch.float32, device="mps")
+    _run_and_verify(
+        lambda x, y: torch.where(torch.logical_and(x, y), x + y, torch.where(torch.logical_not(x), y, -x)),
+        af,
+        bf,
+        strict=True,
+        expect_dispatches=1,
+    )
+
+
+def test_duplicate_2d_transpose_in_addmm_and_mm():
+    torch.manual_seed(11)
+    a = torch.randn(32, 32, device="mps")
+    b = torch.randn(32, 32, device="mps")
+
+    def addmm_dup_bias_and_b(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        t = y.t()
+        return torch.addmm(t, x, t)
+
+    def addmm_dup_all(x: torch.Tensor) -> torch.Tensor:
+        t = x.t()
+        return torch.addmm(t, t, t)
+
+    def mm_dup(x: torch.Tensor) -> torch.Tensor:
+        t = x.t()
+        return torch.mm(t, t)
+
+    _run_and_verify(addmm_dup_bias_and_b, a, b, atol=1e-3, rtol=1e-3, strict=True)
+    _run_and_verify(addmm_dup_all, a, atol=1e-3, rtol=1e-3, strict=True)
+    _run_and_verify(mm_dup, a, atol=1e-3, rtol=1e-3, strict=True)
+
+
+def test_batch_norm_training_updates_running_stats_and_eval_grad():
+    torch.manual_seed(12)
+    bn_ref = nn.BatchNorm2d(16).to("mps").train()
+    bn_cmp = nn.BatchNorm2d(16).to("mps").train()
+    bn_cmp.load_state_dict(bn_ref.state_dict())
+
+    torch._dynamo.reset()
+    compiled_bn = torch.compile(bn_cmp, backend="m1triton")
+
+    for _ in range(2):
+        x = torch.randn(4, 16, 8, 8, device="mps") * 2.0 + 1.5
+        ref_y = bn_ref(x)
+        cmp_y = compiled_bn(x)
+        torch.testing.assert_close(cmp_y.cpu(), ref_y.cpu(), atol=1e-4, rtol=1e-4)
+
+    assert not torch.allclose(bn_cmp.running_mean.cpu(), torch.zeros(16))
+    torch.testing.assert_close(bn_cmp.running_mean.cpu(), bn_ref.running_mean.cpu(), atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(bn_cmp.running_var.cpu(), bn_ref.running_var.cpu(), atol=1e-4, rtol=1e-4)
+
+    # Eval BN with grad enabled requires saved stats for backward and must not return None stats.
+    bn_eval = nn.BatchNorm2d(16).to("mps").eval()
+    x_req = torch.randn(4, 16, 8, 8, device="mps", requires_grad=True)
+    ref_out = bn_eval(x_req)
+    ref_out.sum().backward()
+    ref_grad = x_req.grad.detach().clone()
+    x_req.grad = None
+
+    torch._dynamo.reset()
+    compiled_eval = torch.compile(bn_eval, backend="m1triton")
+    cmp_out = compiled_eval(x_req)
+    cmp_out.sum().backward()
+    torch.testing.assert_close(cmp_out.detach().cpu(), ref_out.detach().cpu(), atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(x_req.grad.detach().cpu(), ref_grad.cpu(), atol=1e-4, rtol=1e-4)
+
+
+def test_empty_tensor_reductions():
+    x0 = torch.empty((0,), device="mps", dtype=torch.float32)
+    x_mid = torch.empty((2, 0, 3), device="mps", dtype=torch.float32)
+
+    out_sum0, _ = _run_and_verify(lambda t: t.sum(), x0, strict=True)
+    assert out_sum0.cpu().item() == 0.0
+
+    torch._dynamo.reset()
+    c_mean0 = torch.compile(lambda t: t.mean(), backend="m1triton", options={"strict": True})
+    with torch.no_grad():
+        out_mean0 = c_mean0(x0).cpu()
+    assert torch.isnan(out_mean0)
+
+    out_sum_mid, _ = _run_and_verify(lambda t: t.sum(dim=1), x_mid, strict=True)
+    torch.testing.assert_close(out_sum_mid.cpu(), torch.zeros(2, 3))
+
+    torch._dynamo.reset()
+    c_mean_mid = torch.compile(lambda t: t.mean(dim=1), backend="m1triton", options={"strict": True})
+    with torch.no_grad():
+        out_mean_mid = c_mean_mid(x_mid).cpu()
+    assert out_mean_mid.shape == (2, 3) and torch.isnan(out_mean_mid).all()
+
+    out_sum_multi, _ = _run_and_verify(lambda t: t.sum(dim=(1, 2)), x_mid, strict=True)
+    torch.testing.assert_close(out_sum_multi.cpu(), torch.zeros(2))
+
+    torch._dynamo.reset()
+    c_amax_empty = torch.compile(lambda t: t.amax(dim=1), backend="m1triton")
+    with pytest.raises((IndexError, RuntimeError)):
+        c_amax_empty(x_mid)
+
+    torch._dynamo.reset()
+    c_amin_empty = torch.compile(lambda t: t.amin(), backend="m1triton")
+    with pytest.raises((IndexError, RuntimeError)):
+        c_amin_empty(x0)
+
+
+def test_cross_device_to_copy_and_no_inplace_relu():
+    assert torch.ops.aten.relu_.default not in cb._POINTWISE_TARGETS
+    torch.manual_seed(13)
+    x_mps = torch.randn(1024, device="mps", dtype=torch.float32)
+
+    def mps_to_cpu(t: torch.Tensor) -> torch.Tensor:
+        return (t * 2.0 + 1.0).to("cpu")
+
+    out_cpu, disp = _run_and_verify(mps_to_cpu, x_mps, strict=False)
+    assert out_cpu.device.type == "cpu"
+    assert disp >= 1
+
+    x_cpu = torch.randn(1024, device="cpu", dtype=torch.float32)
+
+    def cpu_to_mps(t: torch.Tensor) -> torch.Tensor:
+        return t.to("mps") * 3.0 - 0.5
+
+    out_mps, disp_mps = _run_and_verify(cpu_to_mps, x_cpu, strict=False)
+    assert out_mps.device.type == "mps"
+    assert disp_mps >= 1
+
+
+def test_sgmm_int64_msl_pointwise_int64_and_wino_cache_safety():
+    # Verify SGMM kernel with int64 stride arithmetic still lowers via SGMM emitter.
+    a = torch.randn(64, 64, device="mps", dtype=torch.float32)
+    b = torch.randn(64, 64, device="mps", dtype=torch.float32)
+    c = torch.empty(64, 64, device="mps", dtype=torch.float32)
+    sgmm_msl = cb._sgmm_gemm_kernel.inspect_msl(
+        a, b, c, 64, 64, 64, 0, 64, 1, 0, 64, 1, 0, 64, 1,
+        BLOCK_M=64, BLOCK_N=64, BLOCK_K=16, NUM_SG=4, SWIZZLE_W=8,
+        TRANS_A=0, TRANS_B=0, N_MAJOR=0, IS_BATCHED=0, ALIGNED_MNK=1,
+    )
+    assert "simdgroup_multiply_accumulate" in sgmm_msl
+
+    # Verify synthesized pointwise kernel compiles cleanly with USE_INT64=1.
+    cb.clear_kernel_cache()
+    x = torch.randn(1024, device="mps", dtype=torch.float32)
+    _run_and_verify(lambda t: F.relu(t + 1.0), x, strict=True, expect_dispatches=1)
+    pw_kernel = next(iter(cb._POINTWISE_KERNEL_CACHE.values()))
+    msl_i64 = pw_kernel.inspect_msl(x, x, 3_000_000_000, BLOCK_SIZE=1024, USE_INT64=1)
+    assert "long" in msl_i64
+
+    # Verify Winograd cache defers insertion until flush, drops on abort, and uses LRU eviction at 64.
+    cb.clear_kernel_cache()
+    runner_abort = cb._BatchRunner()
+    runner_abort.begin_m1(True)
+    w_abort = torch.randn(16, 8, 3, 3, device="mps")
+    _ = cb._get_or_transform_wino2x3_filter(w_abort, w_abort, 8, 16, 8, 16, runner_abort)
+    assert len(cb._WINO_FILTER_CACHE) == 0
+    runner_abort.abort()
+    assert len(cb._WINO_FILTER_CACHE) == 0
+
+    weights: list[torch.Tensor] = []
+    runner_lru = cb._BatchRunner()
+    runner_lru.begin_m1(True)
+    for _ in range(65):
+        w = torch.randn(16, 8, 3, 3, device="mps")
+        weights.append(w)
+        _ = cb._get_or_transform_wino2x3_filter(w, w, 8, 16, 8, 16, runner_lru)
+    assert len(cb._WINO_FILTER_CACHE) == 0
+    runner_lru.flush()
+    assert len(cb._WINO_FILTER_CACHE) == 64
+    oldest_key = (id(weights[0]), 8, 16, 8, 16, str(weights[0].device))
+    newest_key = (id(weights[-1]), 8, 16, 8, 16, str(weights[-1].device))
+    assert oldest_key not in cb._WINO_FILTER_CACHE
+    assert newest_key in cb._WINO_FILTER_CACHE
+
+    # Verify single-affine GroupNorm (weight-only and bias-only) through unified welford kernel.
+    xn = torch.randn(2, 8, 4, 4, device="mps")
+    gw = torch.randn(8, device="mps")
+    gb = torch.randn(8, device="mps")
+    _run_and_verify(lambda t, ww: F.group_norm(t, 4, weight=ww, bias=None), xn, gw, strict=True)
+    _run_and_verify(lambda t, bb: F.group_norm(t, 4, weight=None, bias=bb), xn, gb, strict=True)
