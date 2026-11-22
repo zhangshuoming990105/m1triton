@@ -440,6 +440,58 @@ void test_fusion_cost_model_preserves_well_sized_tiles_and_pointwise() {
   assert(qd_rep.estimated_sram_bytes == 9728u);
   assert(qd_rep.threads_per_threadgroup == 128u);
   assert(std::fabs(qd_rep.arithmetic_intensity - 32.0) < 1e-6);
+
+  // Non-power-of-2 bk/bn clamping keeps SGMM divisibility (bk % 8 == 0, bn % 32 == 0).
+  {
+    ir::Kernel k = make_dot_tile_kernel("nonpow2_clamp", 128, 128, 56, ir::ScalarDType::F32,
+                                        ir::TileSpecAttr{128, 128, 56, 8, false, 1, 8});
+    const auto res = pass.run(k, ctx);
+    assert(res.ok && res.changed);
+    assert((k.hints.tile_spec->bk % 8u) == 0u);
+    assert((k.hints.tile_spec->bm % 32u) == 0u);
+    assert((k.hints.tile_spec->bn % 32u) == 0u);
+    assert(passes::FusionOccupancyCostModelPass::analyze(k, target).estimated_sram_bytes <=
+           target.max_threadgroup_memory_bytes);
+  }
+
+  // num_simdgroups == 0 with deep epilogue resolves effective simdgroups and guards occupancy.
+  {
+    ir::Kernel k = make_dot_tile_kernel("zero_sg_deep_epi", 128, 128, 16, ir::ScalarDType::F32,
+                                        ir::TileSpecAttr{128, 128, 16, 0, false, 1, 8});
+    k.hints.epilogue_dag = ir::EpilogueDAGAttr{{
+        {ir::EpilogueOpKind::AddBias, 0.0f, 0.0f, 2},
+        {ir::EpilogueOpKind::SaveReg, 0.0f, 0.0f, 0},
+        {ir::EpilogueOpKind::GELU, 0.0f, 0.0f, -1},
+        {ir::EpilogueOpKind::AddSaved, 0.0f, 0.0f, 0},
+    }};
+    const auto res = pass.run(k, ctx);
+    assert(res.ok && res.changed);
+    assert(k.hints.tile_spec->num_simdgroups == 16u);
+  }
+
+  // GroupedGemm and QuantDot attributes are directly clamped when exceeding target limits.
+  {
+    ir::Kernel k;
+    k.name = "gg_attr_clamp";
+    ir::IRBuilder b2(k);
+    ir::GroupedGemmAttr ga;
+    ga.bm = 128;
+    ga.bn = 128;
+    ga.bk = 64;
+    ga.num_simdgroups = 64;
+    b2.emit_grouped_gemm({b2.add_param("a", ptr_f32), b2.add_param("w", ptr_f32), b2.add_param("off", ptr_i32),
+                          b2.add_param("out", ptr_f32, false, 0, 1, true), b2.add_param("E", i32),
+                          b2.add_param("N", i32), b2.add_param("K", i32)},
+                         ga);
+    b2.emit_return();
+    const auto res = pass.run(k, ctx);
+    assert(res.ok && res.changed);
+    const auto& clamped = std::get<ir::GroupedGemmAttr>(k.op(0).attr);
+    assert(clamped.num_simdgroups <= 32u);
+    assert(clamped.bk <= 16u && (clamped.bk % 8u) == 0u);
+    assert(passes::FusionOccupancyCostModelPass::analyze(k, target).estimated_sram_bytes <=
+           target.max_threadgroup_memory_bytes);
+  }
 }
 
 }  // namespace

@@ -37,10 +37,10 @@ PassManager build_pipeline(SgmmSchedulePolicy sgmm_policy) {
   pm.add_pass<StructureAwareDeadTilePruningPass>();
   pm.add_pass<OnlineSoftmaxWelfordPass>();
   pm.add_pass<PoolLoweringPass>();
+  pm.add_pass<FusionOccupancyCostModelPass>();
   pm.add_pass<ConvLoweringPass>();
   pm.add_pass<LossLoweringPass>();
   pm.add_pass<FlashAttentionLoweringPass>();
-  pm.add_pass<FusionOccupancyCostModelPass>();
   pm.add_pass<ContiguityAndAlignmentAnalysis>();
   pm.add_pass<TileAndLayoutAssignmentPass>(sgmm_policy);
   pm.add_pass<ThreadgroupStagingAndSwizzlePass>();

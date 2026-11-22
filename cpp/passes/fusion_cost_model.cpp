@@ -277,12 +277,19 @@ void scan_block_for_cost(const Kernel& kernel, BlockId blk_id, const TargetSpec&
     if (node.kind == OpKind::ThreadgroupAlloc && std::holds_alternative<ThreadgroupAllocAttr>(node.attr)) {
       const auto& alloc = std::get<ThreadgroupAllocAttr>(node.attr);
       if (!alloc.shape.empty() && alloc.stages > 0u) {
+        bool valid_shape = true;
         uint64_t elems = 1u;
         for (size_t i = 0; i + 1 < alloc.shape.size(); ++i) {
+          if (alloc.shape[i] <= 0) {
+            valid_shape = false;
+            break;
+          }
           elems *= static_cast<uint64_t>(alloc.shape[i]);
         }
-        elems *= static_cast<uint64_t>(alloc.shape.back()) + alloc.pad_elems;
-        info.existing_alloc_bytes += elems * dtype_bytes(alloc.elem) * alloc.stages;
+        if (valid_shape && alloc.shape.back() > 0) {
+          elems *= static_cast<uint64_t>(alloc.shape.back()) + alloc.pad_elems;
+          info.existing_alloc_bytes += elems * dtype_bytes(alloc.elem) * alloc.stages;
+        }
       }
     } else if (node.kind == OpKind::Dot && node.operands.size() >= 2 && !node.results.empty() &&
                std::holds_alternative<DotAttr>(node.attr)) {
@@ -295,9 +302,18 @@ void scan_block_for_cost(const Kernel& kernel, BlockId blk_id, const TargetSpec&
         const auto& rs = rty.as_tile().shape;
         const auto& os = oty.as_tile().shape;
         const size_t off = (os.size() == 3) ? 1 : 0;
-        const uint32_t shape_bm = static_cast<uint32_t>(da.transpose_a ? ls[off + 1] : ls[off]);
-        const uint32_t shape_bk = static_cast<uint32_t>(da.transpose_a ? ls[off] : ls[off + 1]);
-        const uint32_t shape_bn = static_cast<uint32_t>(da.transpose_b ? rs[off] : rs[off + 1]);
+        if (ls.size() < off + 2 || rs.size() < off + 2) {
+          continue;
+        }
+        const int64_t shape_bm_i = da.transpose_a ? ls[off + 1] : ls[off];
+        const int64_t shape_bk_i = da.transpose_a ? ls[off] : ls[off + 1];
+        const int64_t shape_bn_i = da.transpose_b ? rs[off] : rs[off + 1];
+        if (shape_bm_i <= 0 || shape_bk_i <= 0 || shape_bn_i <= 0) {
+          continue;
+        }
+        const uint32_t shape_bm = static_cast<uint32_t>(shape_bm_i);
+        const uint32_t shape_bk = static_cast<uint32_t>(shape_bk_i);
+        const uint32_t shape_bn = static_cast<uint32_t>(shape_bn_i);
 
         ComputeTileInfo ci;
         ci.dt_a = lty.is_ptr_elem() ? ScalarDType::F32 : lty.scalar_elem();
@@ -340,10 +356,10 @@ void scan_block_for_cost(const Kernel& kernel, BlockId blk_id, const TargetSpec&
         ci.dt_b = dt;
         const std::optional<TileSpecAttr>& ts =
             node.hints.tile_spec.has_value() ? node.hints.tile_spec : kernel.hints.tile_spec;
-        ci.bm = (ts.has_value() && ts->bm > 0u) ? ts->bm : ca.bm;
-        ci.bn = (ts.has_value() && ts->bn > 0u) ? ts->bn : ca.bn;
-        ci.bk = (ts.has_value() && ts->bk > 0u) ? ts->bk : ca.bk;
-        ci.num_simdgroups = (ts.has_value() && ts->num_simdgroups > 0u) ? ts->num_simdgroups : ca.num_simdgroups;
+        ci.bm = ca.bm > 0u ? ca.bm : (ts.has_value() ? ts->bm : 64u);
+        ci.bn = ca.bn > 0u ? ca.bn : (ts.has_value() ? ts->bn : 64u);
+        ci.bk = ca.bk > 0u ? ca.bk : (ts.has_value() ? ts->bk : 16u);
+        ci.num_simdgroups = ca.num_simdgroups > 0u ? ca.num_simdgroups : (ts.has_value() ? ts->num_simdgroups : 4u);
         ci.double_buffer = ts.has_value() && ts->double_buffer;
         info.compute_ops.push_back(ci);
       }
@@ -355,10 +371,10 @@ void scan_block_for_cost(const Kernel& kernel, BlockId blk_id, const TargetSpec&
       ci.dt_b = dt;
       const std::optional<TileSpecAttr>& ts =
           node.hints.tile_spec.has_value() ? node.hints.tile_spec : kernel.hints.tile_spec;
-      ci.bm = (ts.has_value() && ts->bm > 0u) ? ts->bm : gg.bm;
-      ci.bn = (ts.has_value() && ts->bn > 0u) ? ts->bn : gg.bn;
-      ci.bk = (ts.has_value() && ts->bk > 0u) ? ts->bk : gg.bk;
-      ci.num_simdgroups = (ts.has_value() && ts->num_simdgroups > 0u) ? ts->num_simdgroups : gg.num_simdgroups;
+      ci.bm = gg.bm > 0u ? gg.bm : (ts.has_value() ? ts->bm : 64u);
+      ci.bn = gg.bn > 0u ? gg.bn : (ts.has_value() ? ts->bn : 64u);
+      ci.bk = gg.bk > 0u ? gg.bk : (ts.has_value() ? ts->bk : 16u);
+      ci.num_simdgroups = gg.num_simdgroups > 0u ? gg.num_simdgroups : (ts.has_value() ? ts->num_simdgroups : 4u);
       ci.double_buffer = ts.has_value() && ts->double_buffer;
       info.compute_ops.push_back(ci);
     } else if (node.kind == OpKind::QuantDot && std::holds_alternative<QuantDotAttr>(node.attr)) {
@@ -369,10 +385,10 @@ void scan_block_for_cost(const Kernel& kernel, BlockId blk_id, const TargetSpec&
       ci.dt_b = dt;
       const std::optional<TileSpecAttr>& ts =
           node.hints.tile_spec.has_value() ? node.hints.tile_spec : kernel.hints.tile_spec;
-      ci.bm = (ts.has_value() && ts->bm > 0u) ? ts->bm : qd.bm;
-      ci.bn = (ts.has_value() && ts->bn > 0u) ? ts->bn : qd.bn;
-      ci.bk = (ts.has_value() && ts->bk > 0u) ? ts->bk : qd.bk;
-      ci.num_simdgroups = (ts.has_value() && ts->num_simdgroups > 0u) ? ts->num_simdgroups : qd.num_simdgroups;
+      ci.bm = qd.bm > 0u ? qd.bm : (ts.has_value() ? ts->bm : 64u);
+      ci.bn = qd.bn > 0u ? qd.bn : (ts.has_value() ? ts->bn : 64u);
+      ci.bk = qd.bk > 0u ? qd.bk : (ts.has_value() ? ts->bk : 16u);
+      ci.num_simdgroups = qd.num_simdgroups > 0u ? qd.num_simdgroups : (ts.has_value() ? ts->num_simdgroups : 4u);
       ci.double_buffer = ts.has_value() && ts->double_buffer;
       info.compute_ops.push_back(ci);
     } else if (node.kind == OpKind::FlashAttentionTile && std::holds_alternative<FlashAttnAttr>(node.attr)) {
@@ -442,23 +458,32 @@ bool clamp_tile_spec(TileSpecAttr& ts, ScalarDType dt_a, ScalarDType dt_b, uint6
     if (flags != nullptr) flags->disabled_double_buffer = true;
   }
 
-  // Single-buffer SRAM overflow guard: halve bk down to >= 8, then bn/bm down to >= 32.
+  // Single-buffer SRAM overflow guard: halve bk down to >= sgmm_k (aligned), then bn/bm down to >= 32 (aligned).
+  const uint32_t sgmm_k = std::max<uint32_t>(8u, target.sgmm_k);
+  const uint32_t tile_align_m = std::max<uint32_t>(32u, sgmm_m);
+  const uint32_t tile_align_n = std::max<uint32_t>(32u, sgmm_n);
   if (total_sram_for(ts.bm, ts.bn, ts.bk, 1u) > max_sram) {
-    while (total_sram_for(ts.bm, ts.bn, ts.bk, 1u) > max_sram && ts.bk > 8u) {
-      const uint32_t next_bk = std::max<uint32_t>(8u, ts.bk / 2u);
-      if (next_bk == ts.bk) break;
+    while (total_sram_for(ts.bm, ts.bn, ts.bk, 1u) > max_sram && ts.bk > sgmm_k) {
+      const uint32_t half_bk = ts.bk / 2u;
+      const uint32_t aligned_bk = (half_bk / sgmm_k) * sgmm_k;
+      const uint32_t next_bk = std::max<uint32_t>(sgmm_k, aligned_bk);
+      if (next_bk >= ts.bk) break;
       ts.bk = next_bk;
       if (flags != nullptr) flags->clamped_tile = true;
     }
-    while (total_sram_for(ts.bm, ts.bn, ts.bk, 1u) > max_sram && (ts.bn > 32u || ts.bm > 32u)) {
-      if (ts.bn >= ts.bm && ts.bn > 32u) {
-        const uint32_t next_bn = std::max<uint32_t>(32u, ts.bn / 2u);
-        if (next_bn == ts.bn) break;
+    while (total_sram_for(ts.bm, ts.bn, ts.bk, 1u) > max_sram && (ts.bn > tile_align_n || ts.bm > tile_align_m)) {
+      if (ts.bn >= ts.bm && ts.bn > tile_align_n) {
+        const uint32_t half_bn = ts.bn / 2u;
+        const uint32_t aligned_bn = (half_bn / tile_align_n) * tile_align_n;
+        const uint32_t next_bn = std::max<uint32_t>(tile_align_n, aligned_bn);
+        if (next_bn >= ts.bn) break;
         ts.bn = next_bn;
         if (flags != nullptr) flags->clamped_tile = true;
-      } else if (ts.bm > 32u) {
-        const uint32_t next_bm = std::max<uint32_t>(32u, ts.bm / 2u);
-        if (next_bm == ts.bm) break;
+      } else if (ts.bm > tile_align_m) {
+        const uint32_t half_bm = ts.bm / 2u;
+        const uint32_t aligned_bm = (half_bm / tile_align_m) * tile_align_m;
+        const uint32_t next_bm = std::max<uint32_t>(tile_align_m, aligned_bm);
+        if (next_bm >= ts.bm) break;
         ts.bm = next_bm;
         if (flags != nullptr) flags->clamped_tile = true;
       } else {
@@ -468,21 +493,23 @@ bool clamp_tile_spec(TileSpecAttr& ts, ScalarDType dt_a, ScalarDType dt_b, uint6
   }
 
   // Register-pressure occupancy guard for deep epilogues (>16 8x8 fragments/simdgroup).
-  if (epilogue.is_deep_epilogue() && ts.num_simdgroups > 0u) {
+  if (epilogue.is_deep_epilogue()) {
+    const uint32_t orig_sg = ts.num_simdgroups;
+    uint32_t eff_sg = orig_sg > 0u ? orig_sg : ((ts.bm >= 128u && ts.bn >= 64u) ? 8u : 4u);
     const uint64_t frag_unit = static_cast<uint64_t>(sgmm_m) * sgmm_n;
     const uint64_t tile_area = static_cast<uint64_t>(ts.bm) * ts.bn;
-    while (tile_area > static_cast<uint64_t>(kMaxFragsPerSimdgroup) * ts.num_simdgroups * frag_unit) {
-      const uint64_t next_sg_64 = static_cast<uint64_t>(ts.num_simdgroups) * 2u;
+    while (tile_area > static_cast<uint64_t>(kMaxFragsPerSimdgroup) * eff_sg * frag_unit) {
+      const uint64_t next_sg_64 = static_cast<uint64_t>(eff_sg) * 2u;
       if (next_sg_64 * simd_width > max_tg) break;
       const uint32_t next_sg = static_cast<uint32_t>(next_sg_64);
       uint32_t sg_m = 1u;
       uint32_t sg_n = 1u;
       if (!find_sg_grid(ts.bm, ts.bn, next_sg, sgmm_m, sgmm_n, sg_m, sg_n)) break;
-      ts.num_simdgroups = next_sg;
+      eff_sg = next_sg;
+      ts.num_simdgroups = eff_sg;
       if (flags != nullptr) flags->clamped_simdgroups = true;
     }
-    if (tile_area > static_cast<uint64_t>(kMaxFragsPerSimdgroup) * ts.num_simdgroups * frag_unit &&
-        ts.double_buffer) {
+    if (tile_area > static_cast<uint64_t>(kMaxFragsPerSimdgroup) * eff_sg * frag_unit && ts.double_buffer) {
       ts.double_buffer = false;
       if (flags != nullptr) flags->disabled_double_buffer = true;
     }
@@ -646,9 +673,10 @@ PassResult FusionOccupancyCostModelPass::run(ir::Kernel& kernel, const PassConte
   }
 
   for (auto& op_ptr : kernel.ops) {
-    if (!op_ptr || op_ptr->erased || !op_ptr->hints.tile_spec.has_value()) continue;
+    if (!op_ptr || op_ptr->erased) continue;
 
     if (op_ptr->kind == OpKind::Dot) {
+      if (!op_ptr->hints.tile_spec.has_value()) continue;
       ScalarDType dt_a = primary_dt_a;
       ScalarDType dt_b = primary_dt_b;
       if (op_ptr->operands.size() >= 2) {
@@ -667,7 +695,7 @@ PassResult FusionOccupancyCostModelPass::run(ir::Kernel& kernel, const PassConte
         res.changed = true;
       }
     } else if (op_ptr->kind == OpKind::ImplicitGemmConv && std::holds_alternative<ConvAttr>(op_ptr->attr)) {
-      const auto& ca = std::get<ConvAttr>(op_ptr->attr);
+      auto& ca = std::get<ConvAttr>(op_ptr->attr);
       const ScalarDType dt = infer_ptr_operand_dtype(kernel, *op_ptr, 0, primary_dt_a);
       const auto& eff_dag =
           op_ptr->hints.epilogue_dag.has_value() ? op_ptr->hints.epilogue_dag : kernel.hints.epilogue_dag;
@@ -676,9 +704,73 @@ PassResult FusionOccupancyCostModelPass::run(ir::Kernel& kernel, const PassConte
               ? op_ptr->hints.fused_tail
               : kernel.hints.fused_tail;
       const EpilogueSummary op_epilogue = summarize_epilogue_hints(eff_dag, eff_tail);
-      if (clamp_tile_spec(*op_ptr->hints.tile_spec, dt, dt, scan.existing_alloc_bytes, op_epilogue, ctx.target,
-                          !ca.is_depthwise, &flags)) {
-        res.changed = true;
+      if (op_ptr->hints.tile_spec.has_value()) {
+        if (clamp_tile_spec(*op_ptr->hints.tile_spec, dt, dt, scan.existing_alloc_bytes, op_epilogue, ctx.target,
+                            !ca.is_depthwise, &flags)) {
+          res.changed = true;
+        }
+      }
+      if (!ca.is_depthwise && ca.bm > 0u && ca.bn > 0u && ca.bk > 0u) {
+        TileSpecAttr attr_ts{ca.bm, ca.bn, ca.bk, ca.num_simdgroups, false, 1u, 8u};
+        if (clamp_tile_spec(attr_ts, dt, dt, scan.existing_alloc_bytes, op_epilogue, ctx.target, true, &flags)) {
+          ca.bm = attr_ts.bm;
+          ca.bn = attr_ts.bn;
+          ca.bk = attr_ts.bk;
+          ca.num_simdgroups = attr_ts.num_simdgroups;
+          res.changed = true;
+        }
+      }
+    } else if (op_ptr->kind == OpKind::GroupedGemm && std::holds_alternative<GroupedGemmAttr>(op_ptr->attr)) {
+      auto& gg = std::get<GroupedGemmAttr>(op_ptr->attr);
+      const ScalarDType dt = infer_ptr_operand_dtype(kernel, *op_ptr, 0, primary_dt_a);
+      const auto& eff_dag =
+          op_ptr->hints.epilogue_dag.has_value() ? op_ptr->hints.epilogue_dag : kernel.hints.epilogue_dag;
+      const auto& eff_tail =
+          (op_ptr->hints.fused_tail.has_value() && op_ptr->hints.fused_tail->kind != TailKind::None)
+              ? op_ptr->hints.fused_tail
+              : kernel.hints.fused_tail;
+      const EpilogueSummary op_epilogue = summarize_epilogue_hints(eff_dag, eff_tail);
+      if (op_ptr->hints.tile_spec.has_value()) {
+        if (clamp_tile_spec(*op_ptr->hints.tile_spec, dt, dt, scan.existing_alloc_bytes, op_epilogue, ctx.target, true,
+                            &flags)) {
+          res.changed = true;
+        }
+      }
+      if (gg.bm > 0u && gg.bn > 0u && gg.bk > 0u) {
+        TileSpecAttr attr_ts{gg.bm, gg.bn, gg.bk, gg.num_simdgroups, false, 1u, 8u};
+        if (clamp_tile_spec(attr_ts, dt, dt, scan.existing_alloc_bytes, op_epilogue, ctx.target, true, &flags)) {
+          gg.bm = attr_ts.bm;
+          gg.bn = attr_ts.bn;
+          gg.bk = attr_ts.bk;
+          gg.num_simdgroups = attr_ts.num_simdgroups;
+          res.changed = true;
+        }
+      }
+    } else if (op_ptr->kind == OpKind::QuantDot && std::holds_alternative<QuantDotAttr>(op_ptr->attr)) {
+      auto& qd = std::get<QuantDotAttr>(op_ptr->attr);
+      const ScalarDType dt = infer_ptr_operand_dtype(kernel, *op_ptr, 0, ScalarDType::F16);
+      const auto& eff_dag =
+          op_ptr->hints.epilogue_dag.has_value() ? op_ptr->hints.epilogue_dag : kernel.hints.epilogue_dag;
+      const auto& eff_tail =
+          (op_ptr->hints.fused_tail.has_value() && op_ptr->hints.fused_tail->kind != TailKind::None)
+              ? op_ptr->hints.fused_tail
+              : kernel.hints.fused_tail;
+      const EpilogueSummary op_epilogue = summarize_epilogue_hints(eff_dag, eff_tail);
+      if (op_ptr->hints.tile_spec.has_value()) {
+        if (clamp_tile_spec(*op_ptr->hints.tile_spec, dt, dt, scan.existing_alloc_bytes, op_epilogue, ctx.target, true,
+                            &flags)) {
+          res.changed = true;
+        }
+      }
+      if (qd.bm > 0u && qd.bn > 0u && qd.bk > 0u) {
+        TileSpecAttr attr_ts{qd.bm, qd.bn, qd.bk, qd.num_simdgroups, false, 1u, 8u};
+        if (clamp_tile_spec(attr_ts, dt, dt, scan.existing_alloc_bytes, op_epilogue, ctx.target, true, &flags)) {
+          qd.bm = attr_ts.bm;
+          qd.bn = attr_ts.bn;
+          qd.bk = attr_ts.bk;
+          qd.num_simdgroups = attr_ts.num_simdgroups;
+          res.changed = true;
+        }
       }
     }
   }

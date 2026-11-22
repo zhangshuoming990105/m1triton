@@ -36,6 +36,14 @@ class constexpr:
     def __init__(self, value: Any) -> None:
         self.value = value
 
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, constexpr):
+            return type(self.value) is type(other.value) and self.value == other.value
+        return False
+
+    def __hash__(self) -> int:
+        return hash((type(self.value), self.value))
+
     def __repr__(self) -> str:
         return f"constexpr({self.value!r})"
 

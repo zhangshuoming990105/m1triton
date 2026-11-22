@@ -2243,7 +2243,8 @@ class FlashAttnWriter {
             os_ << ind << "  const float2 tv = float2(m1_tanh(sc.x * m1_inv_softcap), m1_tanh(sc.y * m1_inv_softcap));\n";
             os_ << ind << "  sc = m1_softcap * tv;\n";
             os_ << ind << "  const float2 deriv = 1.0f - tv * tv;\n";
-            os_ << ind << "  const float2 pv = exp2((sc - m1_lv_" << mi << ") * 1.4426950408889634f);\n";
+            os_ << ind << "  const float2 pv = (m1_lv_" << mi << " > -1e29f) ? exp2((sc - m1_lv_" << mi
+                << ") * 1.4426950408889634f) : float2(0.0f);\n";
             os_ << ind << "  sv = pv * (dpv - m1_dv_" << mi << ") * deriv * m1_scale;\n";
           } else {
             os_ << ind << "  const float2 pv = exp2(fma(sv, m1_scale_log2, -m1_lv_log2_" << mi << "));\n";
@@ -2337,7 +2338,8 @@ class FlashAttnWriter {
       os_ << ind << "const float m1_lv_" << mi << " = (m1_qr_" << mi << " < m1_Lq) ? m1_Lb[m1_qr_" << mi
           << "] : -1e30f;\n";
       if (plan_.attr.softcap <= 0.0f) {
-        os_ << ind << "const float m1_lv_log2_" << mi << " = m1_lv_" << mi << " * 1.4426950408889634f;\n";
+        os_ << ind << "const float m1_lv_log2_" << mi << " = (m1_lv_" << mi << " > -1e29f) ? (m1_lv_" << mi
+            << " * 1.4426950408889634f) : 1e30f;\n";
       }
       os_ << ind << "const float m1_dv_" << mi << " = (m1_qr_" << mi << " < m1_Lq) ? m1_Deltab[m1_qr_" << mi
           << "] : 0.0f;\n";

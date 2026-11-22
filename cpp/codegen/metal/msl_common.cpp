@@ -268,7 +268,7 @@ std::string msl_unary_expr(UnaryOp op, const std::string& x, ScalarDType dt, boo
 }
 
 std::string msl_binary_expr(BinaryOp op, const std::string& lhs_in, const std::string& rhs_in, ScalarDType lhs_dt,
-                            ScalarDType rhs_dt, ScalarDType res_dt, bool vec4) {
+                            ScalarDType rhs_dt, ScalarDType res_dt, bool vec4, HelperFlags* helpers) {
   bool is_cmp = (op == BinaryOp::CmpEq || op == BinaryOp::CmpNe || op == BinaryOp::CmpLt || op == BinaryOp::CmpLe ||
                  op == BinaryOp::CmpGt || op == BinaryOp::CmpGe);
   ScalarDType op_dt = is_cmp ? common_cmp_dtype(lhs_dt, rhs_dt) : res_dt;
@@ -289,6 +289,10 @@ std::string msl_binary_expr(BinaryOp op, const std::string& lhs_in, const std::s
       return "(" + a + " % " + b + ")";
     case BinaryOp::Max:
       if (is_float_dtype(op_dt)) {
+        if (helpers != nullptr) {
+          helpers->needs_nan_minmax = true;
+          return "m1_fmax_nan(" + a + ", " + b + ")";
+        }
         if (vec4) {
           return "metal::select(metal::select(metal::max(" + a + ", " + b + "), " + b + ", metal::isnan(" + b +
                  ")), " + a + ", metal::isnan(" + a + "))";
@@ -299,6 +303,10 @@ std::string msl_binary_expr(BinaryOp op, const std::string& lhs_in, const std::s
       return "metal::max(" + a + ", " + b + ")";
     case BinaryOp::Min:
       if (is_float_dtype(op_dt)) {
+        if (helpers != nullptr) {
+          helpers->needs_nan_minmax = true;
+          return "m1_fmin_nan(" + a + ", " + b + ")";
+        }
         if (vec4) {
           return "metal::select(metal::select(metal::min(" + a + ", " + b + "), " + b + ", metal::isnan(" + b +
                  ")), " + a + ", metal::isnan(" + a + "))";
@@ -409,6 +417,16 @@ void emit_helper_functions(std::ostringstream& os, const HelperFlags& helpers) {
        << "inline T m1_tanh(T x) {\n"
        << "  T clamped = metal::select(x, metal::select(T(-10.0f), T(10.0f), x > T(0.0f)), metal::abs(x) > T(10.0f));\n"
        << "  return metal::tanh(clamped);\n"
+       << "}\n\n";
+  }
+  if (helpers.needs_nan_minmax) {
+    os << "template <typename T>\n"
+       << "inline T m1_fmax_nan(T a, T b) {\n"
+       << "  return metal::select(metal::select(metal::max(a, b), b, metal::isnan(b)), a, metal::isnan(a));\n"
+       << "}\n\n"
+       << "template <typename T>\n"
+       << "inline T m1_fmin_nan(T a, T b) {\n"
+       << "  return metal::select(metal::select(metal::min(a, b), b, metal::isnan(b)), a, metal::isnan(a));\n"
        << "}\n\n";
   }
 }
@@ -704,7 +722,7 @@ std::string emit_scalar_op_expr(const Kernel& kernel, const Op& op,
       BinaryOp bop = std::get<BinaryAttr>(op.attr).op;
       ScalarDType ldt = scalar_dtype_of(kernel.value(op.operands[0]).type);
       ScalarDType rdt = scalar_dtype_of(kernel.value(op.operands[1]).type);
-      return msl_binary_expr(bop, get_e(op.operands[0]), get_e(op.operands[1]), ldt, rdt, res_dt, false);
+      return msl_binary_expr(bop, get_e(op.operands[0]), get_e(op.operands[1]), ldt, rdt, res_dt, false, &helpers);
     }
     case OpKind::Select: {
       ScalarDType tdt = scalar_dtype_of(kernel.value(op.operands[1]).type);

@@ -524,6 +524,12 @@ def conv_nd_epilogue(
         with m1_rt.command_batch(wait=wait, sync_mps=sync_mps):
             return _run_wino2x3()
 
+    if transposed:
+        raise ValueError(
+            "conv_nd_epilogue(transposed=True) only supports float32 Winograd 3x3 stride=1 dilation=1 "
+            "groups=1 padding<=2 with C_in>=8, C_out>=16, H_out*W_out>=256; use launch_conv_transpose_fused instead."
+        )
+
     p_spatial = math.prod(spatial_out)
     pixels = n * p_spatial
     pointwise = all(v == 1 for v in k) and all(v == 1 for v in s) and all(v == 0 for v in p)

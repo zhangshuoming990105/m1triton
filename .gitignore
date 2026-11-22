@@ -7,6 +7,7 @@ dist/
 *.dylib
 *.a
 *.o
+python/m1triton/bin/
 
 # Python
 __pycache__/

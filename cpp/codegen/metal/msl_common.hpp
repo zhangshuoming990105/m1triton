@@ -19,6 +19,7 @@ namespace m1triton::codegen::metal {
 struct HelperFlags {
   bool needs_erf = false;
   bool needs_tanh = false;
+  bool needs_nan_minmax = false;
 };
 
 struct LoadOperands {
@@ -59,7 +60,8 @@ std::string msl_cast_expr(const std::string& expr, ir::ScalarDType src_dt, ir::S
 std::string promote_to_vec4(const std::string& expr, ir::ScalarDType dt, bool is_already_vec4);
 std::string msl_unary_expr(ir::UnaryOp op, const std::string& x, ir::ScalarDType dt, bool vec4, HelperFlags& helpers);
 std::string msl_binary_expr(ir::BinaryOp op, const std::string& lhs_in, const std::string& rhs_in,
-                            ir::ScalarDType lhs_dt, ir::ScalarDType rhs_dt, ir::ScalarDType res_dt, bool vec4);
+                            ir::ScalarDType lhs_dt, ir::ScalarDType rhs_dt, ir::ScalarDType res_dt, bool vec4,
+                            HelperFlags* helpers = nullptr);
 std::string msl_select_expr(const std::string& cond, const std::string& t_val, const std::string& f_val,
                             ir::ScalarDType t_dt, ir::ScalarDType f_dt, ir::ScalarDType res_dt, bool vec4);
 std::string combine_add_expr(const std::string& a, bool a_zero, const std::string& b, bool b_zero, ir::ScalarDType dt);

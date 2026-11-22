@@ -1,0 +1,4459 @@
+{
+  "kernelbench_level": 2,
+  "kernelbench_commit_sha": "423217d9fda91e0c2d67e4a43bf62f96f6d104f1",
+  "mode": "full_eval",
+  "seeds": 3,
+  "warmup": 10,
+  "trials": 30,
+  "loadavg_1m": 6.49,
+  "summary": {
+    "total_evaluated": 100,
+    "passed": 100,
+    "failed": 0,
+    "missing": 0,
+    "beats_baseline": 100,
+    "geomean_speedup": 3.013,
+    "median_dispatches_per_forward": 2,
+    "mps_unsupported_task_ids": []
+  },
+  "tasks": [
+    {
+      "id": 1,
+      "name": "Conv2D_ReLU_BiasAdd",
+      "filename": "1_Conv2D_ReLU_BiasAdd.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_001.py",
+      "cold_compile_ms": 90.1434,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 5.9604644775390625,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 11.920928955078125,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 1.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 60.5923,
+      "baseline_iqr_ms": 0.2876,
+      "candidate_median_ms": 36.2192,
+      "candidate_iqr_ms": 0.2179,
+      "speedup": 1.6729
+    },
+    {
+      "id": 2,
+      "name": "ConvTranspose2d_BiasAdd_Clamp_Scaling_Clamp_Divide",
+      "filename": "2_ConvTranspose2d_BiasAdd_Clamp_Scaling_Clamp_Divide.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_002.py",
+      "cold_compile_ms": 149.4661,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 4.470348358154297,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.0132789611816406e-06,
+          "max_rel_err": 17.881393432617188,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.0728836059570312e-06,
+          "max_rel_err": 6.705522537231445,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 259.9686,
+      "baseline_iqr_ms": 0.414,
+      "candidate_median_ms": 48.1983,
+      "candidate_iqr_ms": 0.1467,
+      "speedup": 5.3937
+    },
+    {
+      "id": 3,
+      "name": "ConvTranspose3d_Sum_LayerNorm_AvgPool_GELU",
+      "filename": "3_ConvTranspose3d_Sum_LayerNorm_AvgPool_GELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_003.py",
+      "cold_compile_ms": 96.2284,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.827976226806641e-06,
+          "max_rel_err": 14.528639793395996,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.678964614868164e-06,
+          "max_rel_err": 52.15402603149414,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 5.4836273193359375e-06,
+          "max_rel_err": 57.6667366027832,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 396.1816,
+      "baseline_iqr_ms": 0.9124,
+      "candidate_median_ms": 54.2859,
+      "candidate_iqr_ms": 0.1223,
+      "speedup": 7.2981
+    },
+    {
+      "id": 4,
+      "name": "Conv2d_Mish_Mish",
+      "filename": "4_Conv2d_Mish_Mish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 336,
+      "dispatches_per_forward": 112,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_004.py",
+      "cold_compile_ms": 2654.3977,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.510185241699219e-06,
+          "max_rel_err": 47.206809997558594,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 112
+        },
+        {
+          "max_abs_err": 7.241964340209961e-06,
+          "max_rel_err": 20.00002098083496,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 112
+        },
+        {
+          "max_abs_err": 6.318092346191406e-06,
+          "max_rel_err": 41.17194366455078,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 112
+        }
+      ],
+      "baseline_median_ms": 93.9557,
+      "baseline_iqr_ms": 0.2427,
+      "candidate_median_ms": 60.7813,
+      "candidate_iqr_ms": 0.3705,
+      "speedup": 1.5458
+    },
+    {
+      "id": 5,
+      "name": "ConvTranspose2d_Subtract_Tanh",
+      "filename": "5_ConvTranspose2d_Subtract_Tanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_005.py",
+      "cold_compile_ms": 194.2217,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.560026228427887e-07,
+          "max_rel_err": 11.920928001403809,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 9.499490261077881e-07,
+          "max_rel_err": 20.999996185302734,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 9.317882359027863e-07,
+          "max_rel_err": 11.00000286102295,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 304.9599,
+      "baseline_iqr_ms": 0.2833,
+      "candidate_median_ms": 104.5586,
+      "candidate_iqr_ms": 0.3416,
+      "speedup": 2.9166
+    },
+    {
+      "id": 6,
+      "name": "Conv3d_Softmax_MaxPool_MaxPool",
+      "filename": "6_Conv3d_Softmax_MaxPool_MaxPool.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_006.py",
+      "cold_compile_ms": 1216.3529,
+      "seed_reports": [
+        {
+          "max_abs_err": 8.940696716308594e-08,
+          "max_rel_err": 7.268932336046419e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 8.940696716308594e-08,
+          "max_rel_err": 6.179079150570033e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 8.940696716308594e-08,
+          "max_rel_err": 7.147390874706616e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 12.4699,
+      "baseline_iqr_ms": 0.0528,
+      "candidate_median_ms": 3.6134,
+      "candidate_iqr_ms": 0.0783,
+      "speedup": 3.451
+    },
+    {
+      "id": 7,
+      "name": "Conv3d_ReLU_LeakyReLU_GELU_Sigmoid_BiasAdd",
+      "filename": "7_Conv3d_ReLU_LeakyReLU_GELU_Sigmoid_BiasAdd.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_007.py",
+      "cold_compile_ms": 68.6024,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.001172332908026874,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.007194244768470526,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.0022573363967239857,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 146.7175,
+      "baseline_iqr_ms": 0.2096,
+      "candidate_median_ms": 28.9843,
+      "candidate_iqr_ms": 0.1289,
+      "speedup": 5.062
+    },
+    {
+      "id": 8,
+      "name": "Conv3d_Divide_Max_GlobalAvgPool_BiasAdd_Sum",
+      "filename": "8_Conv3d_Divide_Max_GlobalAvgPool_BiasAdd_Sum.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_008.py",
+      "cold_compile_ms": 683.2012,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 6.674211476820346e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 7.983950922607619e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 6.633320595028636e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 99.5873,
+      "baseline_iqr_ms": 0.1741,
+      "candidate_median_ms": 18.1176,
+      "candidate_iqr_ms": 0.1125,
+      "speedup": 5.4967
+    },
+    {
+      "id": 9,
+      "name": "Matmul_Subtract_Multiply_ReLU",
+      "filename": "9_Matmul_Subtract_Multiply_ReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_009.py",
+      "cold_compile_ms": 786.9366,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 48.0075,
+      "baseline_iqr_ms": 1.2995,
+      "candidate_median_ms": 26.5654,
+      "candidate_iqr_ms": 1.151,
+      "speedup": 1.8071
+    },
+    {
+      "id": 10,
+      "name": "ConvTranspose2d_MaxPool_Hardtanh_Mean_Tanh",
+      "filename": "10_ConvTranspose2d_MaxPool_Hardtanh_Mean_Tanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_010.py",
+      "cold_compile_ms": 2268.3464,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 6.57240934742731e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 6.497483354905853e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.4901161193847656e-07,
+          "max_rel_err": 8.06101888883859e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 207.8851,
+      "baseline_iqr_ms": 27.4152,
+      "candidate_median_ms": 93.7608,
+      "candidate_iqr_ms": 11.5247,
+      "speedup": 2.2172
+    },
+    {
+      "id": 11,
+      "name": "ConvTranspose2d_BatchNorm_Tanh_MaxPool_GroupNorm",
+      "filename": "11_ConvTranspose2d_BatchNorm_Tanh_MaxPool_GroupNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 15,
+      "dispatches_per_forward": 5,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_011.py",
+      "cold_compile_ms": 4031.3738,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.2040138244628906e-05,
+          "max_rel_err": 64.38298034667969,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 5
+        },
+        {
+          "max_abs_err": 1.1205673217773438e-05,
+          "max_rel_err": 9.825124740600586,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 5
+        },
+        {
+          "max_abs_err": 1.1682510375976562e-05,
+          "max_rel_err": 11.981687545776367,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 5
+        }
+      ],
+      "baseline_median_ms": 78.5938,
+      "baseline_iqr_ms": 31.1007,
+      "candidate_median_ms": 71.899,
+      "candidate_iqr_ms": 38.0623,
+      "speedup": 1.0931
+    },
+    {
+      "id": 12,
+      "name": "Gemm_Multiply_LeakyReLU",
+      "filename": "12_Gemm_Multiply_LeakyReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_012.py",
+      "cold_compile_ms": 771.7632,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 41.5936,
+      "baseline_iqr_ms": 0.6281,
+      "candidate_median_ms": 24.6559,
+      "candidate_iqr_ms": 1.5123,
+      "speedup": 1.687
+    },
+    {
+      "id": 13,
+      "name": "ConvTranspose3d_Mean_Add_Softmax_Tanh_Scaling",
+      "filename": "13_ConvTranspose3d_Mean_Add_Softmax_Tanh_Scaling.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_013.py",
+      "cold_compile_ms": 2279.5038,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.086162567138672e-07,
+          "max_rel_err": 6.316013605101034e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 6.323556590359658e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.086162567138672e-07,
+          "max_rel_err": 6.356667290674523e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 556.4964,
+      "baseline_iqr_ms": 29.599,
+      "candidate_median_ms": 117.0189,
+      "candidate_iqr_ms": 6.1943,
+      "speedup": 4.7556
+    },
+    {
+      "id": 14,
+      "name": "Gemm_Divide_Sum_Scaling",
+      "filename": "14_Gemm_Divide_Sum_Scaling.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_014.py",
+      "cold_compile_ms": 1471.3085,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.002197265625,
+          "max_rel_err": 0.00014714410644955933,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.001953125,
+          "max_rel_err": 0.0008218277362175286,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.00177001953125,
+          "max_rel_err": 0.18840579688549042,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 41.0561,
+      "baseline_iqr_ms": 0.8931,
+      "candidate_median_ms": 25.7659,
+      "candidate_iqr_ms": 0.9864,
+      "speedup": 1.5934
+    },
+    {
+      "id": 15,
+      "name": "ConvTranspose3d_BatchNorm_Subtract",
+      "filename": "15_ConvTranspose3d_BatchNorm_Subtract.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_015.py",
+      "cold_compile_ms": 2234.6138,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.8743019104003906e-07,
+          "max_rel_err": 1.3969838619232178,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 1.4901161193847656,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 3.725290298461914e-07,
+          "max_rel_err": 2.60770320892334,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 56.1732,
+      "baseline_iqr_ms": 0.529,
+      "candidate_median_ms": 7.9052,
+      "candidate_iqr_ms": 1.356,
+      "speedup": 7.1059
+    },
+    {
+      "id": 16,
+      "name": "ConvTranspose2d_Mish_Add_Hardtanh_Scaling",
+      "filename": "16_ConvTranspose2d_Mish_Add_Hardtanh_Scaling.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_016.py",
+      "cold_compile_ms": 1478.5256,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 1.3193518952903105e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 1.3764001778326929e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 1.2951504686498083e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 264.3786,
+      "baseline_iqr_ms": 36.5819,
+      "candidate_median_ms": 62.846,
+      "candidate_iqr_ms": 9.7512,
+      "speedup": 4.2068
+    },
+    {
+      "id": 17,
+      "name": "Conv2d_InstanceNorm_Divide",
+      "filename": "17_Conv2d_InstanceNorm_Divide.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 180,
+      "dispatches_per_forward": 60,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_017.py",
+      "cold_compile_ms": 4324.8822,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.032386302947998e-05,
+          "max_rel_err": 119.20928955078125,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 60
+        },
+        {
+          "max_abs_err": 2.6777386665344238e-05,
+          "max_rel_err": 149.01161193847656,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 60
+        },
+        {
+          "max_abs_err": 2.7835369110107422e-05,
+          "max_rel_err": 149.01161193847656,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 60
+        }
+      ],
+      "baseline_median_ms": 44.8579,
+      "baseline_iqr_ms": 5.6172,
+      "candidate_median_ms": 39.5255,
+      "candidate_iqr_ms": 4.1972,
+      "speedup": 1.1349
+    },
+    {
+      "id": 18,
+      "name": "Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp",
+      "filename": "18_Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_018.py",
+      "cold_compile_ms": 823.5547,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.71661376953125e-05,
+          "max_rel_err": 9.138122550211847e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.71661376953125e-05,
+          "max_rel_err": 0.00041569670429453254,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.9073486328125e-05,
+          "max_rel_err": 0.0009361390257254243,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 48.0285,
+      "baseline_iqr_ms": 1.0955,
+      "candidate_median_ms": 28.6777,
+      "candidate_iqr_ms": 0.7432,
+      "speedup": 1.6748
+    },
+    {
+      "id": 19,
+      "name": "ConvTranspose2d_GELU_GroupNorm",
+      "filename": "19_ConvTranspose2d_GELU_GroupNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_019.py",
+      "cold_compile_ms": 3207.055,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.814697265625e-06,
+          "max_rel_err": 41.48390579223633,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 3.814697265625e-06,
+          "max_rel_err": 37.752647399902344,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 3.337860107421875e-06,
+          "max_rel_err": 42.84946060180664,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 184.3125,
+      "baseline_iqr_ms": 17.6284,
+      "candidate_median_ms": 129.9599,
+      "candidate_iqr_ms": 14.0871,
+      "speedup": 1.4182
+    },
+    {
+      "id": 20,
+      "name": "ConvTranspose3d_Sum_ResidualAdd_Multiply_ResidualAdd",
+      "filename": "20_ConvTranspose3d_Sum_ResidualAdd_Multiply_ResidualAdd.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_020.py",
+      "cold_compile_ms": 947.1576,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.4901161193847656e-06,
+          "max_rel_err": 2.530679941177368,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.6689300537109375e-06,
+          "max_rel_err": 2.9802322387695312,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.6689300537109375e-06,
+          "max_rel_err": 1.902438998222351,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 222.2757,
+      "baseline_iqr_ms": 2.7295,
+      "candidate_median_ms": 16.563,
+      "candidate_iqr_ms": 1.067,
+      "speedup": 13.4201
+    },
+    {
+      "id": 21,
+      "name": "Conv2d_Add_Scale_Sigmoid_GroupNorm",
+      "filename": "21_Conv2d_Add_Scale_Sigmoid_GroupNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_021.py",
+      "cold_compile_ms": 3656.4924,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.0517578125e-05,
+          "max_rel_err": 95.367431640625,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 2.9325485229492188e-05,
+          "max_rel_err": 47.6837158203125,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 2.7179718017578125e-05,
+          "max_rel_err": 95.367431640625,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 79.817,
+      "baseline_iqr_ms": 11.1639,
+      "candidate_median_ms": 18.5117,
+      "candidate_iqr_ms": 1.7823,
+      "speedup": 4.3117
+    },
+    {
+      "id": 22,
+      "name": "Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish",
+      "filename": "22_Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_022.py",
+      "cold_compile_ms": 1588.2137,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.814697265625e-05,
+          "max_rel_err": 3.898749412201141e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.814697265625e-05,
+          "max_rel_err": 3.9166172882687533e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.814697265625e-05,
+          "max_rel_err": 3.919175526334584e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 43.0872,
+      "baseline_iqr_ms": 0.6989,
+      "candidate_median_ms": 24.6212,
+      "candidate_iqr_ms": 1.0323,
+      "speedup": 1.75
+    },
+    {
+      "id": 23,
+      "name": "Conv3d_GroupNorm_Mean",
+      "filename": "23_Conv3d_GroupNorm_Mean.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_023.py",
+      "cold_compile_ms": 2253.7058,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.6774736972565734e-08,
+          "max_rel_err": 3.928006649017334,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.79667585043353e-08,
+          "max_rel_err": 5.641380786895752,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 6.60964474263892e-08,
+          "max_rel_err": 4.9878315925598145,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 15.0899,
+      "baseline_iqr_ms": 0.1121,
+      "candidate_median_ms": 5.9576,
+      "candidate_iqr_ms": 0.1157,
+      "speedup": 2.5329
+    },
+    {
+      "id": 24,
+      "name": "Conv3d_Min_Softmax",
+      "filename": "24_Conv3d_Min_Softmax.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_024.py",
+      "cold_compile_ms": 1521.439,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.725290298461914e-08,
+          "max_rel_err": 1.1768448757720762e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.725290298461914e-08,
+          "max_rel_err": 1.0635386615831521e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.725290298461914e-08,
+          "max_rel_err": 1.1189765700692078e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 15.8632,
+      "baseline_iqr_ms": 0.0442,
+      "candidate_median_ms": 6.0349,
+      "candidate_iqr_ms": 0.0888,
+      "speedup": 2.6286
+    },
+    {
+      "id": 25,
+      "name": "Conv2d_Min_Tanh_Tanh",
+      "filename": "25_Conv2d_Min_Tanh_Tanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_025.py",
+      "cold_compile_ms": 2448.8119,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 9.151164590548433e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 7.709298301961098e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 7.95109599494026e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 33.1166,
+      "baseline_iqr_ms": 0.1166,
+      "candidate_median_ms": 28.6364,
+      "candidate_iqr_ms": 0.113,
+      "speedup": 1.1565
+    },
+    {
+      "id": 26,
+      "name": "ConvTranspose3d_Add_HardSwish",
+      "filename": "26_ConvTranspose3d_Add_HardSwish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_026.py",
+      "cold_compile_ms": 1671.1948,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.003286793129518628,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 8.940696716308594e-07,
+          "max_rel_err": 0.0031650264281779528,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.0031557423062622547,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 426.8295,
+      "baseline_iqr_ms": 17.1796,
+      "candidate_median_ms": 38.9659,
+      "candidate_iqr_ms": 1.2197,
+      "speedup": 10.9539
+    },
+    {
+      "id": 27,
+      "name": "Conv3d_HardSwish_GroupNorm_Mean",
+      "filename": "27_Conv3d_HardSwish_GroupNorm_Mean.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_027.py",
+      "cold_compile_ms": 2502.8108,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.002611750504001975,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 0.0017644001636654139,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.364418029785156e-07,
+          "max_rel_err": 0.003178424434736371,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 625.9117,
+      "baseline_iqr_ms": 5.0588,
+      "candidate_median_ms": 28.394,
+      "candidate_iqr_ms": 1.531,
+      "speedup": 22.0438
+    },
+    {
+      "id": 28,
+      "name": "BMM_InstanceNorm_Sum_ResidualAdd_Multiply",
+      "filename": "28_BMM_InstanceNorm_Sum_ResidualAdd_Multiply.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_028.py",
+      "cold_compile_ms": 2741.3323,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.5,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.06666669994592667,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 1.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 43.9568,
+      "baseline_iqr_ms": 3.7772,
+      "candidate_median_ms": 27.1905,
+      "candidate_iqr_ms": 2.5709,
+      "speedup": 1.6166
+    },
+    {
+      "id": 29,
+      "name": "Matmul_Mish_Mish",
+      "filename": "29_Matmul_Mish_Mish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_029.py",
+      "cold_compile_ms": 927.2111,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 1.1018389614037005e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 9.96589506030432e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 1.063311287907709e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 43.8988,
+      "baseline_iqr_ms": 1.6954,
+      "candidate_median_ms": 26.0969,
+      "candidate_iqr_ms": 1.9337,
+      "speedup": 1.6821
+    },
+    {
+      "id": 30,
+      "name": "Gemm_GroupNorm_Hardtanh",
+      "filename": "30_Gemm_GroupNorm_Hardtanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_030.py",
+      "cold_compile_ms": 1701.7219,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 0.4462068974971771,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 0.03531834855675697,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 0.051818691194057465,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 44.1054,
+      "baseline_iqr_ms": 1.8197,
+      "candidate_median_ms": 27.3028,
+      "candidate_iqr_ms": 1.5878,
+      "speedup": 1.6154
+    },
+    {
+      "id": 31,
+      "name": "Conv2d_Min_Add_Multiply",
+      "filename": "31_Conv2d_Min_Add_Multiply.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_031.py",
+      "cold_compile_ms": 1678.3793,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 11.920928955078125,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 13.41104507446289,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 2.4000000953674316,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 65.8804,
+      "baseline_iqr_ms": 0.2201,
+      "candidate_median_ms": 36.1719,
+      "candidate_iqr_ms": 0.077,
+      "speedup": 1.8213
+    },
+    {
+      "id": 32,
+      "name": "Conv2d_Scaling_Min",
+      "filename": "32_Conv2d_Scaling_Min.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 339,
+      "dispatches_per_forward": 113,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_032.py",
+      "cold_compile_ms": 2622.4388,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.3113021850585938e-05,
+          "max_rel_err": 8.443399565294385e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 113
+        },
+        {
+          "max_abs_err": 1.4185905456542969e-05,
+          "max_rel_err": 9.575638614478521e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 113
+        },
+        {
+          "max_abs_err": 1.52587890625e-05,
+          "max_rel_err": 9.849130947259255e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 113
+        }
+      ],
+      "baseline_median_ms": 80.13,
+      "baseline_iqr_ms": 6.1272,
+      "candidate_median_ms": 69.5123,
+      "candidate_iqr_ms": 3.6563,
+      "speedup": 1.1527
+    },
+    {
+      "id": 33,
+      "name": "Gemm_Scale_BatchNorm",
+      "filename": "33_Gemm_Scale_BatchNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_033.py",
+      "cold_compile_ms": 1662.1422,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.9840884135646775e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 2.153345803890261e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 2.1075317135910154e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 42.4349,
+      "baseline_iqr_ms": 0.6018,
+      "candidate_median_ms": 25.4863,
+      "candidate_iqr_ms": 0.8681,
+      "speedup": 1.665
+    },
+    {
+      "id": 34,
+      "name": "ConvTranspose3d_LayerNorm_GELU_Scaling",
+      "filename": "34_ConvTranspose3d_LayerNorm_GELU_Scaling.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_034.py",
+      "cold_compile_ms": 1910.0932,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.0251998901367188e-05,
+          "max_rel_err": 29.417240142822266,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.1205673217773438e-05,
+          "max_rel_err": 25.110727310180664,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.0728836059570312e-05,
+          "max_rel_err": 104.62113952636719,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 935.964,
+      "baseline_iqr_ms": 0.7337,
+      "candidate_median_ms": 57.1738,
+      "candidate_iqr_ms": 5.8935,
+      "speedup": 16.3705
+    },
+    {
+      "id": 35,
+      "name": "Conv2d_Subtract_HardSwish_MaxPool_Mish",
+      "filename": "35_Conv2d_Subtract_HardSwish_MaxPool_Mish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_035.py",
+      "cold_compile_ms": 1735.6557,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.2782554626464844e-07,
+          "max_rel_err": 2.6822092533111572,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 1.7881394624710083,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.2782554626464844e-07,
+          "max_rel_err": 1.7881394624710083,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 68.5629,
+      "baseline_iqr_ms": 0.304,
+      "candidate_median_ms": 43.8674,
+      "candidate_iqr_ms": 0.2673,
+      "speedup": 1.563
+    },
+    {
+      "id": 36,
+      "name": "ConvTranspose2d_Min_Sum_GELU_Add",
+      "filename": "36_ConvTranspose2d_Min_Sum_GELU_Add.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_036.py",
+      "cold_compile_ms": 2549.8664,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 43.3704,
+      "baseline_iqr_ms": 0.1475,
+      "candidate_median_ms": 13.8082,
+      "candidate_iqr_ms": 0.1352,
+      "speedup": 3.1409
+    },
+    {
+      "id": 37,
+      "name": "Matmul_Swish_Sum_GroupNorm",
+      "filename": "37_Matmul_Swish_Sum_GroupNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_037.py",
+      "cold_compile_ms": 1791.9127,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1920928955078125e-06,
+          "max_rel_err": 2.784172296524048,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-06,
+          "max_rel_err": 3.375000476837158,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-06,
+          "max_rel_err": 0.44999995827674866,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 92.8025,
+      "baseline_iqr_ms": 21.0027,
+      "candidate_median_ms": 43.0794,
+      "candidate_iqr_ms": 11.2254,
+      "speedup": 2.1542
+    },
+    {
+      "id": 38,
+      "name": "ConvTranspose3d_AvgPool_Clamp_Softmax_Multiply",
+      "filename": "38_ConvTranspose3d_AvgPool_Clamp_Softmax_Multiply.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_038.py",
+      "cold_compile_ms": 3728.8072,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.547917680814862e-11,
+          "max_rel_err": 6.914077857800294e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 5.638867150992155e-11,
+          "max_rel_err": 7.053384251776151e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 5.3660187404602766e-11,
+          "max_rel_err": 6.695823685731739e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 464.561,
+      "baseline_iqr_ms": 42.4378,
+      "candidate_median_ms": 51.186,
+      "candidate_iqr_ms": 4.1094,
+      "speedup": 9.0759
+    },
+    {
+      "id": 39,
+      "name": "Gemm_Scale_BatchNorm",
+      "filename": "39_Gemm_Scale_BatchNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_039.py",
+      "cold_compile_ms": 95.4575,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 2.2019420953256486e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 2.2011651878983685e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 2.200885376169026e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 116.9634,
+      "baseline_iqr_ms": 3.418,
+      "candidate_median_ms": 69.1672,
+      "candidate_iqr_ms": 1.5817,
+      "speedup": 1.691
+    },
+    {
+      "id": 40,
+      "name": "Matmul_Scaling_ResidualAdd",
+      "filename": "40_Matmul_Scaling_ResidualAdd.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_040.py",
+      "cold_compile_ms": 897.9008,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 109.8614,
+      "baseline_iqr_ms": 1.668,
+      "candidate_median_ms": 67.7563,
+      "candidate_iqr_ms": 0.6041,
+      "speedup": 1.6214
+    },
+    {
+      "id": 41,
+      "name": "Gemm_BatchNorm_GELU_ReLU",
+      "filename": "41_Gemm_BatchNorm_GELU_ReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_041.py",
+      "cold_compile_ms": 2463.0972,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 7.042838774395932e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 7.063855491651339e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 7.042838774395932e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 118.9661,
+      "baseline_iqr_ms": 13.1468,
+      "candidate_median_ms": 85.4679,
+      "candidate_iqr_ms": 26.6331,
+      "speedup": 1.3919
+    },
+    {
+      "id": 42,
+      "name": "ConvTranspose2d_GlobalAvgPool_BiasAdd_LogSumExp_Sum_Multiply",
+      "filename": "42_ConvTranspose2d_GlobalAvgPool_BiasAdd_LogSumExp_Sum_Multiply.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_042.py",
+      "cold_compile_ms": 3395.0951,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.62939453125e-06,
+          "max_rel_err": 1.4170097983878804e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 7.62939453125e-06,
+          "max_rel_err": 1.417014914295578e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 3.814697265625e-06,
+          "max_rel_err": 7.085110809157413e-08,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 119.8102,
+      "baseline_iqr_ms": 9.2786,
+      "candidate_median_ms": 3.6783,
+      "candidate_iqr_ms": 0.1909,
+      "speedup": 32.5722
+    },
+    {
+      "id": 43,
+      "name": "Conv3d_Max_LogSumExp_ReLU",
+      "filename": "43_Conv3d_Max_LogSumExp_ReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_043.py",
+      "cold_compile_ms": 2480.2942,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 3.211769410427223e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 3.2185218401536986e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 3.21211786058484e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 82.687,
+      "baseline_iqr_ms": 0.4612,
+      "candidate_median_ms": 81.0204,
+      "candidate_iqr_ms": 0.3828,
+      "speedup": 1.0206
+    },
+    {
+      "id": 44,
+      "name": "ConvTranspose2d_Multiply_GlobalAvgPool_GlobalAvgPool_Mean",
+      "filename": "44_ConvTranspose2d_Multiply_GlobalAvgPool_GlobalAvgPool_Mean.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_044.py",
+      "cold_compile_ms": 1898.2045,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.4901161193847656e-08,
+          "max_rel_err": 9.261755621992052e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 7.450580596923828e-09,
+          "max_rel_err": 3.3496104151709005e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 7.450580596923828e-09,
+          "max_rel_err": 0.00012987310765311122,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 44.8391,
+      "baseline_iqr_ms": 0.5028,
+      "candidate_median_ms": 13.8885,
+      "candidate_iqr_ms": 0.1352,
+      "speedup": 3.2285
+    },
+    {
+      "id": 45,
+      "name": "Gemm_Sigmoid_LogSumExp",
+      "filename": "45_Gemm_Sigmoid_LogSumExp.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_045.py",
+      "cold_compile_ms": 2404.3211,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 2.0494084651545563e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 2.049406333526349e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 2.0494255181802146e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 61.5105,
+      "baseline_iqr_ms": 2.9959,
+      "candidate_median_ms": 52.3599,
+      "candidate_iqr_ms": 3.7907,
+      "speedup": 1.1748
+    },
+    {
+      "id": 46,
+      "name": "Conv2d_Subtract_Tanh_Subtract_AvgPool",
+      "filename": "46_Conv2d_Subtract_Tanh_Subtract_AvgPool.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 177,
+      "dispatches_per_forward": 59,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_046.py",
+      "cold_compile_ms": 2493.8974,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.294778823852539e-06,
+          "max_rel_err": 0.2996845543384552,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 59
+        },
+        {
+          "max_abs_err": 2.5331974029541016e-06,
+          "max_rel_err": 0.8571428656578064,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 59
+        },
+        {
+          "max_abs_err": 2.5331974029541016e-06,
+          "max_rel_err": 4.222222328186035,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 59
+        }
+      ],
+      "baseline_median_ms": 48.1741,
+      "baseline_iqr_ms": 0.4536,
+      "candidate_median_ms": 34.2984,
+      "candidate_iqr_ms": 0.7691,
+      "speedup": 1.4046
+    },
+    {
+      "id": 47,
+      "name": "Conv3d_Mish_Tanh",
+      "filename": "47_Conv3d_Mish_Tanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_047.py",
+      "cold_compile_ms": 1011.0052,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.0265579223632812e-06,
+          "max_rel_err": 12.33333683013916,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.6391277313232422e-06,
+          "max_rel_err": 26.710336685180664,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-06,
+          "max_rel_err": 20.414596557617188,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 79.2389,
+      "baseline_iqr_ms": 1.3065,
+      "candidate_median_ms": 39.9738,
+      "candidate_iqr_ms": 0.3429,
+      "speedup": 1.9823
+    },
+    {
+      "id": 48,
+      "name": "Conv3d_Scaling_Tanh_Multiply_Sigmoid",
+      "filename": "48_Conv3d_Scaling_Tanh_Multiply_Sigmoid.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_048.py",
+      "cold_compile_ms": 902.8796,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.980232238769531e-07,
+          "max_rel_err": 5.713285986530536e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.980232238769531e-07,
+          "max_rel_err": 6.224346975614026e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.980232238769531e-07,
+          "max_rel_err": 6.397975198524364e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 56.6888,
+      "baseline_iqr_ms": 0.5457,
+      "candidate_median_ms": 9.605,
+      "candidate_iqr_ms": 0.1355,
+      "speedup": 5.902
+    },
+    {
+      "id": 49,
+      "name": "ConvTranspose3d_Softmax_Sigmoid",
+      "filename": "49_ConvTranspose3d_Softmax_Sigmoid.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_049.py",
+      "cold_compile_ms": 1866.0056,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.3711670849024813e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.3714541441677284e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 2.3711156416084123e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 205.7838,
+      "baseline_iqr_ms": 1.8866,
+      "candidate_median_ms": 21.2249,
+      "candidate_iqr_ms": 0.6378,
+      "speedup": 9.6954
+    },
+    {
+      "id": 50,
+      "name": "ConvTranspose3d_Scaling_AvgPool_BiasAdd_Scaling",
+      "filename": "50_ConvTranspose3d_Scaling_AvgPool_BiasAdd_Scaling.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_050.py",
+      "cold_compile_ms": 1869.9855,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.1920869269488321e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.1920890585770394e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.192085932189002e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 180.8505,
+      "baseline_iqr_ms": 0.588,
+      "candidate_median_ms": 20.5968,
+      "candidate_iqr_ms": 0.2472,
+      "speedup": 8.7805
+    },
+    {
+      "id": 51,
+      "name": "Gemm_Subtract_GlobalAvgPool_LogSumExp_GELU_ResidualAdd",
+      "filename": "51_Gemm_Subtract_GlobalAvgPool_LogSumExp_GELU_ResidualAdd.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_051.py",
+      "cold_compile_ms": 3470.7668,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 6.062884040147765e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 1.505169734627998e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 1.505892555542232e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 88.0399,
+      "baseline_iqr_ms": 1.1019,
+      "candidate_median_ms": 45.3682,
+      "candidate_iqr_ms": 1.6734,
+      "speedup": 1.9406
+    },
+    {
+      "id": 52,
+      "name": "Conv2d_Activation_BatchNorm",
+      "filename": "52_Conv2d_Activation_BatchNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_052.py",
+      "cold_compile_ms": 1856.4397,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 4.4703264236450195,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 5.55555534362793,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.960464477539062e-07,
+          "max_rel_err": 2.2351632118225098,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 28.4751,
+      "baseline_iqr_ms": 0.6057,
+      "candidate_median_ms": 19.7069,
+      "candidate_iqr_ms": 0.4157,
+      "speedup": 1.4449
+    },
+    {
+      "id": 53,
+      "name": "Gemm_Scaling_Hardtanh_GELU",
+      "filename": "53_Gemm_Scaling_Hardtanh_GELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_053.py",
+      "cold_compile_ms": 987.9916,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 7.900123364379397e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.4901161193847656e-07,
+          "max_rel_err": 7.434588837895717e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 7.165399438235909e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 85.4126,
+      "baseline_iqr_ms": 3.5341,
+      "candidate_median_ms": 44.7518,
+      "candidate_iqr_ms": 3.6495,
+      "speedup": 1.9086
+    },
+    {
+      "id": 54,
+      "name": "Conv2d_Multiply_LeakyReLU_GELU",
+      "filename": "54_Conv2d_Multiply_LeakyReLU_GELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_054.py",
+      "cold_compile_ms": 1873.3838,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 1.715242862701416,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 8.344650268554688e-07,
+          "max_rel_err": 3.8471992015838623,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 6.493640899658203,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 67.1297,
+      "baseline_iqr_ms": 0.5768,
+      "candidate_median_ms": 38.1822,
+      "candidate_iqr_ms": 0.7137,
+      "speedup": 1.7581
+    },
+    {
+      "id": 55,
+      "name": "Matmul_MaxPool_Sum_Scale",
+      "filename": "55_Matmul_MaxPool_Sum_Scale.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_055.py",
+      "cold_compile_ms": 5057.8961,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.000244140625,
+          "max_rel_err": 1.5998307389963884e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.000244140625,
+          "max_rel_err": 1.581914972348386e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.000244140625,
+          "max_rel_err": 1.5993585122942022e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 252.5772,
+      "baseline_iqr_ms": 13.0936,
+      "candidate_median_ms": 153.0294,
+      "candidate_iqr_ms": 4.9559,
+      "speedup": 1.6505
+    },
+    {
+      "id": 56,
+      "name": "Matmul_Sigmoid_Sum",
+      "filename": "56_Matmul_Sigmoid_Sum.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_056.py",
+      "cold_compile_ms": 5970.5097,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.001953125,
+          "max_rel_err": 1.193591856463172e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.00390625,
+          "max_rel_err": 2.383911805736716e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.00390625,
+          "max_rel_err": 2.3833072759771312e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 254.2801,
+      "baseline_iqr_ms": 9.9684,
+      "candidate_median_ms": 157.0502,
+      "candidate_iqr_ms": 7.63,
+      "speedup": 1.6191
+    },
+    {
+      "id": 57,
+      "name": "Conv2d_ReLU_HardSwish",
+      "filename": "57_Conv2d_ReLU_HardSwish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_057.py",
+      "cold_compile_ms": 2029.7236,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 2.7008354663848877,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 1.6763806343078613,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 1.4901161193847656,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 18.4989,
+      "baseline_iqr_ms": 0.3103,
+      "candidate_median_ms": 4.1593,
+      "candidate_iqr_ms": 0.1245,
+      "speedup": 4.4476
+    },
+    {
+      "id": 58,
+      "name": "ConvTranspose3d_LogSumExp_HardSwish_Subtract_Clamp",
+      "filename": "58_ConvTranspose3d_LogSumExp_HardSwish_Subtract_Clamp.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_058.py",
+      "cold_compile_ms": 1921.3955,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.4649855302195647e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.4721233583259163e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.4498949667540728e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 188.6191,
+      "baseline_iqr_ms": 0.3157,
+      "candidate_median_ms": 18.8428,
+      "candidate_iqr_ms": 0.2148,
+      "speedup": 10.0101
+    },
+    {
+      "id": 59,
+      "name": "Matmul_Swish_Scaling",
+      "filename": "59_Matmul_Swish_Scaling.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_059.py",
+      "cold_compile_ms": 2568.6359,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 3.5655750707519474e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 3.7009354514339066e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 3.8554449588446005e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 254.3693,
+      "baseline_iqr_ms": 10.5018,
+      "candidate_median_ms": 154.0228,
+      "candidate_iqr_ms": 9.2479,
+      "speedup": 1.6515
+    },
+    {
+      "id": 60,
+      "name": "ConvTranspose3d_Swish_GroupNorm_HardSwish",
+      "filename": "60_ConvTranspose3d_Swish_GroupNorm_HardSwish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_060.py",
+      "cold_compile_ms": 3007.1355,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.337860107421875e-06,
+          "max_rel_err": 3.889627456665039,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.0994415283203125e-06,
+          "max_rel_err": 2.920992612838745,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 3.337860107421875e-06,
+          "max_rel_err": 4.144108295440674,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 198.2599,
+      "baseline_iqr_ms": 0.3011,
+      "candidate_median_ms": 65.1589,
+      "candidate_iqr_ms": 0.1998,
+      "speedup": 3.0427
+    },
+    {
+      "id": 61,
+      "name": "ConvTranspose3d_ReLU_GroupNorm",
+      "filename": "61_ConvTranspose3d_ReLU_GroupNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_061.py",
+      "cold_compile_ms": 4041.218,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.002716064453125e-05,
+          "max_rel_err": 122.37511444091797,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.0503997802734375e-05,
+          "max_rel_err": 14.020109176635742,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.1457672119140625e-05,
+          "max_rel_err": 36.96477127075195,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 313.5138,
+      "baseline_iqr_ms": 1.026,
+      "candidate_median_ms": 58.5487,
+      "candidate_iqr_ms": 0.2101,
+      "speedup": 5.3548
+    },
+    {
+      "id": 62,
+      "name": "Matmul_GroupNorm_LeakyReLU_Sum",
+      "filename": "62_Matmul_GroupNorm_LeakyReLU_Sum.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_062.py",
+      "cold_compile_ms": 911.5007,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 0.16666673123836517,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 0.03846154734492302,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 0.012903152033686638,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 45.5174,
+      "baseline_iqr_ms": 0.9075,
+      "candidate_median_ms": 26.7404,
+      "candidate_iqr_ms": 2.1447,
+      "speedup": 1.7022
+    },
+    {
+      "id": 63,
+      "name": "Gemm_ReLU_Divide",
+      "filename": "63_Gemm_ReLU_Divide.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_063.py",
+      "cold_compile_ms": 1114.4299,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 44.5632,
+      "baseline_iqr_ms": 1.241,
+      "candidate_median_ms": 26.693,
+      "candidate_iqr_ms": 1.3287,
+      "speedup": 1.6695
+    },
+    {
+      "id": 64,
+      "name": "Gemm_LogSumExp_LeakyReLU_LeakyReLU_GELU_GELU",
+      "filename": "64_Gemm_LogSumExp_LeakyReLU_LeakyReLU_GELU_GELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_064.py",
+      "cold_compile_ms": 2141.1738,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 2.1041756781414733e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 2.1038962927377725e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.9073486328125e-06,
+          "max_rel_err": 2.1042336584287114e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 45.4664,
+      "baseline_iqr_ms": 1.1902,
+      "candidate_median_ms": 26.3231,
+      "candidate_iqr_ms": 1.439,
+      "speedup": 1.7272
+    },
+    {
+      "id": 65,
+      "name": "Conv2d_AvgPool_Sigmoid_Sum",
+      "filename": "65_Conv2d_AvgPool_Sigmoid_Sum.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_065.py",
+      "cold_compile_ms": 3232.381,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0625,
+          "max_rel_err": 2.204919979931219e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 0.0625,
+          "max_rel_err": 2.2048597259072267e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 0.0625,
+          "max_rel_err": 2.2048091352644406e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 44.2944,
+      "baseline_iqr_ms": 0.334,
+      "candidate_median_ms": 12.4069,
+      "candidate_iqr_ms": 0.1478,
+      "speedup": 3.5702
+    },
+    {
+      "id": 66,
+      "name": "Matmul_Dropout_Softmax",
+      "filename": "66_Matmul_Dropout_Softmax.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_066.py",
+      "cold_compile_ms": 3301.2178,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1641532182693481e-10,
+          "max_rel_err": 6.606407509934797e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.1641532182693481e-10,
+          "max_rel_err": 6.483808192569995e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.1641532182693481e-10,
+          "max_rel_err": 6.282293725234922e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 35.8888,
+      "baseline_iqr_ms": 0.8565,
+      "candidate_median_ms": 18.6759,
+      "candidate_iqr_ms": 0.7285,
+      "speedup": 1.9217
+    },
+    {
+      "id": 67,
+      "name": "Conv2d_GELU_GlobalAvgPool",
+      "filename": "67_Conv2d_GELU_GlobalAvgPool.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_067.py",
+      "cold_compile_ms": 1342.6716,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 7.734612154308707e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 8.703312232682947e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-07,
+          "max_rel_err": 9.146454431174789e-06,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 30.1845,
+      "baseline_iqr_ms": 0.6909,
+      "candidate_median_ms": 21.7758,
+      "candidate_iqr_ms": 0.6065,
+      "speedup": 1.3862
+    },
+    {
+      "id": 68,
+      "name": "Matmul_Min_Subtract",
+      "filename": "68_Matmul_Min_Subtract.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_068.py",
+      "cold_compile_ms": 1086.726,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.609542863434399e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.2271537741526117e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 1.5716855727987422e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 36.5558,
+      "baseline_iqr_ms": 1.2236,
+      "candidate_median_ms": 19.2654,
+      "candidate_iqr_ms": 1.0568,
+      "speedup": 1.8975
+    },
+    {
+      "id": 69,
+      "name": "Conv2d_HardSwish_ReLU",
+      "filename": "69_Conv2d_HardSwish_ReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_069.py",
+      "cold_compile_ms": 1122.7722,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 2.7008354663848877,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 1.6763806343078613,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 1.4901161193847656,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 9.1029,
+      "baseline_iqr_ms": 0.2048,
+      "candidate_median_ms": 4.2389,
+      "candidate_iqr_ms": 0.1057,
+      "speedup": 2.1475
+    },
+    {
+      "id": 70,
+      "name": "Gemm_Sigmoid_Scaling_ResidualAdd",
+      "filename": "70_Gemm_Sigmoid_Scaling_ResidualAdd.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_070.py",
+      "cold_compile_ms": 1096.9517,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.0833333358168602,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.125,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.125,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 44.2351,
+      "baseline_iqr_ms": 0.9545,
+      "candidate_median_ms": 25.9619,
+      "candidate_iqr_ms": 1.1396,
+      "speedup": 1.7038
+    },
+    {
+      "id": 71,
+      "name": "Conv2d_Divide_LeakyReLU",
+      "filename": "71_Conv2d_Divide_LeakyReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_071.py",
+      "cold_compile_ms": 2011.1085,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 2.7008354663848877,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 1.71177077293396,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 1.4901161193847656,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 9.0882,
+      "baseline_iqr_ms": 0.2502,
+      "candidate_median_ms": 4.2709,
+      "candidate_iqr_ms": 0.1546,
+      "speedup": 2.1279
+    },
+    {
+      "id": 72,
+      "name": "ConvTranspose3d_BatchNorm_AvgPool_AvgPool",
+      "filename": "72_ConvTranspose3d_BatchNorm_AvgPool_AvgPool.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_072.py",
+      "cold_compile_ms": 3345.8139,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.60770320892334e-08,
+          "max_rel_err": 0.06128549948334694,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.60770320892334e-08,
+          "max_rel_err": 0.016995614394545555,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.9802322387695312e-08,
+          "max_rel_err": 0.05423728749155998,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 184.4605,
+      "baseline_iqr_ms": 0.8489,
+      "candidate_median_ms": 21.2671,
+      "candidate_iqr_ms": 0.2111,
+      "speedup": 8.6735
+    },
+    {
+      "id": 73,
+      "name": "Conv2d_BatchNorm_Scaling",
+      "filename": "73_Conv2d_BatchNorm_Scaling.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_073.py",
+      "cold_compile_ms": 2155.6728,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 10.803287506103516,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 5.6666669845581055,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 2.2857143878936768,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 9.2546,
+      "baseline_iqr_ms": 0.2481,
+      "candidate_median_ms": 4.2934,
+      "candidate_iqr_ms": 0.2339,
+      "speedup": 2.1556
+    },
+    {
+      "id": 74,
+      "name": "ConvTranspose3d_LeakyReLU_Multiply_LeakyReLU_Max",
+      "filename": "74_ConvTranspose3d_LeakyReLU_Multiply_LeakyReLU_Max.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_074.py",
+      "cold_compile_ms": 2292.445,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.03209879249334335,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.76837158203125e-07,
+          "max_rel_err": 0.047218941152095795,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 4.470348358154297e-07,
+          "max_rel_err": 0.18016062676906586,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 63.1487,
+      "baseline_iqr_ms": 0.4717,
+      "candidate_median_ms": 6.0636,
+      "candidate_iqr_ms": 0.2505,
+      "speedup": 10.4144
+    },
+    {
+      "id": 75,
+      "name": "Gemm_GroupNorm_Min_BiasAdd",
+      "filename": "75_Gemm_GroupNorm_Min_BiasAdd.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_075.py",
+      "cold_compile_ms": 2145.5482,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.0024691359139978886,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.004434589762240648,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.008510638028383255,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 46.4605,
+      "baseline_iqr_ms": 1.6445,
+      "candidate_median_ms": 27.4866,
+      "candidate_iqr_ms": 0.8262,
+      "speedup": 1.6903
+    },
+    {
+      "id": 76,
+      "name": "Gemm_Add_ReLU",
+      "filename": "76_Gemm_Add_ReLU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_076.py",
+      "cold_compile_ms": 1878.3719,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 44.702,
+      "baseline_iqr_ms": 0.9613,
+      "candidate_median_ms": 26.5173,
+      "candidate_iqr_ms": 1.4734,
+      "speedup": 1.6858
+    },
+    {
+      "id": 77,
+      "name": "ConvTranspose3d_Scale_BatchNorm_GlobalAvgPool",
+      "filename": "77_ConvTranspose3d_Scale_BatchNorm_GlobalAvgPool.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_077.py",
+      "cold_compile_ms": 4255.155,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.384185791015625e-07,
+          "max_rel_err": 5.266750304144807e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 2.980232238769531e-07,
+          "max_rel_err": 4.881337736151181e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 2.980232238769531e-07,
+          "max_rel_err": 5.576990588451736e-05,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 967.452,
+      "baseline_iqr_ms": 28.9202,
+      "candidate_median_ms": 2.296,
+      "candidate_iqr_ms": 4.9681,
+      "speedup": 421.368
+    },
+    {
+      "id": 78,
+      "name": "ConvTranspose3d_Max_Max_Sum",
+      "filename": "78_ConvTranspose3d_Max_Max_Sum.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_078.py",
+      "cold_compile_ms": 3578.0291,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.62939453125e-06,
+          "max_rel_err": 5.989700753161742e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 5.7220458984375e-06,
+          "max_rel_err": 4.788193450622202e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 6.67572021484375e-06,
+          "max_rel_err": 5.446286195365246e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 2010.568,
+      "baseline_iqr_ms": 75.954,
+      "candidate_median_ms": 98.6233,
+      "candidate_iqr_ms": 14.9847,
+      "speedup": 20.3863
+    },
+    {
+      "id": 79,
+      "name": "Conv3d_Multiply_InstanceNorm_Clamp_Multiply_Max",
+      "filename": "79_Conv3d_Multiply_InstanceNorm_Clamp_Multiply_Max.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_079.py",
+      "cold_compile_ms": 3236.9998,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.172325134277344e-06,
+          "max_rel_err": 0.00010743695747805759,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 4.112720489501953e-06,
+          "max_rel_err": 0.00020299320749472827,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 4.231929779052734e-06,
+          "max_rel_err": 0.0008543092990294099,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 17.2407,
+      "baseline_iqr_ms": 0.1652,
+      "candidate_median_ms": 3.5935,
+      "candidate_iqr_ms": 0.2546,
+      "speedup": 4.7978
+    },
+    {
+      "id": 80,
+      "name": "Gemm_Max_Subtract_GELU",
+      "filename": "80_Gemm_Max_Subtract_GELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_080.py",
+      "cold_compile_ms": 2247.0538,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 44.49,
+      "baseline_iqr_ms": 1.0935,
+      "candidate_median_ms": 27.4702,
+      "candidate_iqr_ms": 2.271,
+      "speedup": 1.6196
+    },
+    {
+      "id": 81,
+      "name": "Gemm_Swish_Divide_Clamp_Tanh_Clamp",
+      "filename": "81_Gemm_Swish_Divide_Clamp_Tanh_Clamp.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_081.py",
+      "cold_compile_ms": 2251.2132,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 1.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.4901161193847656e-07,
+          "max_rel_err": 1.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 1.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 45.36,
+      "baseline_iqr_ms": 1.1314,
+      "candidate_median_ms": 26.2055,
+      "candidate_iqr_ms": 1.8486,
+      "speedup": 1.7309
+    },
+    {
+      "id": 82,
+      "name": "Conv2d_Tanh_Scaling_BiasAdd_Max",
+      "filename": "82_Conv2d_Tanh_Scaling_BiasAdd_Max.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_082.py",
+      "cold_compile_ms": 2404.0202,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 0.5,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 8.940696716308594,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 0.5714285969734192,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 124.3754,
+      "baseline_iqr_ms": 43.3499,
+      "candidate_median_ms": 26.8817,
+      "candidate_iqr_ms": 7.9648,
+      "speedup": 4.6268
+    },
+    {
+      "id": 83,
+      "name": "Conv3d_GroupNorm_Min_Clamp_Dropout",
+      "filename": "83_Conv3d_GroupNorm_Min_Clamp_Dropout.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_083.py",
+      "cold_compile_ms": 3280.5573,
+      "seed_reports": [
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 0.0,
+          "max_rel_err": 0.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 39.9644,
+      "baseline_iqr_ms": 1.2318,
+      "candidate_median_ms": 13.1539,
+      "candidate_iqr_ms": 1.0364,
+      "speedup": 3.0382
+    },
+    {
+      "id": 84,
+      "name": "Gemm_BatchNorm_Scaling_Softmax",
+      "filename": "84_Gemm_BatchNorm_Scaling_Softmax.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_084.py",
+      "cold_compile_ms": 2216.4435,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.3283064365386963e-10,
+          "max_rel_err": 7.337440592891653e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.3283064365386963e-10,
+          "max_rel_err": 6.69908047257195e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 2.3283064365386963e-10,
+          "max_rel_err": 6.359838948810648e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 45.5846,
+      "baseline_iqr_ms": 2.4266,
+      "candidate_median_ms": 28.7798,
+      "candidate_iqr_ms": 1.8264,
+      "speedup": 1.5839
+    },
+    {
+      "id": 85,
+      "name": "Conv2d_GroupNorm_Scale_MaxPool_Clamp",
+      "filename": "85_Conv2d_GroupNorm_Scale_MaxPool_Clamp.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_085.py",
+      "cold_compile_ms": 3456.3617,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.1324882507324219e-06,
+          "max_rel_err": 0.3491169810295105,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 1.3113021850585938e-06,
+          "max_rel_err": 0.1696825921535492,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 1.1920928955078125e-06,
+          "max_rel_err": 0.19322969019412994,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 26.481,
+      "baseline_iqr_ms": 0.6367,
+      "candidate_median_ms": 8.4368,
+      "candidate_iqr_ms": 1.2574,
+      "speedup": 3.1387
+    },
+    {
+      "id": 86,
+      "name": "Matmul_Divide_GELU",
+      "filename": "86_Matmul_Divide_GELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_086.py",
+      "cold_compile_ms": 2241.6324,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.725290298461914e-08,
+          "max_rel_err": 7.981392968758882e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.725290298461914e-08,
+          "max_rel_err": 7.913687340987963e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.725290298461914e-08,
+          "max_rel_err": 8.276201128865068e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 44.4461,
+      "baseline_iqr_ms": 1.2689,
+      "candidate_median_ms": 27.4247,
+      "candidate_iqr_ms": 2.2586,
+      "speedup": 1.6207
+    },
+    {
+      "id": 87,
+      "name": "Conv2d_Subtract_Subtract_Mish",
+      "filename": "87_Conv2d_Subtract_Subtract_Mish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_087.py",
+      "cold_compile_ms": 1279.6775,
+      "seed_reports": [
+        {
+          "max_abs_err": 5.364418029785156e-07,
+          "max_rel_err": 8.046627044677734,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 5.364418029785156e-07,
+          "max_rel_err": 8.046627044677734,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 5.066394805908203e-07,
+          "max_rel_err": 8.046627044677734,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 54.6821,
+      "baseline_iqr_ms": 1.2306,
+      "candidate_median_ms": 16.9398,
+      "candidate_iqr_ms": 1.8384,
+      "speedup": 3.228
+    },
+    {
+      "id": 88,
+      "name": "Gemm_GroupNorm_Swish_Multiply_Swish",
+      "filename": "88_Gemm_GroupNorm_Swish_Multiply_Swish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_088.py",
+      "cold_compile_ms": 1161.476,
+      "seed_reports": [
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 0.03846141695976257,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.384185791015625e-06,
+          "max_rel_err": 1.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.86102294921875e-06,
+          "max_rel_err": 0.14208585023880005,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 46.891,
+      "baseline_iqr_ms": 2.7486,
+      "candidate_median_ms": 27.9984,
+      "candidate_iqr_ms": 2.3532,
+      "speedup": 1.6748
+    },
+    {
+      "id": 89,
+      "name": "ConvTranspose3d_MaxPool_Softmax_Subtract_Swish_Max",
+      "filename": "89_ConvTranspose3d_MaxPool_Softmax_Subtract_Swish_Max.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 9,
+      "dispatches_per_forward": 3,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_089.py",
+      "cold_compile_ms": 1409.8575,
+      "seed_reports": [
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 3.269188368903997e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 3.268822865720722e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 3
+        },
+        {
+          "max_abs_err": 7.152557373046875e-07,
+          "max_rel_err": 3.2692861395844375e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 3
+        }
+      ],
+      "baseline_median_ms": 198.8661,
+      "baseline_iqr_ms": 0.4273,
+      "candidate_median_ms": 21.5776,
+      "candidate_iqr_ms": 0.3944,
+      "speedup": 9.2163
+    },
+    {
+      "id": 90,
+      "name": "Conv3d_LeakyReLU_Sum_Clamp_GELU",
+      "filename": "90_Conv3d_LeakyReLU_Sum_Clamp_GELU.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_090.py",
+      "cold_compile_ms": 1395.3209,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.6689300537109375e-06,
+          "max_rel_err": 8.940696716308594,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.4901161193847656e-06,
+          "max_rel_err": 17.881385803222656,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 1.3709068298339844e-06,
+          "max_rel_err": 8.940696716308594,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 349.774,
+      "baseline_iqr_ms": 1.3013,
+      "candidate_median_ms": 54.0472,
+      "candidate_iqr_ms": 0.5351,
+      "speedup": 6.4716
+    },
+    {
+      "id": 91,
+      "name": "ConvTranspose2d_Softmax_BiasAdd_Scaling_Sigmoid",
+      "filename": "91_ConvTranspose2d_Softmax_BiasAdd_Scaling_Sigmoid.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_091.py",
+      "cold_compile_ms": 3715.5948,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 6.021904823683144e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 6.018610179125972e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 6.029280257280334e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 186.7224,
+      "baseline_iqr_ms": 19.9539,
+      "candidate_median_ms": 73.2326,
+      "candidate_iqr_ms": 6.7266,
+      "speedup": 2.5497
+    },
+    {
+      "id": 92,
+      "name": "Conv2d_GroupNorm_Tanh_HardSwish_ResidualAdd_LogSumExp",
+      "filename": "92_Conv2d_GroupNorm_Tanh_HardSwish_ResidualAdd_LogSumExp.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 12,
+      "dispatches_per_forward": 4,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_092.py",
+      "cold_compile_ms": 1068.8013,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 3.3210281458195823e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 3.2805030514282407e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 4
+        },
+        {
+          "max_abs_err": 1.430511474609375e-06,
+          "max_rel_err": 3.3302117685707344e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 4
+        }
+      ],
+      "baseline_median_ms": 27.881,
+      "baseline_iqr_ms": 1.8558,
+      "candidate_median_ms": 9.3018,
+      "candidate_iqr_ms": 1.0466,
+      "speedup": 2.9974
+    },
+    {
+      "id": 93,
+      "name": "ConvTranspose2d_Add_Min_GELU_Multiply",
+      "filename": "93_ConvTranspose2d_Add_Min_GELU_Multiply.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_093.py",
+      "cold_compile_ms": 1648.6585,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.600733518600464e-07,
+          "max_rel_err": 0.001229126239195466,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 5.952897481620312e-07,
+          "max_rel_err": 0.002156689064577222,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.116445779800415e-07,
+          "max_rel_err": 0.0020639526192098856,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 151.2805,
+      "baseline_iqr_ms": 9.9919,
+      "candidate_median_ms": 62.2485,
+      "candidate_iqr_ms": 1.6384,
+      "speedup": 2.4303
+    },
+    {
+      "id": 94,
+      "name": "Gemm_BiasAdd_Hardtanh_Mish_GroupNorm",
+      "filename": "94_Gemm_BiasAdd_Hardtanh_Mish_GroupNorm.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_094.py",
+      "cold_compile_ms": 2855.2544,
+      "seed_reports": [
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.8333333134651184,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.0728836059570312e-06,
+          "max_rel_err": 0.333333283662796,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 9.5367431640625e-07,
+          "max_rel_err": 0.25000032782554626,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 53.6398,
+      "baseline_iqr_ms": 3.067,
+      "candidate_median_ms": 31.0298,
+      "candidate_iqr_ms": 2.0697,
+      "speedup": 1.7287
+    },
+    {
+      "id": 95,
+      "name": "Matmul_Add_Swish_Tanh_GELU_Hardtanh",
+      "filename": "95_Matmul_Add_Swish_Tanh_GELU_Hardtanh.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_095.py",
+      "cold_compile_ms": 1393.4069,
+      "seed_reports": [
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 1.0,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 0.2242426574230194,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 4.172325134277344e-07,
+          "max_rel_err": 0.21951277554035187,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 51.3487,
+      "baseline_iqr_ms": 1.1352,
+      "candidate_median_ms": 29.1746,
+      "candidate_iqr_ms": 2.6836,
+      "speedup": 1.76
+    },
+    {
+      "id": 96,
+      "name": "ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp",
+      "filename": "96_ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_096.py",
+      "cold_compile_ms": 3500.6443,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.4901161193847656e-08,
+          "max_rel_err": 2.9913246635260293e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.2351741790771484e-08,
+          "max_rel_err": 3.0227397473936435e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.4901161193847656e-08,
+          "max_rel_err": 3.015556444552203e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 185.2798,
+      "baseline_iqr_ms": 1.482,
+      "candidate_median_ms": 19.3896,
+      "candidate_iqr_ms": 0.3334,
+      "speedup": 9.5556
+    },
+    {
+      "id": 97,
+      "name": "Matmul_BatchNorm_BiasAdd_Divide_Swish",
+      "filename": "97_Matmul_BatchNorm_BiasAdd_Divide_Swish.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_097.py",
+      "cold_compile_ms": 2500.5669,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 0.08481327444314957,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 0.01211184449493885,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 0.09479554742574692,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 51.8303,
+      "baseline_iqr_ms": 1.4568,
+      "candidate_median_ms": 32.326,
+      "candidate_iqr_ms": 1.2571,
+      "speedup": 1.6034
+    },
+    {
+      "id": 98,
+      "name": "Matmul_AvgPool_GELU_Scale_Max",
+      "filename": "98_Matmul_AvgPool_GELU_Scale_Max.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_098.py",
+      "cold_compile_ms": 2419.0783,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 4.848356525144482e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 5.282439019538288e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 1.7881393432617188e-07,
+          "max_rel_err": 5.733437546950881e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 50.1379,
+      "baseline_iqr_ms": 1.242,
+      "candidate_median_ms": 28.1401,
+      "candidate_iqr_ms": 2.3995,
+      "speedup": 1.7817
+    },
+    {
+      "id": 99,
+      "name": "Matmul_GELU_Softmax",
+      "filename": "99_Matmul_GELU_Softmax.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 6,
+      "dispatches_per_forward": 2,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_099.py",
+      "cold_compile_ms": 1285.6218,
+      "seed_reports": [
+        {
+          "max_abs_err": 1.7462298274040222e-10,
+          "max_rel_err": 7.501813570343074e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.3283064365386963e-10,
+          "max_rel_err": 7.204708936114912e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 2
+        },
+        {
+          "max_abs_err": 2.0372681319713593e-10,
+          "max_rel_err": 7.15305759513285e-07,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 2
+        }
+      ],
+      "baseline_median_ms": 51.6745,
+      "baseline_iqr_ms": 2.5378,
+      "candidate_median_ms": 28.7388,
+      "candidate_iqr_ms": 3.4136,
+      "speedup": 1.7981
+    },
+    {
+      "id": 100,
+      "name": "ConvTranspose3d_Clamp_Min_Divide",
+      "filename": "100_ConvTranspose3d_Clamp_Min_Divide.py",
+      "status": "passed",
+      "baseline_backend": "mps",
+      "passed": true,
+      "beats_baseline": true,
+      "compiled_kernel_dispatch_count": 3,
+      "dispatches_per_forward": 1,
+      "candidate_file": "/Users/zhangshuoming/workspace/ai-compiler/benchmarks/kernels_l2/task_100.py",
+      "cold_compile_ms": 1579.2591,
+      "seed_reports": [
+        {
+          "max_abs_err": 3.2782554626464844e-07,
+          "max_rel_err": 2.49128794670105,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 0,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.5762786865234375e-07,
+          "max_rel_err": 4.307366847991943,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 1,
+          "dispatches": 1
+        },
+        {
+          "max_abs_err": 3.427267074584961e-07,
+          "max_rel_err": 3.240000009536743,
+          "rtol": 0.001,
+          "atol": 0.001,
+          "seed": 2,
+          "dispatches": 1
+        }
+      ],
+      "baseline_median_ms": 2612.8829,
+      "baseline_iqr_ms": 3.3128,
+      "candidate_median_ms": 174.7249,
+      "candidate_iqr_ms": 4.7176,
+      "speedup": 14.9543
+    }
+  ],
+  "roofline": {
+    "device_name": "Apple M1 Max",
+    "max_threads_per_threadgroup": 1024,
+    "max_threadgroup_memory_bytes": 32768,
+    "recommended_max_working_set_gb": 24.96,
+    "has_unified_memory": true,
+    "trials": 21,
+    "stream_copy": {
+      "bytes": 536870912,
+      "median_ms": 1.4361,
+      "iqr_ms": 0.0114,
+      "bandwidth_gbs": 373.83
+    },
+    "stream_triad": {
+      "bytes": 805306368,
+      "median_ms": 2.1832,
+      "iqr_ms": 0.048,
+      "bandwidth_gbs": 368.86,
+      "verified": true
+    },
+    "sgmm_fp32": {
+      "flops": 274877906944,
+      "median_ms": 27.0265,
+      "iqr_ms": 0.8243,
+      "tflops": 10.171,
+      "sample_out": 121.18
+    },
+    "sgmm_fp16": {
+      "flops": 549755813888,
+      "median_ms": 57.0615,
+      "iqr_ms": 4.8153,
+      "tflops": 9.634,
+      "sample_out": 24.0
+    },
+    "host_platform": "macOS-26.6-arm64-arm-64bit",
+    "host_machine": "arm64",
+    "loadavg_1m": 6.44
+  }
+}

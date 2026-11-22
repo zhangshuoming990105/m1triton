@@ -1581,7 +1581,7 @@ struct Vec4ReduceEmitter {
         std::string le = eval_scalar_at_lane(op.operands[0], lane_expr, c_var, e_var, local_memo, extra_scalars);
         std::string re = eval_scalar_at_lane(op.operands[1], lane_expr, c_var, e_var, local_memo, extra_scalars);
         res = msl_binary_expr(std::get<BinaryAttr>(op.attr).op, le, re, scalar_dtype_of(kernel.value(op.operands[0]).type),
-                              scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false);
+                              scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false, &helpers);
         break;
       }
       case OpKind::Select: {
@@ -1809,7 +1809,8 @@ struct Vec4ReduceEmitter {
         BinaryOp bop = std::get<BinaryAttr>(op.attr).op;
         ScalarDType ldt = scalar_dtype_of(kernel.value(op.operands[0]).type);
         ScalarDType rdt_in = scalar_dtype_of(kernel.value(op.operands[1]).type);
-        rhs = msl_binary_expr(bop, get_v4(op.operands[0], ldt), get_v4(op.operands[1], rdt_in), ldt, rdt_in, rdt, true);
+        rhs = msl_binary_expr(bop, get_v4(op.operands[0], ldt), get_v4(op.operands[1], rdt_in), ldt, rdt_in, rdt, true,
+                              &helpers);
       } else if (op.kind == OpKind::Select) {
         ScalarDType tdt = scalar_dtype_of(kernel.value(op.operands[1]).type);
         ScalarDType fdt = scalar_dtype_of(kernel.value(op.operands[2]).type);
@@ -3013,7 +3014,7 @@ struct Scalar1DReduceEmitter {
         std::string le = eval_at(op.operands[0], lane_expr, slot_expr, memo);
         std::string re = eval_at(op.operands[1], lane_expr, slot_expr, memo);
         res = msl_binary_expr(std::get<BinaryAttr>(op.attr).op, le, re, scalar_dtype_of(kernel.value(op.operands[0]).type),
-                              scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false);
+                              scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false, &helpers);
         break;
       }
       case OpKind::Select: {
@@ -3966,7 +3967,7 @@ struct Row2DReduceEmitter {
         std::string le = eval_2d(op.operands[0], r_expr, c_expr, rm_idx, memo);
         std::string re = eval_2d(op.operands[1], r_expr, c_expr, rm_idx, memo);
         res = msl_binary_expr(std::get<BinaryAttr>(op.attr).op, le, re, scalar_dtype_of(kernel.value(op.operands[0]).type),
-                              scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false);
+                              scalar_dtype_of(kernel.value(op.operands[1]).type), rdt, false, &helpers);
         break;
       }
       case OpKind::Select: {

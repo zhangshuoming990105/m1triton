@@ -16,9 +16,9 @@ from typing import Any, Callable, Mapping, Sequence
 
 from m1triton import language as tl
 from m1triton import runtime as rt
-from m1triton.jit import CompiledKernel, JITFunction, _is_buffer_arg, _is_mps_tensor
+from m1triton.jit import CompiledKernel, JITFunction, _freeze_constexpr, _is_buffer_arg, _is_mps_tensor
 
-_DISK_CACHE_VERSION = 1
+_DISK_CACHE_VERSION = 2
 
 
 class _PSOInfeasibleError(RuntimeError):
@@ -104,6 +104,15 @@ def _sync_mps_if_loaded() -> None:
     torch_mod = sys.modules.get("torch")
     if torch_mod is not None and hasattr(torch_mod, "mps") and hasattr(torch_mod.mps, "synchronize"):
         torch_mod.mps.synchronize()
+
+
+def _zero_buffer(buf: Any) -> None:
+    if buf is None:
+        return
+    if hasattr(buf, "zero_"):
+        buf.zero_()
+    elif hasattr(buf, "fill"):
+        buf.fill(0)
 
 
 class Config:
@@ -369,9 +378,9 @@ class Autotuner:
         return 4
 
     def _build_cache_key(self, named_args: dict[str, Any]) -> tuple[Any, ...]:
-        key_vals = tuple(named_args.get(k) for k in self.key)
+        key_vals = tuple(_freeze_constexpr(named_args.get(k)) for k in self.key)
         dtype_tags = tuple(
-            (name, v.dtype)
+            (name, v.dtype, "mps" if _is_mps_tensor(v) else "cpu")
             for name in self._param_names
             if (v := named_args.get(name)) is not None and _is_buffer_arg(v)
         )
@@ -384,7 +393,7 @@ class Autotuner:
     ) -> tuple[str, dict[str, Any]]:
         key_vals = [_canonicalize_json_value(named_args.get(k)) for k in self.key]
         dtype_tags = [
-            [k, str(v.dtype)]
+            [k, str(v.dtype), "mps" if _is_mps_tensor(v) else "cpu"]
             for k, v in sorted(named_args.items())
             if _is_buffer_arg(v)
         ]
@@ -534,13 +543,17 @@ class Autotuner:
         base_kwargs: dict[str, Any],
         named_args: dict[str, Any],
         saved_buffers: Mapping[str, tuple[Any, Any]] | None = None,
+        *,
+        skip_pso_check: bool = False,
     ) -> float:
-        self._check_pso_feasible(cfg, args, base_kwargs)
+        if not skip_pso_check:
+            self._check_pso_feasible(cfg, args, base_kwargs)
 
         cfg_kwargs = cfg.all_kwargs()
         merged_kwargs = dict(base_kwargs)
         merged_kwargs.update(cfg_kwargs)
         merged_kwargs["wait"] = True
+        merged_kwargs["sync_mps"] = False
         wrapped_grid = _wrap_grid_with_meta(grid, cfg_kwargs)
 
         def _prepare_trial() -> None:
@@ -549,9 +562,7 @@ class Autotuner:
             if cfg.pre_hook is not None:
                 cfg.pre_hook(named_args)
             for name in self.reset_to_zero:
-                buf = named_args.get(name)
-                if buf is not None and hasattr(buf, "zero_"):
-                    buf.zero_()
+                _zero_buffer(named_args.get(name))
 
         self.bench_count += 1
 
@@ -625,8 +636,17 @@ class Autotuner:
             best_ms = float("inf")
             last_err: Exception | None = None
             ran_tuning = True
+            feasible: list[Config] = []
+            for cfg in candidates:
+                try:
+                    self._check_pso_feasible(cfg, args, kwargs)
+                    feasible.append(cfg)
+                except (_PSOInfeasibleError, RuntimeError, Exception) as exc:
+                    last_err = exc
+            if any(_is_mps_tensor(v) for v in named_args.values()):
+                _sync_mps_if_loaded()
             try:
-                for cfg in candidates:
+                for cfg in feasible:
                     try:
                         med_ms = self._bench_config(
                             cfg,
@@ -635,6 +655,7 @@ class Autotuner:
                             kwargs,
                             named_args,
                             saved_buffers=saved_buffers,
+                            skip_pso_check=True,
                         )
                     except (_PSOInfeasibleError, RuntimeError, Exception) as exc:
                         last_err = exc
@@ -669,9 +690,7 @@ class Autotuner:
             if cfg.pre_hook is not None:
                 cfg.pre_hook(named_args)
             for name in self.reset_to_zero:
-                buf = named_args.get(name)
-                if buf is not None and hasattr(buf, "zero_"):
-                    buf.zero_()
+                _zero_buffer(named_args.get(name))
         cfg_kwargs = cfg.all_kwargs()
         merged = dict(kwargs)
         merged.update(cfg_kwargs)

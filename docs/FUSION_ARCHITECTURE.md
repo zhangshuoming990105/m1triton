@@ -12,23 +12,28 @@ flowchart TD
     FX["PyTorch nn.Module / torch.compile FX Graph"] --> Part["FX Fusion Partitioner (compile_backend.py)"]
     JIT["@m1triton.jit / @m1triton.autotune + tlx.*"] --> IR["C++20 SSA + Fusion IR (EpilogueDAGAttr, FusedTailAttr)"]
     Part --> IR
-    IR --> Passes["Pure C++20 Passes (AlgebraicNormFolding, EpilogueDAGFusion, TileLayout, Staging)"]
+    IR --> Passes["Pure C++20 Passes (AlgebraicNormFolding, EpilogueDAGFusion, FusionOccupancyCostModel, TileLayout, Staging)"]
     Passes --> MSL["Metal Codegen (SGMM / ConvStd / ConvT / Norm / Pool / Reduce + emit_epilogue_dag_msl)"]
-    MSL --> Runtime["MetalRuntime (command_batch() + MetalGraph Compute ICB + MTLBinaryArchive)"]
+    MSL --> Runtime["MetalRuntime (Concurrent command_batch() + MetalGraph Compute ICB + MTLBinaryArchive)"]
 ```
 
 ### 1. Register-Level Epilogue DAG Fusion (`EpilogueDAGAttr`)
 - **Ops**: 45 composable `EpilogueOpKind` steps covering constants, per-channel bias (`Add/Sub/Mul/Div/Min/MaxBias`), runtime scalars, full-tensor residuals (`Add/Sub/MulResidual`), 4 register save/reuse slots (`SaveReg`, `Add/Sub/MulSaved`), and activations (`ReLU`, `LeakyReLU`, `Sigmoid`, `Tanh`, `GELU`, `GELUTanh`, `Swish`, `Mish`, `HardSwish`, `HardSigmoid`, `HardTanh`, `ELU`, `SELU`, `Softplus`, `Softsign`, `Log`, `Exp`, `Abs`, `Neg`, `Sqrt`).
-- **IEEE-754 Safety**: `emit_epilogue_dag_msl` emits NaN-propagating `min`/`max`/`clamp` comparisons, exact `NAN`/`INFINITY` literals, `-INFINITY`-safe `HardSwish`, and 64-bit `elem_idx` addressing across SGMM (`mma2` registers & SRAM), ConvStd (Implicit-GEMM + Winograd `F(2x2)`/`F(4x4)`), ConvTranspose (`HALO`/`FUSE_SW`), Norm/Softmax, Pool, and Reduce emitters.
+- **IEEE-754 Safety**: `emit_epilogue_dag_msl` emits NaN-propagating `min`/`max`/`clamp` comparisons, exact `NAN`/`INFINITY` literals, `-INFINITY`-safe `HardSwish`, and 64-bit `elem_idx` addressing across SGMM (`mma2` registers & SRAM), ConvStd (Implicit-GEMM + Winograd `F(2x2)`/`F(4x4)`), ConvTranspose (`HALO`/`FUSE_SW` + transposed Winograd `F(2x2)`), Norm/Softmax, Pool, and Reduce emitters.
+- **Linear Expression Growth**: `msl_binary_expr` lowers floating-point `Max`/`Min` through single-evaluation `m1_fmax_nan`/`m1_fmin_nan` templates, preventing exponential expression expansion in deeply chained reduction/pooling kernels.
 - **Zero Overhead When Unused**: Emitters fall through to byte-identical v1.0 MSL when `epilogue_dag` is absent.
 
 ### 2. Producer-Consumer Tile Reduction Tails (`FusedTailAttr`)
 - **SGMM**: Fuses `RowSum`, `RowMean`, `RowMax`, `RowMin`, `RowLogSumExp`, `Pool1DMax`, and `Pool1DAvg` directly across `mma2` SIMD fragments via `simd_shuffle_xor(1/8)` and compact `BM * sg_n` SRAM staging, writing only `(M, grid_n)` or `(M, N // k)` partials.
 - **ConvStd & ConvTranspose**: Fuses `SpatialGlobalAvgPool`, `SpatialGlobalSum`, and `SpatialGlobalMax` via `simd_sum` / NaN-propagating `m1_simd_nanmax` before storing compact `(N, C_out, grid_x)` partials, eliminating multi-GB intermediate 4D/5D activations.
 
-### 3. Metal Runtime Execution Graphs (`cpp/runtime/metal_runtime.mm`)
-- **`command_batch(wait=True, sync_mps=True)`**: Encodes sequential M1Triton dispatches onto a single `MTLCommandBuffer` with one optional MPS sync at entry and one wait at exit (`1.60x` lower latency than per-kernel command buffers on 10-kernel chains `[measured]`).
-- **`MetalGraph` (Compute ICB)**: Captures static multi-kernel pipelines into Apple M1 Max Metal 3 `MTLIndirectCommandBuffer` (`MTLIndirectCommandTypeConcurrentDispatch`) with automatic RAW/WAW/WAR memory barriers (`0.0148 ms` CPU replay overhead, `5.26x` lower CPU cost than unbatched dispatches `[measured]`).
+### 3. Occupancy & SRAM Cost Modeling (`FusionOccupancyCostModelPass`)
+- Pure C++20 `TargetSpec`-driven pass (`cpp/passes/fusion_cost_model.{hpp,cpp}`) modeling Apple M1 Max 32 KB threadgroup SRAM, per-thread register pressure (including fused epilogue save-registers and transcendental overhead), PSO threadgroup limits (`<= 1024`), resident threadgroups/core (`occ_est`), and arithmetic intensity (`ai`).
+- Automatically clamps infeasible `num_simdgroups`, disables double buffering or halves tile dimensions along SGMM-aligned boundaries (`bk % 8 == 0`, `bm/bn % 32 == 0`) to stay within 32 KB SRAM, and exposes live cost metrics via `m1triton-opt --stats`.
 
-### 4. Production `@m1triton.autotune` & `@m1triton.heuristics`
-- Maps Triton `Config(..., num_warps=...)` to Apple M1 Max `num_simdgroups` (`32` threads/SG), pre-prunes configs exceeding `32 KB` SRAM or live `[pso maxTotalThreadsPerThreadgroup]`, benchmarks using native `MTLCommandBuffer` GPU timestamps with `reset_to_zero`/`restore_value`, and persists winners atomically under `~/.cache/m1triton/autotune/` (`M1TRITON_CACHE_DIR`).
+### 4. Metal Runtime Execution Graphs (`cpp/runtime/metal_runtime.mm`)
+- **Concurrent `command_batch(wait=True, sync_mps=True)`**: Encodes M1Triton dispatches onto a single `MTLCommandBuffer` using `MTLDispatchTypeConcurrent` with automatic `buffers_overlap` RAW/WAW/WAR `[enc memoryBarrierWithScope:MTLBarrierScopeBuffers]` insertion (including strided MPS byte-span calculation and overlapping CPU slice flushing), letting independent branches (such as FlashAttention-2 backward `BwdDKDV || BwdDQ`) overlap on the GPU (`1.60x` lower latency on 10-kernel serial chains `[measured]`).
+- **`MetalGraph` (Compute ICB)**: Captures static multi-kernel pipelines into Apple M1 Max Metal 3 `MTLIndirectCommandBuffer` (`MTLIndirectCommandTypeConcurrentDispatch`) with automatic dependency range barriers (`0.0148 ms` CPU replay overhead, `5.26x` lower CPU submit cost than unbatched dispatches; **`1.471x`** faster wall-clock than concurrent `command_batch()` on `L3-02`'s 3-kernel backward: `0.921 ms` wall / `0.646 ms` GPU vs. `1.354 ms` wall / `0.874 ms` GPU `[measured]`).
+
+### 5. Production `@m1triton.autotune` & `@m1triton.heuristics`
+- Maps Triton `Config(..., num_warps=...)` to Apple M1 Max `num_simdgroups` (`32` threads/SG), pre-compiles and PSO-prunes all candidate configs before benchmarking (eliminating Apple Silicon GPU DVFS idle-clock bias during MSL compile pauses), benchmarks using native `MTLCommandBuffer` GPU timestamps with `reset_to_zero`/`restore_value`, and persists winners atomically under `~/.cache/m1triton/autotune/` (`M1TRITON_CACHE_DIR`).
