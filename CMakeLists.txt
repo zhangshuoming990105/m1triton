@@ -35,6 +35,7 @@ add_library(m1triton_passes STATIC
   cpp/passes/epilogue_dag_fusion.cpp
   cpp/passes/epilogue_fusion.cpp
   cpp/passes/flash_attn_lowering.cpp
+  cpp/passes/fusion_cost_model.cpp
   cpp/passes/licm.cpp
   cpp/passes/loss_lowering.cpp
   cpp/passes/online_softmax_welford.cpp

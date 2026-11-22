@@ -1,4 +1,5 @@
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -19,6 +20,7 @@
 #include "passes/epilogue_dag_fusion.hpp"
 #include "passes/epilogue_fusion.hpp"
 #include "passes/flash_attn_lowering.hpp"
+#include "passes/fusion_cost_model.hpp"
 #include "passes/licm.hpp"
 #include "passes/loss_lowering.hpp"
 #include "passes/online_softmax_welford.hpp"
@@ -70,6 +72,8 @@ bool append_named_pass(PassList& passes, const std::string& name) {
     passes.push_back(std::make_unique<LossLoweringPass>());
   } else if (name == "flash-attn-lowering") {
     passes.push_back(std::make_unique<FlashAttentionLoweringPass>());
+  } else if (name == "fusion-cost-model") {
+    passes.push_back(std::make_unique<FusionOccupancyCostModelPass>());
   } else if (name == "contiguity") {
     passes.push_back(std::make_unique<ContiguityAndAlignmentAnalysis>());
   } else if (name == "tile-layout") {
@@ -101,6 +105,7 @@ PassList build_standard_pass_list(m1triton::passes::SgmmSchedulePolicy sgmm_poli
   passes.push_back(std::make_unique<ConvLoweringPass>());
   passes.push_back(std::make_unique<LossLoweringPass>());
   passes.push_back(std::make_unique<FlashAttentionLoweringPass>());
+  passes.push_back(std::make_unique<FusionOccupancyCostModelPass>());
   passes.push_back(std::make_unique<ContiguityAndAlignmentAnalysis>());
   passes.push_back(std::make_unique<TileAndLayoutAssignmentPass>(sgmm_policy));
   passes.push_back(std::make_unique<ThreadgroupStagingAndSwizzlePass>());
@@ -121,17 +126,26 @@ size_t count_active_ops(const m1triton::ir::Kernel& k) {
 
 void print_kernel_stats(
     const m1triton::ir::Kernel& k,
+    const m1triton::ir::TargetSpec& target,
     const m1triton::codegen::metal::LaunchSpec* launch_spec) {
-  std::cerr << "[stats] kernel=@" << k.name
-            << " ops=" << count_active_ops(k)
-            << " blocks=" << k.blocks.size()
-            << " params=" << k.params.size();
+  const auto cost = m1triton::passes::FusionOccupancyCostModelPass::analyze(k, target);
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(2);
+  oss << "[stats] kernel=@" << k.name
+      << " ops=" << count_active_ops(k)
+      << " blocks=" << k.blocks.size()
+      << " params=" << k.params.size()
+      << " sram_est=" << cost.estimated_sram_bytes
+      << " regs_est=" << cost.estimated_registers_per_thread
+      << " occ_est=" << cost.estimated_occupancy
+      << " fused_ops=" << cost.fused_epilogue_ops
+      << " ai=" << cost.arithmetic_intensity;
   if (launch_spec != nullptr) {
-    std::cerr << " tg=(" << launch_spec->tg_x << "," << launch_spec->tg_y << "," << launch_spec->tg_z << ")"
-              << " smem=" << launch_spec->threadgroup_mem_bytes
-              << " vec=" << launch_spec->vec_width;
+    oss << " tg=(" << launch_spec->tg_x << "," << launch_spec->tg_y << "," << launch_spec->tg_z << ")"
+        << " smem=" << launch_spec->threadgroup_mem_bytes
+        << " vec=" << launch_spec->vec_width;
   }
-  std::cerr << "\n";
+  std::cerr << oss.str() << "\n";
 }
 
 m1triton::passes::PassResult run_passes_with_hooks(
@@ -184,8 +198,9 @@ m1triton::passes::PassResult run_passes_with_hooks(
 
 void print_usage() {
   std::cerr << "Usage: m1triton-opt [input.ir|-] "
-               "[--passes=m1|m2|canonicalize,cse,licm,epilogue-fusion,structure-pruning,"
-               "online-softmax-welford,pool-lowering,conv-lowering,loss-lowering,flash-attn-lowering,"
+               "[--passes=m1|m2|canonicalize,cse,licm,epilogue-fusion,epilogue-dag-fusion,"
+               "algebraic-norm-fold,structure-pruning,online-softmax-welford,pool-lowering,"
+               "conv-lowering,loss-lowering,flash-attn-lowering,fusion-cost-model,"
                "contiguity,tile-layout,threadgroup-staging,simdgroup-matmul,dce] "
                "[--dump-ir-before-all] [--dump-ir-after-all|--dump-after-each] [--stats] "
                "[--emit-msl] [--no-verify]\n";
@@ -292,7 +307,7 @@ int main(int argc, char** argv) {
         return 1;
       }
       if (show_stats) {
-        print_kernel_stats(*k, &compiled.launch_spec);
+        print_kernel_stats(*k, target, &compiled.launch_spec);
       }
       std::cout << "// LaunchSpec: tg=(" << compiled.launch_spec.tg_x << "," << compiled.launch_spec.tg_y << ","
                 << compiled.launch_spec.tg_z << ") vec=" << compiled.launch_spec.vec_width
@@ -302,7 +317,7 @@ int main(int argc, char** argv) {
   } else {
     if (show_stats) {
       for (const auto& k : parsed.module->kernels) {
-        print_kernel_stats(*k, nullptr);
+        print_kernel_stats(*k, target, nullptr);
       }
     }
     std::cout << m1triton::ir::IRPrinter::print(*parsed.module);
