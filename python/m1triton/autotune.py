@@ -331,6 +331,11 @@ class Autotuner:
         self.best_config: Config | None = None
         self.bench_count: int = 0
         self.disk_cache_hits: int = 0
+        self._default_named: dict[str, Any] = {
+            name: param.default
+            for name, param in self._jit_fn._sig.parameters.items()
+            if param.default is not inspect.Parameter.empty
+        }
         self.__name__ = fn.__name__
         self.__doc__ = fn.__doc__
 
@@ -347,13 +352,11 @@ class Autotuner:
         )
 
     def _named_args(self, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
-        named: dict[str, Any] = {}
-        for name, param in self._jit_fn._sig.parameters.items():
-            if param.default is not inspect.Parameter.empty:
-                named[name] = param.default
+        named = dict(self._default_named)
         for name, val in zip(self._param_names, args):
             named[name] = val
-        named.update(kwargs)
+        if kwargs:
+            named.update(kwargs)
         return named
 
     def _infer_elem_bytes(self, args: Sequence[Any], kwargs: dict[str, Any]) -> int:
@@ -368,9 +371,9 @@ class Autotuner:
     def _build_cache_key(self, named_args: dict[str, Any]) -> tuple[Any, ...]:
         key_vals = tuple(named_args.get(k) for k in self.key)
         dtype_tags = tuple(
-            (k, str(v.dtype))
-            for k, v in sorted(named_args.items())
-            if _is_buffer_arg(v)
+            (name, v.dtype)
+            for name in self._param_names
+            if (v := named_args.get(name)) is not None and _is_buffer_arg(v)
         )
         return (key_vals, dtype_tags)
 
@@ -585,8 +588,11 @@ class Autotuner:
         grid: Any,
         args: Sequence[Any],
         kwargs: dict[str, Any],
+        *,
+        named_args: dict[str, Any] | None = None,
     ) -> tuple[Config, bool]:
-        named_args = self._named_args(args, kwargs)
+        if named_args is None:
+            named_args = self._named_args(args, kwargs)
         ckey = self._build_cache_key(named_args)
         cached = self.cache.get(ckey)
         if cached is not None:
@@ -658,7 +664,7 @@ class Autotuner:
 
     def _run(self, grid: Any, args: Sequence[Any], kwargs: dict[str, Any]) -> CompiledKernel:
         named_args = self._named_args(args, kwargs)
-        cfg, ran_tuning = self._select_config_with_status(grid, args, kwargs)
+        cfg, ran_tuning = self._select_config_with_status(grid, args, kwargs, named_args=named_args)
         if ran_tuning:
             if cfg.pre_hook is not None:
                 cfg.pre_hook(named_args)

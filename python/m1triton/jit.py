@@ -60,24 +60,32 @@ def _is_ptr_16b_aligned(val: Any) -> bool:
     return False
 
 
+_DTYPE_OBJ_CACHE: dict[Any, tl.dtype] = {}
+_DTYPE_NAME_MAP: dict[str, tl.dtype] = {
+    "float32": tl.float32,
+    "float": tl.float32,
+    "float16": tl.float16,
+    "half": tl.float16,
+    "int32": tl.int32,
+    "uint32": tl.uint32,
+    "int64": tl.int64,
+    "bool": tl.bool_,
+    "bool_": tl.bool_,
+}
+
+
 def _dtype_from_tensor_or_scalar_dtype(dtype_obj: Any) -> tl.dtype:
+    cached = _DTYPE_OBJ_CACHE.get(dtype_obj)
+    if cached is not None:
+        return cached
     name = str(dtype_obj)
     if "." in name:
         name = name.split(".")[-1]
-    mapping = {
-        "float32": tl.float32,
-        "float": tl.float32,
-        "float16": tl.float16,
-        "half": tl.float16,
-        "int32": tl.int32,
-        "uint32": tl.uint32,
-        "int64": tl.int64,
-        "bool": tl.bool_,
-        "bool_": tl.bool_,
-    }
-    if name not in mapping:
+    res = _DTYPE_NAME_MAP.get(name)
+    if res is None:
         raise TypeError(f"Unsupported tensor/scalar dtype for M1Triton kernel: {dtype_obj!r}")
-    return mapping[name]
+    _DTYPE_OBJ_CACHE[dtype_obj] = res
+    return res
 
 
 def _infer_scalar_dtype(val: Any, annotation: Any = None) -> tl.dtype:
@@ -104,15 +112,18 @@ def _freeze_constexpr(val: Any) -> Any:
     return repr(val)
 
 
-def _is_constexpr_param(param: inspect.Parameter, value: Any) -> bool:
-    if isinstance(value, tl.constexpr):
-        return True
-    ann = param.annotation
+def _is_constexpr_annotation(ann: Any) -> bool:
     if ann is tl.constexpr:
         return True
     if isinstance(ann, str) and ann.strip().split(".")[-1] == "constexpr":
         return True
     return False
+
+
+def _is_constexpr_param(param: inspect.Parameter, value: Any) -> bool:
+    if isinstance(value, tl.constexpr):
+        return True
+    return _is_constexpr_annotation(param.annotation)
 
 
 def _pack_scalar_arg(value: Any, index: int, ir_dtype: _C.ir.ScalarDType) -> _C.ScalarArg:
@@ -205,6 +216,23 @@ class JITFunction:
         self._sig = inspect.signature(fn)
         self._param_names = tuple(self._sig.parameters.keys())
         self._param_name_set = frozenset(self._param_names)
+        self._param_defs = tuple(
+            (
+                name,
+                param.default is not inspect.Parameter.empty,
+                param.default,
+                _is_constexpr_annotation(param.annotation),
+                param.annotation,
+                param.kind,
+            )
+            for name, param in self._sig.parameters.items()
+        )
+        self._simple_sig = all(
+            kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+            for _, _, _, _, _, kind in self._param_defs
+        )
+        self._param_index = {name: i for i, name in enumerate(self._param_names)}
+        self._num_params = len(self._param_names)
         self._func_def, self._source = parse_kernel_ast(fn)
         self._source_hash = hashlib.sha256(self._source.encode("utf-8")).hexdigest()
         self._fn_id = f"{self.__module__}.{self.__qualname__}@{id(fn)}"
@@ -235,68 +263,98 @@ class JITFunction:
                 kernel_kwargs[k] = v
         return kernel_kwargs, launch_opts
 
+    def _bind_fast(self, args: Sequence[Any], kernel_kwargs: dict[str, Any]) -> list[Any]:
+        if self._simple_sig and len(args) <= self._num_params:
+            vals: list[Any] = [inspect.Parameter.empty] * self._num_params
+            for i, v in enumerate(args):
+                vals[i] = v
+            ok = True
+            for k, v in kernel_kwargs.items():
+                idx = self._param_index.get(k)
+                if idx is None or vals[idx] is not inspect.Parameter.empty:
+                    ok = False
+                    break
+                vals[idx] = v
+            if ok:
+                for i, (_, has_def, def_val, _, _, _) in enumerate(self._param_defs):
+                    if vals[i] is inspect.Parameter.empty:
+                        if has_def:
+                            vals[i] = def_val
+                        else:
+                            ok = False
+                            break
+            if ok:
+                return vals
+        bound = self._sig.bind(*args, **kernel_kwargs)
+        bound.apply_defaults()
+        return [bound.arguments[name] for name in self._param_names]
+
     def _prepare_specialization(
         self,
         args: Sequence[Any],
         kernel_kwargs: dict[str, Any],
         launch_opts: dict[str, Any],
+        *,
+        build_specs: bool = True,
     ) -> tuple[
         tuple[Any, ...],
-        list[ParamSpec],
+        list[ParamSpec] | None,
         dict[str, Any],
         dict[str, Any],
         bool,
     ]:
-        bound = self._sig.bind(*args, **kernel_kwargs)
-        bound.apply_defaults()
+        bound_vals = self._bind_fast(args, kernel_kwargs)
 
-        param_specs: list[ParamSpec] = []
+        param_specs: list[ParamSpec] | None = [] if build_specs else None
         constexpr_map: dict[str, Any] = {}
         runtime_by_name: dict[str, Any] = {}
-        arg_dtypes: list[tuple[str, str]] = []
+        constexpr_key_parts: list[Any] = []
+        arg_dtypes: list[Any] = []
         ptr_aligned_flags: list[bool] = []
 
-        for name, param in self._sig.parameters.items():
-            val = bound.arguments[name]
-            if _is_constexpr_param(param, val):
+        for val, (name, _, _, is_ce_ann, ann, _) in zip(bound_vals, self._param_defs):
+            if is_ce_ann or isinstance(val, tl.constexpr):
                 cval = val.value if isinstance(val, tl.constexpr) else val
                 constexpr_map[name] = cval
-                param_specs.append(ParamSpec(name=name, is_constexpr=True, constexpr_val=cval))
+                constexpr_key_parts.append((name, _freeze_constexpr(cval)))
+                if param_specs is not None:
+                    param_specs.append(ParamSpec(name=name, is_constexpr=True, constexpr_val=cval))
             elif _is_buffer_arg(val):
                 dt = _dtype_from_tensor_or_scalar_dtype(val.dtype)
                 aligned = _is_ptr_16b_aligned(val)
                 ptr_aligned_flags.append(aligned)
-                arg_dtypes.append((name, f"ptr:{dt.name}"))
+                arg_dtypes.append((True, dt.name))
                 runtime_by_name[name] = val
-                param_specs.append(
-                    ParamSpec(
-                        name=name,
-                        is_constexpr=False,
-                        is_pointer=True,
-                        dtype=dt,
-                        divisibility=16 if aligned else 1,
+                if param_specs is not None:
+                    param_specs.append(
+                        ParamSpec(
+                            name=name,
+                            is_constexpr=False,
+                            is_pointer=True,
+                            dtype=dt,
+                            divisibility=16 if aligned else 1,
+                        )
                     )
-                )
             else:
-                dt = _infer_scalar_dtype(val, param.annotation)
-                arg_dtypes.append((name, f"scalar:{dt.name}"))
+                dt = _infer_scalar_dtype(val, ann)
+                arg_dtypes.append((False, dt.name))
                 runtime_by_name[name] = val
-                param_specs.append(
-                    ParamSpec(
-                        name=name,
-                        is_constexpr=False,
-                        is_pointer=False,
-                        dtype=dt,
-                        divisibility=1,
+                if param_specs is not None:
+                    param_specs.append(
+                        ParamSpec(
+                            name=name,
+                            is_constexpr=False,
+                            is_pointer=False,
+                            dtype=dt,
+                            divisibility=1,
+                        )
                     )
-                )
 
         effective_fast_math = bool(launch_opts.get("fast_math", self.fast_math))
-        sorted_constexprs = tuple(sorted((k, _freeze_constexpr(v)) for k, v in constexpr_map.items()))
         cache_key = (
             self._fn_id,
             self._source_hash,
-            sorted_constexprs,
+            tuple(constexpr_key_parts),
             tuple(arg_dtypes),
             tuple(ptr_aligned_flags),
             effective_fast_math,
@@ -432,27 +490,31 @@ class JITFunction:
         kernel_kwargs, launch_opts = self._split_launch_kwargs(kwargs)
         (
             cache_key,
-            param_specs,
+            _,
             runtime_by_name,
             constexpr_map,
             fast_math,
-        ) = self._prepare_specialization(args, kernel_kwargs, launch_opts)
+        ) = self._prepare_specialization(args, kernel_kwargs, launch_opts, build_specs=False)
 
+        compiled = self._cache.get(cache_key)
         dump_ir = bool(launch_opts.get("dump_ir", self.dump_ir or _env_flag("M1TRITON_DUMP_IR")))
         dump_msl = bool(launch_opts.get("dump_msl", self.dump_msl or _env_flag("M1TRITON_DUMP_MSL")))
-        verify_ir = bool(launch_opts.get("verify_ir", self.verify_ir))
+        if compiled is None or compiled.kernel_id == 0 or dump_ir or dump_msl:
+            _, param_specs, _, _, _ = self._prepare_specialization(args, kernel_kwargs, launch_opts, build_specs=True)
+            assert param_specs is not None
+            verify_ir = bool(launch_opts.get("verify_ir", self.verify_ir))
+            compiled = self._compile_specialized(
+                cache_key,
+                param_specs,
+                fast_math,
+                dump_ir=dump_ir,
+                dump_msl=dump_msl,
+                verify_ir=verify_ir,
+                compile_metal=True,
+            )
+
         wait = bool(launch_opts.get("wait", False))
         sync_mps = bool(launch_opts.get("sync_mps", True))
-
-        compiled = self._compile_specialized(
-            cache_key,
-            param_specs,
-            fast_math,
-            dump_ir=dump_ir,
-            dump_msl=dump_msl,
-            verify_ir=verify_ir,
-            compile_metal=True,
-        )
 
         grid_3d = _normalize_grid(grid, constexpr_map)
         if grid_3d[0] <= 0 or grid_3d[1] <= 0 or grid_3d[2] <= 0:

@@ -60,28 +60,35 @@ def flash_attn2_delta_kernel(
     do_ptr,
     o_ptr,
     delta_ptr,
+    N_ROWS,
     D,
     BLOCK_D: tl.constexpr,
+    ROWS_PER_TG: tl.constexpr = 4,
 ):
-    row = tl.program_id(0).to(tl.int64)
+    tlx.vec_width(4)
+    pid = tl.program_id(0).to(tl.int64)
+    n_i64 = N_ROWS.to(tl.int64)
     d_i64 = D.to(tl.int64)
-    row_base = row * d_i64
     ar = tl.arange(0, BLOCK_D)
-    acc = tl.zeros((BLOCK_D,), dtype=tl.float32)
-    for k in range(0, D, BLOCK_D):
-        k_offs = k + ar
-        mask = k_offs < D
-        do_v = tl.load(do_ptr + row_base + k_offs.to(tl.int64), mask=mask, other=0.0)
-        o_v = tl.load(o_ptr + row_base + k_offs.to(tl.int64), mask=mask, other=0.0)
-        acc = acc + do_v * o_v
-    tl.store(delta_ptr + row, tl.sum(acc, axis=0))
+    for r in tl.static_range(0, ROWS_PER_TG):
+        row = pid * ROWS_PER_TG + r
+        if row < n_i64:
+            row_base = row * d_i64
+            acc = tl.zeros((BLOCK_D,), dtype=tl.float32)
+            for k in range(0, D, BLOCK_D):
+                k_offs = k + ar
+                mask = k_offs < D
+                do_v = tl.load(do_ptr + row_base + k_offs.to(tl.int64), mask=mask, other=0.0)
+                o_v = tl.load(o_ptr + row_base + k_offs.to(tl.int64), mask=mask, other=0.0)
+                acc = acc + do_v * o_v
+            tl.store(delta_ptr + row, tl.sum(acc, axis=0))
 
 
 @m1triton.autotune(
     configs=[
+        m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "NUM_SG": 8}, num_warps=8),
         m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
         m1triton.Config({"BLOCK_M": 16, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
-        m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "NUM_SG": 8}, num_warps=8),
         m1triton.Config({"BLOCK_M": 16, "BLOCK_N": 64, "NUM_SG": 8}, num_warps=8),
     ],
     key=["BH", "L_q", "L_kv", "D", "CAUSAL"],
@@ -129,9 +136,8 @@ def flash_attn2_bwd_dkdv_kernel(
 @m1triton.autotune(
     configs=[
         m1triton.Config({"BLOCK_M": 64, "BLOCK_N": 32, "NUM_SG": 8}, num_warps=8),
-        m1triton.Config({"BLOCK_M": 64, "BLOCK_N": 16, "NUM_SG": 8}, num_warps=8),
-        m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
         m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 16, "NUM_SG": 4}, num_warps=4),
+        m1triton.Config({"BLOCK_M": 32, "BLOCK_N": 32, "NUM_SG": 4}, num_warps=4),
     ],
     key=["BH", "L_q", "L_kv", "D", "CAUSAL"],
     warmup=4,
@@ -231,7 +237,9 @@ class _FlashAttention2Function(torch.autograd.Function):
         dv = torch.empty((b, h, l_kv, d), device=v_c.device, dtype=v_c.dtype)
 
         block_d = 64 if d <= 64 else 128
-        grid_delta = (bh * l_q, 1, 1)
+        n_rows = bh * l_q
+        rows_per_tg = 4
+        grid_delta = (m1triton.cdiv(n_rows, rows_per_tg), 1, 1)
         grid_dkdv = lambda meta: (m1triton.cdiv(l_kv, meta["BLOCK_N"]), bh, 1)
         grid_dq = lambda meta: (m1triton.cdiv(l_q, meta["BLOCK_M"]), bh, 1)
 
@@ -241,13 +249,17 @@ class _FlashAttention2Function(torch.autograd.Function):
 
         bwd_key = (bh, l_q, l_kv, d, bool(is_causal))
         if bwd_key not in _TUNED_BWD_KEYS:
-            flash_attn2_delta_kernel[grid_delta](do_c, out, delta, d, BLOCK_D=block_d, wait=True, sync_mps=True)
+            flash_attn2_delta_kernel[grid_delta](
+                do_c, out, delta, n_rows, d, BLOCK_D=block_d, ROWS_PER_TG=rows_per_tg, wait=True, sync_mps=True
+            )
             flash_attn2_bwd_dkdv_kernel._select_config(grid_dkdv, dkdv_args, dict(bwd_kw))
             flash_attn2_bwd_dq_kernel._select_config(grid_dq, dq_args, dict(bwd_kw))
             _TUNED_BWD_KEYS.add(bwd_key)
 
         with rt.command_batch(wait=True, sync_mps=True):
-            flash_attn2_delta_kernel[grid_delta](do_c, out, delta, d, BLOCK_D=block_d, wait=False, sync_mps=False)
+            flash_attn2_delta_kernel[grid_delta](
+                do_c, out, delta, n_rows, d, BLOCK_D=block_d, ROWS_PER_TG=rows_per_tg, wait=False, sync_mps=False
+            )
             flash_attn2_bwd_dkdv_kernel[grid_dkdv](*dkdv_args, **bwd_kw, wait=False, sync_mps=False)
             flash_attn2_bwd_dq_kernel[grid_dq](*dq_args, **bwd_kw, wait=False, sync_mps=False)
 

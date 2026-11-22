@@ -1673,6 +1673,9 @@ class FlashAttnWriter {
     os_ << "  device " << plan_.elem_type << "* m1_dKb = " << plan_.dk_name << " + m1_bh * (m1_Lkv * m1_D);\n";
     os_ << "  device " << plan_.elem_type << "* m1_dVb = " << plan_.dv_name << " + m1_bh * (m1_Lkv * m1_D);\n";
     os_ << "  const float m1_scale = " << format_float_literal(plan_.attr.scale) << ";\n";
+    os_ << "  const float m1_scale_log2 = "
+        << format_float_literal(static_cast<double>(plan_.attr.scale) * 1.44269504088896340736) << ";\n";
+    os_ << "  (void)m1_scale_log2;\n";
     if (plan_.attr.softcap > 0.0f) {
       os_ << "  const float m1_softcap = " << format_float_literal(plan_.attr.softcap) << ";\n";
       os_ << "  const float m1_inv_softcap = " << format_float_literal(1.0 / static_cast<double>(plan_.attr.softcap))
@@ -1702,8 +1705,8 @@ class FlashAttnWriter {
   }
 
   void emit_shm_bwd_dkdv_step(uint32_t n_tiles, uint32_t m_tiles, const std::string& q_shm, const std::string& do_shm,
-                              const std::string& l_shm, const std::string& delta_shm, bool unmasked_fast,
-                              const std::string& ind) {
+                              const std::string& l_shm, const std::string& delta_shm, const std::string& q_base_expr,
+                              bool unmasked_fast, const std::string& ind) {
     constexpr uint32_t kLd = 68u;
     constexpr uint32_t kDt = 8u;
     for (uint32_t ni = 0; ni < n_tiles; ++ni) {
@@ -1715,9 +1718,8 @@ class FlashAttnWriter {
       }
     }
     os_ << ind << "{\n";
-    os_ << ind << "  simdgroup_float8x8 qt_cur, dot_cur, qt_nxt, dot_nxt;\n";
+    os_ << ind << "  simdgroup_float8x8 qt_cur, qt_nxt;\n";
     os_ << ind << "  simdgroup_load(qt_cur, " << q_shm << ", " << kLd << ", ulong2(0, 0), true);\n";
-    os_ << ind << "  simdgroup_load(dot_cur, " << do_shm << ", " << kLd << ", ulong2(0, 0), true);\n";
     for (uint32_t di = 0; di < kDt; ++di) {
       for (uint32_t mi = 0; mi < m_tiles; ++mi) {
         const uint32_t next_mi = (mi + 1u < m_tiles) ? (mi + 1u) : 0u;
@@ -1725,17 +1727,35 @@ class FlashAttnWriter {
         if (next_di < kDt) {
           os_ << ind << "  simdgroup_load(qt_nxt, " << q_shm << " + " << (next_mi * 8u * kLd + next_di * 8u) << "u, "
               << kLd << ", ulong2(0, 0), true);\n";
-          os_ << ind << "  simdgroup_load(dot_nxt, " << do_shm << " + " << (next_mi * 8u * kLd + next_di * 8u) << "u, "
-              << kLd << ", ulong2(0, 0), true);\n";
         }
         for (uint32_t ni = 0; ni < n_tiles; ++ni) {
           os_ << ind << "  simdgroup_multiply_accumulate(st_" << ni << "_" << mi << ", k_" << ni << "_" << di
               << ", qt_cur, st_" << ni << "_" << mi << ");\n";
+        }
+        if (next_di < kDt) {
+          os_ << ind << "  qt_cur = qt_nxt;\n";
+        }
+      }
+    }
+    os_ << ind << "}\n";
+
+    os_ << ind << "{\n";
+    os_ << ind << "  simdgroup_float8x8 dot_cur, dot_nxt;\n";
+    os_ << ind << "  simdgroup_load(dot_cur, " << do_shm << ", " << kLd << ", ulong2(0, 0), true);\n";
+    for (uint32_t di = 0; di < kDt; ++di) {
+      for (uint32_t mi = 0; mi < m_tiles; ++mi) {
+        const uint32_t next_mi = (mi + 1u < m_tiles) ? (mi + 1u) : 0u;
+        const uint32_t next_di = (mi + 1u < m_tiles) ? di : (di + 1u);
+        if (next_di < kDt) {
+          os_ << ind << "  simdgroup_load(dot_nxt, " << do_shm << " + " << (next_mi * 8u * kLd + next_di * 8u) << "u, "
+              << kLd << ", ulong2(0, 0), true);\n";
+        }
+        for (uint32_t ni = 0; ni < n_tiles; ++ni) {
           os_ << ind << "  simdgroup_multiply_accumulate(dpt_" << ni << "_" << mi << ", v_" << ni << "_" << di
               << ", dot_cur, dpt_" << ni << "_" << mi << ");\n";
         }
         if (next_di < kDt) {
-          os_ << ind << "  qt_cur = qt_nxt; dot_cur = dot_nxt;\n";
+          os_ << ind << "  dot_cur = dot_nxt;\n";
         }
       }
     }
@@ -1753,8 +1773,8 @@ class FlashAttnWriter {
         os_ << ind << "    thread float2& dpv = reinterpret_cast<thread float2&>(dpt_" << ni << "_" << mi
             << ".thread_elements());\n";
         if (unmasked_fast) {
-          os_ << ind << "    float2 sc = sv * m1_scale;\n";
           if (plan_.attr.softcap > 0.0f) {
+            os_ << ind << "    float2 sc = sv * m1_scale;\n";
             os_ << ind << "    const float2 tv = float2(m1_tanh(sc.x * m1_inv_softcap), m1_tanh(sc.y * m1_inv_softcap));\n";
             os_ << ind << "    sc = m1_softcap * tv;\n";
             os_ << ind << "    const float2 deriv = 1.0f - tv * tv;\n";
@@ -1762,12 +1782,12 @@ class FlashAttnWriter {
             os_ << ind << "    sv = pv;\n";
             os_ << ind << "    dpv = pv * (dpv - dv) * deriv * m1_scale;\n";
           } else {
-            os_ << ind << "    const float2 pv = exp2((sc - lv) * 1.4426950408889634f);\n";
+            os_ << ind << "    const float2 pv = exp2(fma(sv, m1_scale_log2, -lv));\n";
             os_ << ind << "    sv = pv;\n";
             os_ << ind << "    dpv = pv * (dpv - dv) * m1_scale;\n";
           }
         } else {
-          os_ << ind << "    const long q0 = m1_q0 + (long)c0;\n";
+          os_ << ind << "    const long q0 = (" << q_base_expr << ") + (long)c0;\n";
           os_ << ind << "    const long q1 = q0 + 1L;\n";
           os_ << ind << "    const long kr = m1_kr_" << ni << ";\n";
           auto emit_elem = [&](const char* comp, const char* qv) {
@@ -1781,18 +1801,19 @@ class FlashAttnWriter {
             valid += ")";
             os_ << ind << "    {\n";
             os_ << ind << "      const bool ok = " << valid << " && (lv." << comp << " > -1e29f);\n";
-            os_ << ind << "      float sc = sv." << comp << " * m1_scale;\n";
             if (plan_.attr.softcap > 0.0f) {
+              os_ << ind << "      float sc = sv." << comp << " * m1_scale;\n";
               os_ << ind << "      const float tv = m1_tanh(sc * m1_inv_softcap);\n";
               os_ << ind << "      sc = m1_softcap * tv;\n";
               os_ << ind << "      const float deriv = 1.0f - tv * tv;\n";
-            }
-            os_ << ind << "      const float pv = ok ? exp2((sc - lv." << comp << ") * 1.4426950408889634f) : 0.0f;\n";
-            os_ << ind << "      sv." << comp << " = pv;\n";
-            if (plan_.attr.softcap > 0.0f) {
+              os_ << ind << "      const float pv = ok ? exp2((sc - lv." << comp << ") * 1.4426950408889634f) : 0.0f;\n";
+              os_ << ind << "      sv." << comp << " = pv;\n";
               os_ << ind << "      dpv." << comp << " = ok ? (pv * (dpv." << comp << " - dv." << comp
                   << ") * deriv * m1_scale) : 0.0f;\n";
             } else {
+              os_ << ind << "      const float pv = ok ? exp2(fma(sv." << comp << ", m1_scale_log2, -lv." << comp
+                  << ")) : 0.0f;\n";
+              os_ << ind << "      sv." << comp << " = pv;\n";
               os_ << ind << "      dpv." << comp << " = ok ? (pv * (dpv." << comp << " - dv." << comp
                   << ") * m1_scale) : 0.0f;\n";
             }
@@ -1807,9 +1828,8 @@ class FlashAttnWriter {
     }
 
     os_ << ind << "{\n";
-    os_ << ind << "  simdgroup_float8x8 dot_cur, qt_cur, dot_nxt, qt_nxt;\n";
+    os_ << ind << "  simdgroup_float8x8 dot_cur, dot_nxt;\n";
     os_ << ind << "  simdgroup_load(dot_cur, " << do_shm << ", " << kLd << ");\n";
-    os_ << ind << "  simdgroup_load(qt_cur, " << q_shm << ", " << kLd << ");\n";
     for (uint32_t mi = 0; mi < m_tiles; ++mi) {
       for (uint32_t di = 0; di < kDt; ++di) {
         const uint32_t next_di = (di + 1u < kDt) ? (di + 1u) : 0u;
@@ -1817,17 +1837,35 @@ class FlashAttnWriter {
         if (next_mi < m_tiles) {
           os_ << ind << "  simdgroup_load(dot_nxt, " << do_shm << " + " << (next_mi * 8u * kLd + next_di * 8u) << "u, "
               << kLd << ");\n";
-          os_ << ind << "  simdgroup_load(qt_nxt, " << q_shm << " + " << (next_mi * 8u * kLd + next_di * 8u) << "u, "
-              << kLd << ");\n";
         }
         for (uint32_t ni = 0; ni < n_tiles; ++ni) {
           os_ << ind << "  simdgroup_multiply_accumulate(dv_" << ni << "_" << di << ", st_" << ni << "_" << mi
               << ", dot_cur, dv_" << ni << "_" << di << ");\n";
+        }
+        if (next_mi < m_tiles) {
+          os_ << ind << "  dot_cur = dot_nxt;\n";
+        }
+      }
+    }
+    os_ << ind << "}\n";
+
+    os_ << ind << "{\n";
+    os_ << ind << "  simdgroup_float8x8 qt_cur, qt_nxt;\n";
+    os_ << ind << "  simdgroup_load(qt_cur, " << q_shm << ", " << kLd << ");\n";
+    for (uint32_t mi = 0; mi < m_tiles; ++mi) {
+      for (uint32_t di = 0; di < kDt; ++di) {
+        const uint32_t next_di = (di + 1u < kDt) ? (di + 1u) : 0u;
+        const uint32_t next_mi = (di + 1u < kDt) ? mi : (mi + 1u);
+        if (next_mi < m_tiles) {
+          os_ << ind << "  simdgroup_load(qt_nxt, " << q_shm << " + " << (next_mi * 8u * kLd + next_di * 8u) << "u, "
+              << kLd << ");\n";
+        }
+        for (uint32_t ni = 0; ni < n_tiles; ++ni) {
           os_ << ind << "  simdgroup_multiply_accumulate(dk_" << ni << "_" << di << ", dpt_" << ni << "_" << mi
               << ", qt_cur, dk_" << ni << "_" << di << ");\n";
         }
         if (next_mi < m_tiles) {
-          os_ << ind << "  dot_cur = dot_nxt; qt_cur = qt_nxt;\n";
+          os_ << ind << "  qt_cur = qt_nxt;\n";
         }
       }
     }
@@ -1841,7 +1879,6 @@ class FlashAttnWriter {
     const uint32_t bn = plan_.bn;
     const uint32_t rows_per_sg = bn / plan_.num_sg;
     const uint32_t n_tiles = rows_per_sg / 8u;
-    const uint32_t m_tiles = q_tile / 8u;
     const std::string q_shm = "m1_shm";
     const std::string do_shm = "(m1_shm + " + std::to_string(q_tile * kLd) + "u)";
     const std::string l_shm = "(m1_shm + " + std::to_string(2u * q_tile * kLd) + "u)";
@@ -1902,23 +1939,55 @@ class FlashAttnWriter {
     emit_stage_tile_to_shm(ind + "  ", "m1_dOb", "m1_q0", "m1_Lq", do_shm, q_tile, kD, kLd);
     os_ << ind << "  if (m1_tid < " << q_tile << "u) {\n";
     os_ << ind << "    const long gq = m1_q0 + (long)m1_tid;\n";
-    os_ << ind << "    " << l_shm << "[m1_tid] = (gq < m1_Lq) ? m1_Lb[gq] : -1e30f;\n";
+    if (plan_.attr.softcap > 0.0f) {
+      os_ << ind << "    " << l_shm << "[m1_tid] = (gq < m1_Lq) ? m1_Lb[gq] : -1e30f;\n";
+    } else {
+      os_ << ind << "    const float lraw = (gq < m1_Lq) ? m1_Lb[gq] : -1e30f;\n";
+      os_ << ind << "    " << l_shm << "[m1_tid] = (lraw > -1e29f) ? (lraw * 1.4426950408889634f) : -1e30f;\n";
+    }
     os_ << ind << "    " << delta_shm << "[m1_tid] = (gq < m1_Lq) ? m1_Deltab[gq] : 0.0f;\n";
     os_ << ind << "  }\n";
     os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
     os_ << ind << "  if (m1_sg_active && m1_q0 + " << q_tile << "L > m1_sg_qs && m1_q0 < m1_sg_qe) {\n";
-    if (!plan_.attr.causal && plan_.attr.window_size < 0) {
-      os_ << ind << "    if (m1_q0 + " << q_tile << "L <= m1_Lq) {\n";
-      emit_shm_bwd_dkdv_step(n_tiles, m_tiles, q_shm, do_shm, l_shm, delta_shm, true, ind + "      ");
-      os_ << ind << "    } else {\n";
-      emit_shm_bwd_dkdv_step(n_tiles, m_tiles, q_shm, do_shm, l_shm, delta_shm, false, ind + "      ");
-      os_ << ind << "    }\n";
-    } else {
-      os_ << ind << "    if (m1_q0 >= m1_full_qs && m1_q0 + " << q_tile << "L <= m1_full_qe) {\n";
-      emit_shm_bwd_dkdv_step(n_tiles, m_tiles, q_shm, do_shm, l_shm, delta_shm, true, ind + "      ");
-      os_ << ind << "    } else {\n";
-      emit_shm_bwd_dkdv_step(n_tiles, m_tiles, q_shm, do_shm, l_shm, delta_shm, false, ind + "      ");
-      os_ << ind << "    }\n";
+    const uint32_t sub_rows = (q_tile >= 32u) ? 16u : q_tile;
+    const uint32_t sub_count = q_tile / sub_rows;
+    const uint32_t sub_m_tiles = sub_rows / 8u;
+    for (uint32_t sub = 0; sub < sub_count; ++sub) {
+      const uint32_t row_off = sub * sub_rows;
+      const std::string sub_q_shm =
+          (row_off == 0u) ? q_shm : ("(" + q_shm + " + " + std::to_string(row_off * kLd) + "u)");
+      const std::string sub_do_shm =
+          (row_off == 0u) ? do_shm : ("(" + do_shm + " + " + std::to_string(row_off * kLd) + "u)");
+      const std::string sub_l_shm =
+          (row_off == 0u) ? l_shm : ("(" + l_shm + " + " + std::to_string(row_off) + "u)");
+      const std::string sub_d_shm =
+          (row_off == 0u) ? delta_shm : ("(" + delta_shm + " + " + std::to_string(row_off) + "u)");
+      const std::string sub_q0 = (row_off == 0u) ? "m1_q0" : ("m1_q0 + " + std::to_string(row_off) + "L");
+      const std::string inner_ind = (sub_count > 1u) ? (ind + "      ") : (ind + "    ");
+      if (sub_count > 1u) {
+        os_ << ind << "    if (" << sub_q0 << " + " << sub_rows << "L > m1_sg_qs && " << sub_q0 << " < m1_sg_qe) {\n";
+      }
+      if (!plan_.attr.causal && plan_.attr.window_size < 0) {
+        os_ << inner_ind << "if (" << sub_q0 << " + " << sub_rows << "L <= m1_Lq) {\n";
+        emit_shm_bwd_dkdv_step(n_tiles, sub_m_tiles, sub_q_shm, sub_do_shm, sub_l_shm, sub_d_shm, sub_q0, true,
+                               inner_ind + "  ");
+        os_ << inner_ind << "} else {\n";
+        emit_shm_bwd_dkdv_step(n_tiles, sub_m_tiles, sub_q_shm, sub_do_shm, sub_l_shm, sub_d_shm, sub_q0, false,
+                               inner_ind + "  ");
+        os_ << inner_ind << "}\n";
+      } else {
+        os_ << inner_ind << "if (" << sub_q0 << " >= m1_full_qs && " << sub_q0 << " + " << sub_rows
+            << "L <= m1_full_qe) {\n";
+        emit_shm_bwd_dkdv_step(n_tiles, sub_m_tiles, sub_q_shm, sub_do_shm, sub_l_shm, sub_d_shm, sub_q0, true,
+                               inner_ind + "  ");
+        os_ << inner_ind << "} else {\n";
+        emit_shm_bwd_dkdv_step(n_tiles, sub_m_tiles, sub_q_shm, sub_do_shm, sub_l_shm, sub_d_shm, sub_q0, false,
+                               inner_ind + "  ");
+        os_ << inner_ind << "}\n";
+      }
+      if (sub_count > 1u) {
+        os_ << ind << "    }\n";
+      }
     }
     os_ << ind << "  }\n";
     os_ << ind << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
@@ -2057,8 +2126,14 @@ class FlashAttnWriter {
     os_ << "  const long m1_D = " << plan_.d_expr << ";\n";
     os_ << "  const long m1_bh = (long)m1_tgid.y;\n";
     os_ << "  if (m1_bh >= m1_BH) return;\n";
-    os_ << "  const long m1_q0 = (long)m1_tgid.x * " << bm << "L;\n";
-    os_ << "  if (m1_q0 >= m1_Lq) return;\n";
+    if (plan_.attr.causal) {
+      os_ << "  const long m1_num_qblk = (m1_Lq + " << (bm - 1u) << "L) / " << bm << "L;\n";
+      os_ << "  if ((long)m1_tgid.x >= m1_num_qblk) return;\n";
+      os_ << "  const long m1_q0 = (m1_num_qblk - 1L - (long)m1_tgid.x) * " << bm << "L;\n";
+    } else {
+      os_ << "  const long m1_q0 = (long)m1_tgid.x * " << bm << "L;\n";
+      os_ << "  if (m1_q0 >= m1_Lq) return;\n";
+    }
 
     os_ << "  device const " << plan_.elem_type << "* m1_Qb = " << plan_.q_name << " + m1_bh * (m1_Lq * m1_D);\n";
     os_ << "  device const " << plan_.elem_type << "* m1_Kb = " << plan_.k_name << " + m1_bh * (m1_Lkv * m1_D);\n";
@@ -2068,6 +2143,9 @@ class FlashAttnWriter {
     os_ << "  device const float* m1_Deltab = " << plan_.delta_name << " + m1_bh * m1_Lq;\n";
     os_ << "  device " << plan_.elem_type << "* m1_dQb = " << plan_.dq_name << " + m1_bh * (m1_Lq * m1_D);\n";
     os_ << "  const float m1_scale = " << format_float_literal(plan_.attr.scale) << ";\n";
+    os_ << "  const float m1_scale_log2 = "
+        << format_float_literal(static_cast<double>(plan_.attr.scale) * 1.44269504088896340736) << ";\n";
+    os_ << "  (void)m1_scale_log2;\n";
     if (plan_.attr.softcap > 0.0f) {
       os_ << "  const float m1_softcap = " << format_float_literal(plan_.attr.softcap) << ";\n";
       os_ << "  const float m1_inv_softcap = " << format_float_literal(1.0 / static_cast<double>(plan_.attr.softcap))
@@ -2109,9 +2187,8 @@ class FlashAttnWriter {
       }
     }
     os_ << ind << "{\n";
-    os_ << ind << "  simdgroup_float8x8 kt_cur, vt_cur, kt_nxt, vt_nxt;\n";
+    os_ << ind << "  simdgroup_float8x8 kt_cur, kt_nxt;\n";
     os_ << ind << "  simdgroup_load(kt_cur, " << k_shm << ", " << kLd << ", ulong2(0, 0), true);\n";
-    os_ << ind << "  simdgroup_load(vt_cur, " << v_shm << ", " << kLd << ", ulong2(0, 0), true);\n";
     for (uint32_t di = 0; di < kDt; ++di) {
       for (uint32_t nj = 0; nj < n_tiles; ++nj) {
         const uint32_t next_nj = (nj + 1u < n_tiles) ? (nj + 1u) : 0u;
@@ -2119,17 +2196,35 @@ class FlashAttnWriter {
         if (next_di < kDt) {
           os_ << ind << "  simdgroup_load(kt_nxt, " << k_shm << " + " << (next_nj * 8u * kLd + next_di * 8u) << "u, "
               << kLd << ", ulong2(0, 0), true);\n";
-          os_ << ind << "  simdgroup_load(vt_nxt, " << v_shm << " + " << (next_nj * 8u * kLd + next_di * 8u) << "u, "
-              << kLd << ", ulong2(0, 0), true);\n";
         }
         for (uint32_t mi = 0; mi < m_tiles; ++mi) {
           os_ << ind << "  simdgroup_multiply_accumulate(s_" << mi << "_" << nj << ", q_" << mi << "_" << di
               << ", kt_cur, s_" << mi << "_" << nj << ");\n";
+        }
+        if (next_di < kDt) {
+          os_ << ind << "  kt_cur = kt_nxt;\n";
+        }
+      }
+    }
+    os_ << ind << "}\n";
+
+    os_ << ind << "{\n";
+    os_ << ind << "  simdgroup_float8x8 vt_cur, vt_nxt;\n";
+    os_ << ind << "  simdgroup_load(vt_cur, " << v_shm << ", " << kLd << ", ulong2(0, 0), true);\n";
+    for (uint32_t di = 0; di < kDt; ++di) {
+      for (uint32_t nj = 0; nj < n_tiles; ++nj) {
+        const uint32_t next_nj = (nj + 1u < n_tiles) ? (nj + 1u) : 0u;
+        const uint32_t next_di = (nj + 1u < n_tiles) ? di : (di + 1u);
+        if (next_di < kDt) {
+          os_ << ind << "  simdgroup_load(vt_nxt, " << v_shm << " + " << (next_nj * 8u * kLd + next_di * 8u) << "u, "
+              << kLd << ", ulong2(0, 0), true);\n";
+        }
+        for (uint32_t mi = 0; mi < m_tiles; ++mi) {
           os_ << ind << "  simdgroup_multiply_accumulate(dp_" << mi << "_" << nj << ", do_" << mi << "_" << di
               << ", vt_cur, dp_" << mi << "_" << nj << ");\n";
         }
         if (next_di < kDt) {
-          os_ << ind << "  kt_cur = kt_nxt; vt_cur = vt_nxt;\n";
+          os_ << ind << "  vt_cur = vt_nxt;\n";
         }
       }
     }
@@ -2143,15 +2238,15 @@ class FlashAttnWriter {
         os_ << ind << "  const float2 dpv = reinterpret_cast<thread float2&>(dp_" << mi << "_" << nj
             << ".thread_elements());\n";
         if (unmasked_fast) {
-          os_ << ind << "  float2 sc = sv * m1_scale;\n";
           if (plan_.attr.softcap > 0.0f) {
+            os_ << ind << "  float2 sc = sv * m1_scale;\n";
             os_ << ind << "  const float2 tv = float2(m1_tanh(sc.x * m1_inv_softcap), m1_tanh(sc.y * m1_inv_softcap));\n";
             os_ << ind << "  sc = m1_softcap * tv;\n";
             os_ << ind << "  const float2 deriv = 1.0f - tv * tv;\n";
             os_ << ind << "  const float2 pv = exp2((sc - m1_lv_" << mi << ") * 1.4426950408889634f);\n";
             os_ << ind << "  sv = pv * (dpv - m1_dv_" << mi << ") * deriv * m1_scale;\n";
           } else {
-            os_ << ind << "  const float2 pv = exp2((sc - m1_lv_" << mi << ") * 1.4426950408889634f);\n";
+            os_ << ind << "  const float2 pv = exp2(fma(sv, m1_scale_log2, -m1_lv_log2_" << mi << "));\n";
             os_ << ind << "  sv = pv * (dpv - m1_dv_" << mi << ") * m1_scale;\n";
           }
         } else {
@@ -2166,17 +2261,17 @@ class FlashAttnWriter {
             cond += ")";
             os_ << ind << "  {\n";
             os_ << ind << "    const bool ok = " << cond << ";\n";
-            os_ << ind << "    float sc = sv." << comp << " * m1_scale;\n";
             if (plan_.attr.softcap > 0.0f) {
+              os_ << ind << "    float sc = sv." << comp << " * m1_scale;\n";
               os_ << ind << "    const float tv = m1_tanh(sc * m1_inv_softcap);\n";
               os_ << ind << "    sc = m1_softcap * tv;\n";
               os_ << ind << "    const float deriv = 1.0f - tv * tv;\n";
-            }
-            os_ << ind << "    const float pv = ok ? exp2((sc - m1_lv_" << mi << ") * 1.4426950408889634f) : 0.0f;\n";
-            if (plan_.attr.softcap > 0.0f) {
+              os_ << ind << "    const float pv = ok ? exp2((sc - m1_lv_" << mi << ") * 1.4426950408889634f) : 0.0f;\n";
               os_ << ind << "    sv." << comp << " = ok ? (pv * (dpv." << comp << " - m1_dv_" << mi
                   << ") * deriv * m1_scale) : 0.0f;\n";
             } else {
+              os_ << ind << "    const float pv = ok ? exp2(fma(sv." << comp << ", m1_scale_log2, -m1_lv_log2_" << mi
+                  << ")) : 0.0f;\n";
               os_ << ind << "    sv." << comp << " = ok ? (pv * (dpv." << comp << " - m1_dv_" << mi
                   << ") * m1_scale) : 0.0f;\n";
             }
@@ -2241,6 +2336,9 @@ class FlashAttnWriter {
       os_ << ind << "const long m1_qr_" << mi << " = m1_sg_q0 + (long)(" << (mi * 8u) << " + m1_fr);\n";
       os_ << ind << "const float m1_lv_" << mi << " = (m1_qr_" << mi << " < m1_Lq) ? m1_Lb[m1_qr_" << mi
           << "] : -1e30f;\n";
+      if (plan_.attr.softcap <= 0.0f) {
+        os_ << ind << "const float m1_lv_log2_" << mi << " = m1_lv_" << mi << " * 1.4426950408889634f;\n";
+      }
       os_ << ind << "const float m1_dv_" << mi << " = (m1_qr_" << mi << " < m1_Lq) ? m1_Deltab[m1_qr_" << mi
           << "] : 0.0f;\n";
       if (plan_.attr.causal) {

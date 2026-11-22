@@ -364,6 +364,7 @@ def conv_nd_epilogue(
     tail: str | None = None,
     tail_scale: float = 1.0,
     use_staged_4x3: bool = False,
+    transposed: bool = False,
     tile: tuple[int, int, int, int] | None = None,
     sync_mps: bool = True,
     wait: bool = True,
@@ -372,10 +373,11 @@ def conv_nd_epilogue(
     x_c = _contig(x)
     w_c = _contig(weight.detach())
     n, c_in = int(x_c.shape[0]), int(x_c.shape[1])
-    c_out = int(w_c.shape[0])
+    c_out = int(w_c.shape[1]) * int(groups) if transposed else int(w_c.shape[0])
     k = tuple(int(v) for v in w_c.shape[2:])
     s = as_tuple(stride, ndim)
-    p = as_tuple(padding, ndim)
+    p_raw = as_tuple(padding, ndim)
+    p = tuple(k[i] - 1 - p_raw[i] for i in range(ndim)) if transposed else p_raw
     d = as_tuple(dilation, ndim)
     spatial_in = [int(v) for v in x_c.shape[2:]]
     spatial_out = [conv_output_size(spatial_in[i], k[i], s[i], p[i], d[i]) for i in range(ndim)]
@@ -395,6 +397,7 @@ def conv_nd_epilogue(
         and s == (1, 1)
         and d == (1, 1)
         and groups == 1
+        and (not transposed or (p_raw[0] <= 2 and p_raw[1] <= 2))
         and x_c.dtype == torch.float32
         and w_c.dtype == torch.float32
         and (b_c is None or b_c.dtype == torch.float32)
@@ -403,7 +406,7 @@ def conv_nd_epilogue(
         and spatial_out[0] * spatial_out[1] >= 256
     )
 
-    if can_wino and use_staged_4x3 and tail is None and c_in >= 64 and c_out >= 128 and spatial_out[0] * spatial_out[1] >= 65536:
+    if can_wino and use_staged_4x3 and tail is None and 64 <= c_in <= 128 and c_out >= 128 and spatial_out[0] * spatial_out[1] >= 15000:
         h_in, w_in = spatial_in
         h_out, w_out = spatial_out
         out = torch.empty((n, c_out, h_out, w_out), dtype=x_c.dtype, device=x_c.device)
@@ -413,8 +416,8 @@ def conv_nd_epilogue(
         f_grid = (m1triton.cdiv(c_out * c_in, 256),)
         bm, bn, bk, nsg = select_wino4x3_bmm_tile(c_in, c_out)
 
-        def _pad_pld(p_raw: int) -> int:
-            pv = m1triton.cdiv(p_raw, bn) * bn
+        def _pad_pld(p_raw_val: int) -> int:
+            pv = m1triton.cdiv(p_raw_val, bn) * bn
             if (pv % 256) == 0:
                 pv += bn
             return pv
@@ -430,7 +433,7 @@ def conv_nd_epilogue(
 
         def _run_staged(do_sync: bool, do_wait: bool) -> None:
             winograd_filter_4x3_rm_kernel[f_grid](
-                w_c, u, C_in=c_in, C_out=c_out, TRANSPOSED=0, BLOCK_SIZE=256,
+                w_c, u, C_in=c_in, C_out=c_out, TRANSPOSED=1 if transposed else 0, BLOCK_SIZE=256,
                 sync_mps=do_sync, wait=False,
             )
             for r0 in range(0, total_rows, max_rows):
@@ -490,7 +493,7 @@ def conv_nd_epilogue(
         def _run_wino2x3() -> torch.Tensor:
             winograd_filter_2x3_kernel[f_grid](
                 w_c, u, C_in=c_in, C_out=c_out, C_IN_PAD=c_in_pad, C_OUT_PAD=c_out_pad,
-                TRANSPOSED=0, BLOCK_SIZE=256, sync_mps=False, wait=False,
+                TRANSPOSED=1 if transposed else 0, BLOCK_SIZE=256, sync_mps=False, wait=False,
             )
             if b_c is not None:
                 conv2d_wino2x3_bias_ep_kernel[grid](
@@ -680,6 +683,42 @@ def channel_softmax(x: torch.Tensor, *, sync_mps: bool = False, wait: bool = Fal
         return out
     block_p = 256
     channel_softmax_kernel[(m1triton.cdiv(p, block_p), n)](
+        x_c, out, p, C=c, BLOCK_P=block_p, sync_mps=sync_mps, wait=wait
+    )
+    return out
+
+
+@m1triton.jit
+def channel_min_kernel(
+    x_ptr, out_ptr, P,
+    C: tl.constexpr,
+    BLOCK_P: tl.constexpr,
+):
+    tlx.vec_width(4)
+    pid_p = tl.program_id(0).to(tl.int64)
+    n = tl.program_id(1).to(tl.int64)
+    p_i64 = P.to(tl.int64)
+    offs = pid_p * BLOCK_P + tl.arange(0, BLOCK_P).to(tl.int64)
+    mask = offs < p_i64
+    base = n * (C * p_i64) + offs
+
+    acc = tl.load(x_ptr + base, mask=mask, other=float("inf"))
+    for c in range(1, C):
+        v = tl.load(x_ptr + (base + c * p_i64), mask=mask, other=float("inf"))
+        acc = tl.minimum(acc, v)
+    tl.store(out_ptr + (n * p_i64 + offs), acc, mask=mask)
+
+
+def channel_min(x: torch.Tensor, *, sync_mps: bool = False, wait: bool = False) -> torch.Tensor:
+    x_c = _contig(x)
+    n, c = int(x_c.shape[0]), int(x_c.shape[1])
+    spatial = tuple(int(s) for s in x_c.shape[2:])
+    p = math.prod(spatial)
+    out = torch.empty((n, 1, *spatial), dtype=x_c.dtype, device=x_c.device)
+    if out.numel() == 0:
+        return out
+    block_p = 256
+    channel_min_kernel[(m1triton.cdiv(p, block_p), n)](
         x_c, out, p, C=c, BLOCK_P=block_p, sync_mps=sync_mps, wait=wait
     )
     return out

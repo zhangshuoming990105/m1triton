@@ -12,7 +12,7 @@ _DIR = str(Path(__file__).resolve().parent)
 if _DIR not in sys.path:
     sys.path.insert(0, _DIR)
 
-from _l2_conv_std_common import ConvStdL2Base, axis_min, conv_nd_epilogue, m1_rt
+from _l2_conv_std_common import ConvStdL2Base, channel_min, conv_nd_epilogue, m1_rt
 
 
 class ModelNew(ConvStdL2Base):
@@ -48,8 +48,9 @@ class ModelNew(ConvStdL2Base):
                 dilation=self.dilation,
                 groups=self.groups,
                 epilogue_steps=(("mul_const", self.scale_factor),),
+                use_staged_4x3=True,
                 sync_mps=False,
                 wait=False,
             )
-            y = axis_min(y, dim=1, keepdim=True)
+            y = channel_min(y, sync_mps=False, wait=False)
         return y
